@@ -1,0 +1,25 @@
+[project]
+name = "EDuRec"
+version = "0.1.0"
+description = "The objective of this Master's Thesis is to develop a recommendation system for e-learning based on a benchmark dataset, which will allow evaluating its performance in comparison with previous models."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "pandas>=2.2.3",
+  "surprise>=0.1",
+  "numpy<2",
+  "scikit-learn>=1.6.1",
+  "torch>=2.6.0",
+  "matplotlib>=3.10.1",
+  "torchmetrics>=1.7.1",
+  "lightning>=2.5.1.post0",
+  "openpyxl>=3.1.5",
+  "scipy>=1.15.2",
+  "scikit-posthocs>=0.11.4",
+  "pydantic>=2.11.9",
+  "typer>=0.19.2",
+]
+
+[project.scripts]
+edurec = "edurec.main:main"
+
