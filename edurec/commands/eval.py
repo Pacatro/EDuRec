@@ -31,7 +31,7 @@ app = typer.Typer(no_args_is_help=True)
 @app.command(
     help="Evaluates the performance of the proposed model and state-of-the-art models in the top-k recommendations"
 )
-def eval_model(
+def eval(
     dataset: Annotated[
         DatasetName,
         typer.Option("--dataset", "-d", help="Dataset to use"),
