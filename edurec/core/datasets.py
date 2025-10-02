@@ -82,7 +82,7 @@ def load_data(dataset_name: DatasetName) -> pd.DataFrame:
     """Load the specified dataset.
 
     Args:
-        dataset_name (Literal["mars", "itm"]): The name of the dataset to load.
+        dataset_name (DatasetName): The name of the dataset to load.
 
     Raises:
         ValueError: If the dataset name is not supported.

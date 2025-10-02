@@ -3,7 +3,7 @@ state = {"verbose": False, "dataset": {"df": None, "name": "mars"}}
 
 # Folders
 RESULTS_FOLDER: str = "results"
-OUTPUT_MODEL_PATH: str = "model.pt"
+MODELS_FOLDER: str = "saved_models"
 
 # Datasets
 BALANCE: bool = False
