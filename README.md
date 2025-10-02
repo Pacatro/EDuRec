@@ -57,7 +57,7 @@ uv run edurec train [OPTIONS]
 Train the model on the `mars` dataset for 20 epochs with a batch size of 64, and save it to `mymodel.pt`.
 
 ```bash
-uv run edurec train --dataset mars --epochs 20 --batch-size 64 --output-model mymodel.pt
+uv run edurec train --dataset mars --epochs 20 --batch-size 64
 ```
 
 ### Evaluate
@@ -73,7 +73,7 @@ The following commands are available for evaluation:
 Run a 5-fold cross-validation on the `itm` dataset.
 
 ```bash
-uv run edurec eval --dataset itm --n-splits 5
+uv run edurec eval --dataset itm --n_splits 5
 ```
 
 **`surprise-eval` Example:**
@@ -81,7 +81,7 @@ uv run edurec eval --dataset itm --n-splits 5
 Evaluate `surprise` models on the `mars` dataset for top-10 recommendations.
 
 ```bash
-uv run edurec surprise-eval --dataset mars --top-k 10
+uv run edurec surprise-eval --dataset mars --top_k 10
 ```
 
 **`stats-test` Example:**
@@ -89,7 +89,7 @@ uv run edurec surprise-eval --dataset mars --top-k 10
 Run Friedman and Nemenyi statistical tests for top-10 results.
 
 ```bash
-uv run edurec stats-test --top-k 10
+uv run edurec stats --top_k 10
 ```
 
 ### Predict
@@ -137,4 +137,3 @@ uv run edurec predict --model-path mymodel.pt --dataset mars --top-k 5
 ## License
 
 [**MIT**](https://opensource.org/license/mit) - Created by [**Paco Algar Muñoz**](https://github.com/Pacatro)
-

@@ -68,6 +68,9 @@ def eval(
     ] = config.RESULTS_FOLDER,
 ):
     df = load_data(dataset)
+    if config.state["verbose"]:
+        print(f"[EVAL] Dataset: {dataset.name} | top-{top_k} | CV type: {cv_type.name}")
+
     avg_metrics = cross_validate(
         df=df,
         model_class=NeuralHybrid,
@@ -98,7 +101,7 @@ def surprise_eval(
         DatasetName,
         typer.Option("--dataset", "-d", help="Dataset to use"),
     ] = DatasetName.mars,
-    k: Annotated[
+    top_k: Annotated[
         int, typer.Option("--top_k", "-k", help="Top-k value")
     ] = config.TOP_K,
     n_splits: Annotated[
@@ -154,7 +157,7 @@ def surprise_eval(
             algo_class=algo,
             data=data,
             n_splits=n_splits,
-            k=k,
+            k=top_k,
             cv_type=cv_type,
             threshold=float(threshold),
         )
@@ -169,7 +172,7 @@ def surprise_eval(
                 algo_class=algo,
                 data=data,
                 n_splits=n_splits,
-                k=k,
+                k=top_k,
                 cv_type=cv_type,
                 threshold=float(threshold),
                 random_state=random_state,
@@ -180,19 +183,15 @@ def surprise_eval(
         {algo: results["Mean+-Std"] for algo, results in detailed_results.items()}
     )
 
-    results_path = (
-        f"{results_folder}/surprise_{cv_type}_k={n_splits}_{dataset.value}_top-{k}.csv"
-    )
+    results_path = f"{results_folder}/surprise_{cv_type}_k={n_splits}_{dataset.value}_top-{top_k}.csv"
 
     combined_df.to_csv(results_path)
 
     print(f"Resultados guardados en {results_path}")
 
 
-@app.command(
-    "stats-test", help="Performs statistical tests to compare model performances."
-)
-def stats_test(
+@app.command("stats", help="Performs statistical tests to compare model performances.")
+def stats(
     top_k: Annotated[
         int, typer.Option("--top_k", "-k", help="Top-k value")
     ] = config.TOP_K,
