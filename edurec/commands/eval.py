@@ -29,7 +29,7 @@ app = typer.Typer(no_args_is_help=True)
 
 
 @app.command(
-    help="Evaluates the performance of the proposed model and state-of-the-art models in the top-k recommendations"
+    help="Evaluates the performance of the proposed model in the top-k recommendations"
 )
 def eval(
     dataset: Annotated[
@@ -89,18 +89,46 @@ def eval(
         print(f"Resultados guardados en {results_path}")
 
 
+@app.command(
+    "surprise-eval",
+    help="Evaluates the performance of the surprise models in the top-k recommendations",
+)
 def surprise_eval(
-    df: pd.DataFrame,
-    dataset: str,
-    k: int,
-    n_splits: int = 5,
-    target: str = "rating",
-    min_rating: int = 1,
-    max_rating: int = 10,
-    cv_type: CVType = CVType.kfold,
-    results_folder: str = "results",
-    seeds: list[int] = [42],
+    dataset: Annotated[
+        DatasetName,
+        typer.Option("--dataset", "-d", help="Dataset to use"),
+    ] = DatasetName.mars,
+    k: Annotated[
+        int, typer.Option("--top_k", "-k", help="Top-k value")
+    ] = config.TOP_K,
+    n_splits: Annotated[
+        int,
+        typer.Option("--n-splits", "-n", help="Number of splits for cross-validation."),
+    ] = config.K,
+    target: Annotated[
+        str, typer.Option("--target", "-t", help="Target column")
+    ] = "rating",
+    min_rating: Annotated[
+        int,
+        typer.Option("--min-rating", help="Minimum rating value."),
+    ] = 1,
+    max_rating: Annotated[
+        int,
+        typer.Option("--max-rating", help="Maximum rating value."),
+    ] = 10,
+    cv_type: Annotated[
+        CVType,
+        typer.Option("--cv-type", help="Cross-validation type."),
+    ] = CVType.kfold,
+    results_folder: Annotated[
+        str, typer.Option("--results-folder", help="Folder to save results.")
+    ] = "results",
+    seeds: Annotated[
+        list[int],
+        typer.Option("--seeds", help="List of random seeds for stochastic algorithms."),
+    ] = config.SEEDS,
 ):
+    df = load_data(dataset)
     reader = Reader(rating_scale=(min_rating, max_rating))
     df = preprocess_ratings(df)
     data = Dataset.load_from_df(df[["user_id", "item_id", "rating"]], reader)
@@ -153,7 +181,7 @@ def surprise_eval(
     )
 
     results_path = (
-        f"{results_folder}/surprise_{cv_type}_k={n_splits}_{dataset}_top-{k}.csv"
+        f"{results_folder}/surprise_{cv_type}_k={n_splits}_{dataset.value}_top-{k}.csv"
     )
 
     combined_df.to_csv(results_path)
@@ -161,7 +189,14 @@ def surprise_eval(
     print(f"Resultados guardados en {results_path}")
 
 
-def get_stats_tests(top_k: int, verbose: bool = False):
+@app.command(
+    "stats-test", help="Performs statistical tests to compare model performances."
+)
+def stats_test(
+    top_k: Annotated[
+        int, typer.Option("--top_k", "-k", help="Top-k value")
+    ] = config.TOP_K,
+):
     datasets = ["mars", "itm"]
     files = [
         f"./results/metrics_kfold_k=5_mars_top-{top_k}.csv",
@@ -195,7 +230,9 @@ def get_stats_tests(top_k: int, verbose: bool = False):
     stats_results = {dataset: {"p_value": 0, "stat": 0} for dataset in datasets}
 
     for dataset in datasets:
-        stat, p = friedman_test(files, models, dataset, top_k, verbose=verbose)
+        stat, p = friedman_test(
+            files, models, dataset, top_k, verbose=config.state["verbose"]
+        )
         print(f"Results for dataset {dataset} in top-{top_k} are:")
         print(f"Stat: {stat}, p: {p}")
         stats_results[dataset]["p_value"] = p
