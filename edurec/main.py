@@ -26,7 +26,9 @@ def main(
     if verbose:
         config.state["verbose"] = True
 
-    folders = [Path(config.RESULTS_FOLDER), Path(config.RESULTS_FOLDER) / "stats"]
+    results_folder = Path(config.RESULTS_FOLDER)
+
+    folders = [results_folder, results_folder / "stats"]
 
     for folder in folders:
         folder.mkdir(parents=True, exist_ok=True)
