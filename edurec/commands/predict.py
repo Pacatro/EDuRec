@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import lightning as L
 import typer
+from pathlib import Path
 
 from ..core.datamodule import ELearningDataModule
 from ..core.engine import UcoRecSys
@@ -15,13 +16,18 @@ app = typer.Typer(no_args_is_help=True)
 
 @app.command(help="Make predictions using a trained model.")
 def predict(
-    model_path: Annotated[
-        str, typer.Option("--model_path", "-m", help="Path to trained model")
-    ],
     dataset: Annotated[
         DatasetName,
         typer.Option("--dataset", "-d", help="Dataset to use"),
     ],
+    model_path: Annotated[
+        str | None,
+        typer.Option(
+            "--model_path",
+            "-m",
+            help="Path to trained model, if not provided, the most recent model will be used.",
+        ),
+    ] = None,
     target: Annotated[
         str, typer.Option("--target", "-t", help="Target column")
     ] = config.TARGET_COL,
@@ -35,6 +41,10 @@ def predict(
         bool, typer.Option("--balance", "-B", help="Balance dataset")
     ] = config.BALANCE,
 ):
+    if model_path is None:
+        model_path = get_last_model(config.MODELS_FOLDER)
+        print(f"No model path provided. Using the most recent model -> {model_path}")
+
     predict_df = pd.read_csv("./data/predict_df.csv")
 
     if config.state["verbose"]:
@@ -53,6 +63,25 @@ def predict(
     ranking = recommend(dm, top_k, model_path)
 
     print(ranking)
+
+
+def get_last_model(models_folder: str) -> str:
+    saving_models_folder = Path(models_folder)
+
+    if not saving_models_folder.exists():
+        raise FileNotFoundError(f"Models folder {saving_models_folder} does not exist")
+
+    models = [f for f in saving_models_folder.iterdir() if f.is_file()]
+
+    if len(models) == 0:
+        raise FileNotFoundError(f"No models found in {saving_models_folder}")
+
+    model_path = saving_models_folder / max(models).name
+
+    if model_path.suffix != ".pt":
+        raise ValueError(f"Model {model_path} is not a pytorch model")
+
+    return str(model_path)
 
 
 def generate_new_interactions(
@@ -123,7 +152,9 @@ def extrac_user_interactions(
     return user_interactions.sample(n=n_interactions)
 
 
-def recommend(dm: ELearningDataModule, top_k: int, model_path: str) -> pd.DataFrame:
+def recommend(
+    dm: ELearningDataModule, top_k: int, model_path: str | Path
+) -> pd.DataFrame:
     model = NeuralHybrid(
         n_users=dm.num_users,
         n_items=dm.num_items,

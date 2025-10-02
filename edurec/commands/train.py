@@ -2,7 +2,9 @@ from pathlib import Path
 from typing import Annotated
 import lightning as L
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+from lightning.pytorch.loggers import MLFlowLogger
 import typer
+from datetime import datetime
 
 from ..core import config
 from ..core.datamodule import ELearningDataModule
@@ -32,19 +34,26 @@ def train(
     top_k: Annotated[
         int, typer.Option("--top_k", "-k", help="Top-k value")
     ] = config.TOP_K,
-    output_model: Annotated[
-        str, typer.Option("--output_model", "-o", help="Output model path")
-    ] = config.OUTPUT_MODEL_PATH,
     balance: Annotated[
         bool, typer.Option("--balance", "-B", help="Balance dataset")
     ] = config.BALANCE,
-    gpu: Annotated[bool, typer.Option("--gpu", "-g", help="Use GPU")] = False,
+    use_logger: Annotated[
+        bool, typer.Option("--use_logger", "-L", help="Use MLFlow logger")
+    ] = False,
+    debug: Annotated[bool, typer.Option("--debug", "-D", help="Debug mode")] = False,
+    models_folder: Annotated[
+        str,
+        typer.Option(
+            "--models-folder", "-M", help="Folder where save the trained model."
+        ),
+    ] = config.MODELS_FOLDER,
 ):
     df = load_data(dataset)
 
-    droped_interactions = df[df["user_id"] == 292680].sample(n=5)
+    droped_interactions = df[df["user_id"] == 292680].sample(n=10, random_state=1)
     df = df.drop(droped_interactions.index.to_list())
     droped_interactions.to_csv("./data/predict_df.csv")
+
     dm = ELearningDataModule(
         df,
         target=target,
@@ -88,23 +97,37 @@ def train(
         monitor="val/MSE", mode="min", save_top_k=1, filename="best-model"
     )
 
-    device = "auto" if gpu else "cpu"
+    train_logger = (
+        MLFlowLogger(experiment_name="lse2text", tracking_uri="file:./mlruns")
+        if use_logger and not debug
+        else None
+    )
 
     trainer = L.Trainer(
+        logger=train_logger,
         max_epochs=epochs,
-        accelerator=device,
+        accelerator="auto",
         devices="auto",
-        callbacks=[early_stop, checkpoint],
         log_every_n_steps=10,
+        callbacks=[early_stop, checkpoint],
+        fast_dev_run=debug,
+        enable_model_summary=config.state["verbose"],
     )
 
     trainer.fit(recsys, datamodule=dm)
 
+    if debug:
+        print("Debug mode enabled. Skipping evaluation.")
+        return
+
     dm.setup("test")
     trainer.test(model=recsys, datamodule=dm)
 
-    # Guardar ruta del mejor modelo
-    best_path = checkpoint.best_model_path
+    # Save best model path
+    out_model = f"{model.__class__.__name__}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    saving_models_folder = Path(models_folder)
+    saving_models_folder.mkdir(parents=True, exist_ok=True)
 
-    Path(best_path).rename(output_model)
-    print(f"Modelo entrenado guardado en: {output_model}")
+    file_path = saving_models_folder / f"{out_model}.pt"
+    Path(checkpoint.best_model_path).rename(file_path)
+    print(f"Model saved in: {file_path}")

@@ -1,6 +1,11 @@
 ,user_id,item_id,item_type,difficulty,nb_views,watch_percentage,rating
+87645,292680,244666,tutorial,Intermediate,310.0,51,6
+87646,292680,276531,tutorial,Beginner,647.0,96,10
+87647,292680,276532,tutorial,Beginner,206.0,100,10
+87653,292680,276538,tutorial,Intermediate,74.0,100,10
+87644,292680,244665,tutorial,,675.0,4,1
 87649,292680,276534,tutorial,Intermediate,168.0,100,10
-87648,292680,276533,tutorial,Intermediate,94.0,100,10
 87643,292680,244659,tutorial,Advanced,271.0,100,10
 87650,292680,276535,tutorial,Advanced,93.0,100,10
+87654,292680,276539,tutorial,Advanced,109.0,11,2
 87652,292680,276537,tutorial,Beginner,69.0,99,10
