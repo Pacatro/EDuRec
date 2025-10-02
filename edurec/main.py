@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Annotated
 import typer
 
-from edurec.core import config
+from .core import config
 from .commands.train import app as train_app
 from .commands.eval import app as eval_app
 from .commands.predict import app as predict_app
@@ -30,25 +30,6 @@ def main(
 
     for folder in folders:
         folder.mkdir(parents=True, exist_ok=True)
-
-    # # Modo SURPRISE
-    # if args.surprise:
-    #     surprise_eval(
-    #         df=df,
-    #         dataset=args.dataset,
-    #         cv_type=args.cvtype,
-    #         n_splits=args.k_splits,
-    #         min_rating=df[config.TARGET_COL].min(),
-    #         max_rating=df[config.TARGET_COL].max(),
-    #         k=args.top_k,
-    #         results_folder=config.RESULTS_FOLDER,
-    #         target=config.TARGET_COL,
-    #         seeds=args.seeds,
-    #     )
-
-    # # Modo Test estadísticos
-    # if args.stats_test:
-    #     get_stats_tests(top_k=args.top_k, verbose=args.verbose)
 
 
 if __name__ == "__main__":
