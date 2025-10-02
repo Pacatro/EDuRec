@@ -16,6 +16,7 @@ lightning_logs/
 *.json
 
 # Models files
+saved_models/
 *.pt
 
 # Predict file

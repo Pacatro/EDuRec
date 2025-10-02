@@ -9,16 +9,32 @@ dependencies = [
   "surprise>=0.1",
   "numpy<2",
   "scikit-learn>=1.6.1",
-  "torch>=2.6.0",
+  "torch>=2.7.1",
   "matplotlib>=3.10.1",
-  "torchmetrics>=1.7.1",
-  "lightning>=2.5.1.post0",
+  "torchmetrics>=1.8.0",
+  "lightning[extra]>=2.5.2",
   "openpyxl>=3.1.5",
   "scipy>=1.15.2",
   "scikit-posthocs>=0.11.4",
   "pydantic>=2.11.9",
   "typer>=0.19.2",
 ]
+
+[dependency-groups]
+dev = ["mlflow>=3.4.0"]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cu126", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+torchvision = [
+  { index = "pytorch-cu126", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
 
 [project.scripts]
 edurec = "edurec.main:app"
