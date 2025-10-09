@@ -1,5 +1,5 @@
 # Global state
-state = {"verbose": False, "dataset": {"df": None, "name": "mars"}}
+state = {"verbose": False}
 
 # Folders
 RESULTS_FOLDER: str = "results"
@@ -22,7 +22,4 @@ TOP_K: int = 10
 # Eval
 SEEDS: list[int] = [0, 1, 42]
 K: int = 5
-CV_TYPES_CHOICES: list[str] = ["kfold", "holdout"]
-CV_TYPE: str = "kfold"
-PLOT: bool = False
 STATS_TEST: bool = False

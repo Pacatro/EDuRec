@@ -85,9 +85,6 @@ class UcoRecSys(L.LightningModule):
 
         self.val_ranking_metrics = ranking_metrics.clone(prefix="val/")
         self.test_ranking_metrics = ranking_metrics.clone(prefix="test/")
-        self.train_ranking_metrics = (
-            ranking_metrics.clone(prefix="train/") if self.plot else None
-        )
 
     def forward(self, batch):
         score = self.model(batch)
@@ -127,7 +124,6 @@ class UcoRecSys(L.LightningModule):
 
         preds = self.model(batch)
         loss = self.loss_fn(preds, ratings.float())
-        self.train_losses.append(loss.item())
 
         if ranking_metrics is not None:
             target = (ratings >= self.threshold).int()
@@ -149,7 +145,7 @@ class UcoRecSys(L.LightningModule):
         return loss
 
     def training_step(self, batch):
-        return self.step(batch, "train", ranking_metrics=self.train_ranking_metrics)
+        return self.step(batch, "train")
 
     def validation_step(self, batch):
         self.step(
@@ -165,23 +161,11 @@ class UcoRecSys(L.LightningModule):
             ranking_metrics=self.test_ranking_metrics,
         )
 
-    def on_train_epoch_start(self):
-        if self.train_ranking_metrics:
-            self.train_ranking_metrics.reset()
-
-    def on_train_epoch_end(self):
-        if self.train_ranking_metrics:
-            train_ranking_metrics = self.train_ranking_metrics.compute()
-            self.train_metrics_history.append(train_ranking_metrics)
-            self.log_dict(train_ranking_metrics)
-
     def on_validation_epoch_start(self):
         self.val_ranking_metrics.reset()
 
     def on_validation_epoch_end(self):
-        val_ranking_metrics = self.val_ranking_metrics.compute()
-        self.val_metrics_history.append(val_ranking_metrics)
-        self.log_dict(val_ranking_metrics)
+        self.log_dict(self.val_ranking_metrics.compute())
 
     def on_test_epoch_start(self):
         self.test_ranking_metrics.reset()
