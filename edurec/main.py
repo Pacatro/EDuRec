@@ -9,8 +9,11 @@ from .commands.predict import app as predict_app
 
 
 app = typer.Typer(
-    no_args_is_help=True, context_settings={"help_option_names": ["-h", "--help"]}
+    rich_markup_mode=None,
+    add_completion=False,
+    context_settings={"help_option_names": ["-h", "--help"]},
 )
+
 app.add_typer(train_app)
 app.add_typer(eval_app)
 app.add_typer(predict_app)
@@ -23,8 +26,7 @@ def main(
         typer.Option("--verbose", "-v", help="Verbose mode"),
     ] = False,
 ):
-    if verbose:
-        config.state["verbose"] = True
+    config.state["verbose"] = verbose
 
     results_folder = Path(config.RESULTS_FOLDER)
 
