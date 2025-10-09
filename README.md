@@ -65,7 +65,6 @@ uv run edurec train --dataset mars --epochs 20 --batch-size 64
 The following commands are available for evaluation:
 
 * `eval`: Evaluates the proposed `NeuralHybrid` model using cross-validation.
-* `surprise-eval`: Evaluates baseline models from the `surprise` library.
 * `stats-test`: Performs statistical tests to compare model performances.
 
 **`eval` Example:**
@@ -74,14 +73,6 @@ Run a 5-fold cross-validation on the `itm` dataset.
 
 ```bash
 uv run edurec eval --dataset itm --n_splits 5
-```
-
-**`surprise-eval` Example:**
-
-Evaluate `surprise` models on the `mars` dataset for top-10 recommendations.
-
-```bash
-uv run edurec surprise-eval --dataset mars --top_k 10
 ```
 
 **`stats-test` Example:**
