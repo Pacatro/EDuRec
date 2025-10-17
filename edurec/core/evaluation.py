@@ -5,7 +5,7 @@ from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from enum import Enum
 
 from .datamodule import ELearningDataModule
-from .engine import UcoRecSys
+from .engine import RecSys
 
 
 class CVType(str, Enum):
@@ -79,7 +79,7 @@ def cross_validate(
             n_items=dm.num_items,
         )
 
-        recsys = UcoRecSys(model=model, threshold=dm.threshold, lr=lr)
+        recsys = RecSys(model=model, threshold=dm.threshold, lr=lr)
 
         earlystop = EarlyStopping(
             monitor="val/MSE",
@@ -105,7 +105,7 @@ def cross_validate(
 
         trainer.fit(recsys, datamodule=dm)
 
-        recsys = UcoRecSys.load_from_checkpoint(
+        recsys = RecSys.load_from_checkpoint(
             ckpt.best_model_path,
             model=model,
             top_k=top_k,

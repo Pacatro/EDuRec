@@ -41,7 +41,7 @@ class RetrievalFBetaScore(Metric):
         self.recall.reset()
 
 
-class UcoRecSys(L.LightningModule):
+class RecSys(L.LightningModule):
     def __init__(
         self,
         model: nn.Module,
@@ -113,7 +113,7 @@ class UcoRecSys(L.LightningModule):
             "relevant": score.detach() > self.threshold,
         }
 
-    def step(
+    def _step(
         self,
         batch: dict,
         prefix: str,
@@ -133,29 +133,23 @@ class UcoRecSys(L.LightningModule):
                 indexes=user_ids,
             )
 
-        self.log(f"{prefix}/MSE", loss, prog_bar=True, on_step=False, on_epoch=True)
-        self.log(
-            f"{prefix}/RMSE",
-            torch.sqrt(loss),
-            prog_bar=True,
-            on_step=False,
-            on_epoch=True,
-        )
+        self.log(f"{prefix}/MSE", loss, prog_bar=True)
+        self.log(f"{prefix}/RMSE", (loss**0.5), prog_bar=True)
 
         return loss
 
     def training_step(self, batch):
-        return self.step(batch, "train")
+        return self._step(batch, "train")
 
     def validation_step(self, batch):
-        self.step(
+        self._step(
             batch,
             "val",
             ranking_metrics=self.val_ranking_metrics,
         )
 
     def test_step(self, batch):
-        self.step(
+        self._step(
             batch,
             "test",
             ranking_metrics=self.test_ranking_metrics,

@@ -20,7 +20,7 @@ def extract_metrics_values(results_topk_paths: list[str], dataset: str) -> pd.Da
     Raises:
         ValueError: If no files are found for the specified dataset.
     """
-    metrics_results: dict[str, dict[str, float]] = {}
+    metrics_results = {}
 
     paths = [p for p in results_topk_paths if f"_{dataset}_" in p]
     if not paths:
@@ -77,7 +77,7 @@ def friedman_test(
             "Se necesitan al menos dos datasets con valores completos para todos los modelos"
         )
 
-    scores = [df_filtered[model].values for model in models]
+    scores = [df_filtered[model] for model in models]
 
     stat, p = stats.friedmanchisquare(*scores)
 
@@ -88,7 +88,7 @@ def friedman_test(
             )
 
         # Post-hoc Nemenyi
-        nemenyi = sp.posthoc_nemenyi_friedman(df_filtered.values)
+        nemenyi = sp.posthoc_nemenyi_friedman(df_filtered.to_numpy())
         nemenyi.index = nemenyi.columns = df_filtered.columns
         if verbose:
             print("Post hoc Nemenyi Friedman test:\n", nemenyi, "\n")
@@ -97,7 +97,7 @@ def friedman_test(
         avg_ranks = df_filtered.rank(axis=1, method="average", ascending=False).mean()
         plt.figure(figsize=(10, 4))
         plt.title("Critical Difference Diagram")
-        sp.critical_difference_diagram(avg_ranks, nemenyi)
+        sp.critical_difference_diagram(avg_ranks.values, nemenyi)  # type: ignore
         plt.tight_layout()
         plt.savefig(f"{config.RESULTS_FOLDER}/stats/CDD_{dataset}_{topk}.png")
         # plt.show()

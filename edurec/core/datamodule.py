@@ -35,10 +35,10 @@ class ELearningDataset(Dataset):
             for col, scaler in scalers.items():
                 self.df[col] = scaler.transform(self.df[[col]])
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.df)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         return self.df.iloc[idx].map(lambda x: torch.tensor(x)).to_dict()
 
 
@@ -82,9 +82,8 @@ class ELearningDataModule(L.LightningDataModule):
         user_col: str = "user_id",
         item_col: str = "item_id",
         target: str = "rating",
-        balance: bool = False,
+        # balance: bool = False,
         threshold: float = 0,
-        preprocess: bool = True,
         ignored_cols: list[str] | None = None,
     ):
         super().__init__()
@@ -94,31 +93,37 @@ class ELearningDataModule(L.LightningDataModule):
         self.item_col = item_col
         self.target = target
         self.batch_size = batch_size
-        self.threshold = threshold if threshold != 0 else self.df[target].mean()
-        self.balance = balance
-        self.preprocess = preprocess
         self.test_size = test_size
         self.val_size = val_size
-        self.ignored_cols = ignored_cols if ignored_cols else []
+        self.ignored_cols = ignored_cols or []
+        # self.balance = balance
 
-        self._preprocess()
-        self._prepare_predict_data()
+        self.threshold = threshold if threshold != 0 else float(self.df[target].mean())
 
-        self.num_users = int(self.df[user_col].nunique())
-        self.num_items = int(self.df[item_col].nunique())
-        self.min_rating = self.df[target].min()
-        self.max_rating = self.df[target].max()
-        self.sparsity = 1 - len(self.df) / (self.num_users * self.num_items)
-
-        if self.balance:
-            self.train_df = self._balance_dataset(self.df)
-
-    def _preprocess(self):
         self.encoders = {}
         self.scalers = {}
         self.cat_cardinalities = {}
         self.cont_features = []
 
+        self._preprocess()
+        self._prepare_predict_data()
+        self._compute_statistics()
+
+        # if self.balance:
+        #     self.train_df = self._balance_dataset(self.df)
+
+    def _compute_statistics(self) -> None:
+        """Compute and store dataset statistics."""
+        self.num_users = int(self.df[self.user_col].nunique())
+        self.num_items = int(self.df[self.item_col].nunique())
+        self.min_rating = self.df[self.target].min()
+        self.max_rating = self.df[self.target].max()
+        self.sparsity = 1 - len(self.df) / (self.num_users * self.num_items)
+        self.num_cat_features = len(self.cat_cardinalities)
+        self.num_cont_features = len(self.cont_features)
+
+    def _preprocess(self) -> None:
+        """Preprocess the main dataframe."""
         num_nan_targets = self.df[self.target].isna().sum()
 
         if num_nan_targets > 0:
@@ -161,7 +166,8 @@ class ELearningDataModule(L.LightningDataModule):
 
         self.train_df, self.val_df, self.test_df = self._split_data()
 
-    def _prepare_predict_data(self):
+    def _prepare_predict_data(self) -> None:
+        """Generate a smaller dataframe for prediction."""
         if self.predict_df is None:
             return
 
@@ -175,10 +181,19 @@ class ELearningDataModule(L.LightningDataModule):
                 )
 
     def _split_data(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame | None]:
+        """
+        Split the main dataframe into train, validation, and test sets.
+
+        If test_size is 0, the validation set is used for both train and validation.
+        """
         if self.test_size == 0:
             train_df, val_df = train_test_split(
                 self.df, test_size=self.val_size, shuffle=True, random_state=42
             )
+
+            assert isinstance(train_df, pd.DataFrame)
+            assert isinstance(val_df, pd.DataFrame)
+
             return train_df.reset_index(drop=True), val_df.reset_index(drop=True), None
 
         train_df, test_df = train_test_split(
@@ -187,21 +202,27 @@ class ELearningDataModule(L.LightningDataModule):
         train_df, val_df = train_test_split(
             train_df, test_size=self.val_size, shuffle=True, random_state=42
         )
+
+        assert isinstance(train_df, pd.DataFrame)
+        assert isinstance(val_df, pd.DataFrame)
+        assert isinstance(test_df, pd.DataFrame)
+
         return (
             train_df.reset_index(drop=True),
             val_df.reset_index(drop=True),
             test_df.reset_index(drop=True),
         )
 
-    def _balance_dataset(self, df: pd.DataFrame) -> pd.DataFrame:
-        df_eq_10 = df[df[self.target] == 10]
-        df_not_eq_10 = df[df[self.target] != 10]
-        n = min(len(df_eq_10), len(df_not_eq_10))
-        df_eq_10_s = df_eq_10.sample(n=n, random_state=42)
-        df_not_eq_10_s = df_not_eq_10.sample(n=n, random_state=42)
-        return pd.concat([df_eq_10_s, df_not_eq_10_s]).reset_index(drop=True)
+    # def _balance_dataset(self, df: pd.DataFrame) -> pd.DataFrame:
+    #     df_eq_10 = df[df[self.target] == 10]
+    #     df_not_eq_10 = df[df[self.target] != 10]
+    #     n = min(len(df_eq_10), len(df_not_eq_10))
+    #     df_eq_10_s = df_eq_10.sample(n=n, random_state=42)
+    #     df_not_eq_10_s = df_not_eq_10.sample(n=n, random_state=42)
+    #     assert df
+    #     return pd.concat([df_eq_10_s, df_not_eq_10_s]).reset_index(drop=True)
 
-    def setup(self, stage: str | None = None):
+    def setup(self, stage: str | None = None) -> None:
         match stage:
             case "fit":
                 self.train_dataset = ELearningDataset(
@@ -211,45 +232,49 @@ class ELearningDataModule(L.LightningDataModule):
                     self.val_df, encoders=self.encoders, scalers=self.scalers
                 )
             case "test":
-                if self.test_df is not None:
-                    self.test_dataset = ELearningDataset(
+                self.test_dataset = (
+                    ELearningDataset(
                         self.test_df, encoders=self.encoders, scalers=self.scalers
                     )
-                else:
-                    self.test_dataset = None
+                    if self.test_df is not None
+                    else None
+                )
             case "predict":
                 assert self.predict_df is not None
                 self.predict_dataset = ELearningDataset(
                     self.predict_df, encoders=self.encoders, scalers=self.scalers
                 )
 
-    def train_dataloader(self, num_workers: int = 2):
+    def train_dataloader(self, num_workers: int = 2) -> DataLoader:
         return DataLoader(
             self.train_dataset,
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=num_workers,
+            pin_memory=True,
         )
 
-    def val_dataloader(self, num_workers: int = 2):
+    def val_dataloader(self, num_workers: int = 2) -> DataLoader:
         return DataLoader(
             self.val_dataset,
             batch_size=self.batch_size,
             num_workers=num_workers,
+            pin_memory=True,
         )
 
-    def test_dataloader(self, num_workers: int = 2):
+    def test_dataloader(self, num_workers: int = 2) -> DataLoader | None:
         return (
             DataLoader(
                 self.test_dataset,
                 batch_size=self.batch_size,
                 num_workers=num_workers,
+                pin_memory=True,
             )
             if self.test_dataset is not None
             else None
         )
 
-    def predict_dataloader(self, num_workers: int = 2):
+    def predict_dataloader(self, num_workers: int = 2) -> DataLoader | None:
         return (
             DataLoader(
                 self.predict_dataset,

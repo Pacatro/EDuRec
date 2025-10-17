@@ -1,16 +1,15 @@
-from pathlib import Path
 from typing import Annotated
 import lightning as L
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import MLFlowLogger
 import typer
-from datetime import datetime
 
 from ..core import config
 from ..core.datamodule import ELearningDataModule
-from ..core.engine import UcoRecSys
+from ..core.engine import RecSys
 from ..core.model import NeuralHybrid
 from ..core.datasets import DatasetName, load_data
+from ..core.model_io import save_best_model
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -34,13 +33,16 @@ def train(
     top_k: Annotated[
         int, typer.Option("--top_k", "-k", help="Top-k value")
     ] = config.TOP_K,
-    balance: Annotated[
-        bool, typer.Option("--balance", "-B", help="Balance dataset")
-    ] = config.BALANCE,
+    # balance: Annotated[
+    #     bool, typer.Option("--balance", "-B", help="Balance dataset")
+    # ] = config.BALANCE,
     use_logger: Annotated[
         bool, typer.Option("--use_logger", "-L", help="Use MLFlow logger")
     ] = False,
     debug: Annotated[bool, typer.Option("--debug", "-D", help="Debug mode")] = False,
+    save_model: Annotated[
+        bool, typer.Option("--save_model", "-S", help="Save model")
+    ] = False,
     models_folder: Annotated[
         str,
         typer.Option(
@@ -58,7 +60,7 @@ def train(
         df,
         target=target,
         batch_size=batch_size,
-        balance=balance,
+        # balance=balance,
     )
 
     dm.setup("fit")
@@ -71,14 +73,12 @@ def train(
     )
 
     if config.state["verbose"]:
-        # print(f"[TRAIN] Dataset {dataset}:\n{dm.df}\n")
         print(f"[TRAIN] Dataset {dataset} sparsity: {dm.sparsity}")
         print(f"[TRAIN] Dataset {dataset} threshold: {dm.threshold}")
         print(f"[TRAIN] Dataset {dataset} lenght: {len(dm.df)}")
-        # print(f"[TRAIN] Train dataset:\n{dm.train_dataset.df}\n")
         print(f"[TRAIN] Model:\n{model}\n")
 
-    recsys = UcoRecSys(
+    recsys = RecSys(
         model=model,
         top_k=top_k,
         threshold=dm.threshold,
@@ -124,10 +124,7 @@ def train(
     trainer.test(model=recsys, datamodule=dm)
 
     # Save best model path
-    out_model = f"{model.__class__.__name__}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    saving_models_folder = Path(models_folder)
-    saving_models_folder.mkdir(parents=True, exist_ok=True)
-
-    file_path = saving_models_folder / f"{out_model}.pt"
-    Path(checkpoint.best_model_path).rename(file_path)
-    print(f"Model saved in: {file_path}")
+    if save_model:
+        save_best_model(
+            model.__class__.__name__, checkpoint.best_model_path, models_folder
+        )

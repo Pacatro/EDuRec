@@ -1,15 +1,15 @@
 from typing import Annotated
-import numpy as np
 import pandas as pd
 import lightning as L
 import typer
 from pathlib import Path
 
 from ..core.datamodule import ELearningDataModule
-from ..core.engine import UcoRecSys
+from ..core.engine import RecSys
 from ..core.model import NeuralHybrid
 from ..core import config
 from ..core.datasets import DatasetName, load_data
+from ..core.model_io import get_last_model
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -37,9 +37,9 @@ def predict(
     top_k: Annotated[
         int, typer.Option("--top_k", "-k", help="Top-k value")
     ] = config.TOP_K,
-    balance: Annotated[
-        bool, typer.Option("--balance", "-B", help="Balance dataset")
-    ] = config.BALANCE,
+    # balance: Annotated[
+    #     bool, typer.Option("--balance", "-B", help="Balance dataset")
+    # ] = config.BALANCE,
 ):
     if model_path is None:
         model_path = get_last_model(config.MODELS_FOLDER)
@@ -57,99 +57,12 @@ def predict(
         predict_df=predict_df.drop(columns=["rating"]),
         target=target,
         batch_size=batch_size,
-        balance=balance,
+        # balance=balance,
     )
 
     ranking = recommend(dm, top_k, model_path)
 
     print(ranking)
-
-
-def get_last_model(models_folder: str) -> str:
-    saving_models_folder = Path(models_folder)
-
-    if not saving_models_folder.exists():
-        raise FileNotFoundError(f"Models folder {saving_models_folder} does not exist")
-
-    models = [f for f in saving_models_folder.iterdir() if f.is_file()]
-
-    if len(models) == 0:
-        raise FileNotFoundError(f"No models found in {saving_models_folder}")
-
-    model_path = saving_models_folder / max(models).name
-
-    if model_path.suffix != ".pt":
-        raise ValueError(f"Model {model_path} is not a pytorch model")
-
-    return str(model_path)
-
-
-def generate_new_interactions(
-    df: pd.DataFrame,
-    samples: int = 50,
-    interactions_per_user: int = 20,
-    user_col: str = "user_id",
-    item_col: str = "item_id",
-) -> pd.DataFrame:
-    users = df[user_col].unique()
-    items = df[item_col].unique()
-
-    if samples == 0:
-        return df
-
-    rng = np.random.default_rng(seed=42)
-
-    num_users_needed = max(1, samples // interactions_per_user)
-
-    if num_users_needed > len(users):
-        selected_users = rng.choice(users, size=num_users_needed, replace=True)
-    else:
-        selected_users = rng.choice(users, size=num_users_needed, replace=False)
-
-    candidates_list = []
-
-    for user in selected_users:
-        user_items = rng.choice(items, size=interactions_per_user, replace=True)
-
-        user_interactions = pd.DataFrame(
-            {user_col: [user] * interactions_per_user, item_col: user_items}
-        )
-
-        candidates_list.append(user_interactions)
-
-    candidates = pd.concat(candidates_list, ignore_index=True)
-
-    positives = df[[user_col, item_col]].drop_duplicates()
-    merged = candidates.merge(
-        positives, on=[user_col, item_col], how="left", indicator=True
-    )
-
-    negatives = (
-        merged[merged["_merge"] == "left_only"]
-        .drop(columns="_merge")
-        .drop_duplicates()
-        .head(samples)  # Limitar al número exacto solicitado
-        .reset_index(drop=True)
-    )
-
-    item_types = ["tutorial", "use_case", "webcast"]
-    difficulties = ["Beginner", "Intermediate", "Advanced", "Undefined"]
-
-    negatives["item_type"] = rng.choice(item_types, size=len(negatives))
-    negatives["difficulty"] = rng.choice(difficulties, size=len(negatives))
-    negatives["nb_views"] = rng.integers(0, 2000, size=len(negatives)).astype(float)
-    negatives["watch_percentage"] = rng.integers(0, 101, size=len(negatives)).astype(
-        float
-    )
-
-    return negatives
-
-
-def extrac_user_interactions(
-    df: pd.DataFrame, user_id: int, n_interactions: int = 10
-) -> pd.DataFrame:
-    user_interactions = df[df["user_id"] == user_id]
-    return user_interactions.sample(n=n_interactions)
 
 
 def recommend(
@@ -162,9 +75,7 @@ def recommend(
         cat_cardinalities=dm.cat_cardinalities,
     )
 
-    recsys = UcoRecSys.load_from_checkpoint(
-        model_path, model=model, encoders=dm.encoders
-    )
+    recsys = RecSys.load_from_checkpoint(model_path, model=model, encoders=dm.encoders)
 
     dm.setup("predict")
     trainer = L.Trainer()

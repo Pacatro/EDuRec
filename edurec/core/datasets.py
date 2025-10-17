@@ -42,7 +42,9 @@ def load_mars() -> pd.DataFrame:
         "rating",
     ]
 
-    return df[features]
+    result_df = df[features]
+    assert isinstance(result_df, pd.DataFrame)
+    return result_df
 
 
 def load_itm() -> pd.DataFrame:
@@ -75,7 +77,9 @@ def load_itm() -> pd.DataFrame:
         "rating",
     ]
 
-    return merged_df[features]
+    result_df = merged_df[features]
+    assert isinstance(result_df, pd.DataFrame)
+    return result_df
 
 
 def load_data(dataset_name: DatasetName) -> pd.DataFrame:
@@ -95,5 +99,3 @@ def load_data(dataset_name: DatasetName) -> pd.DataFrame:
             return load_mars()
         case DatasetName.itm:
             return load_itm()
-        case _:
-            raise ValueError(f"Unsupported dataset: {dataset_name}")
