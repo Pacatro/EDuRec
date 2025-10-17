@@ -30,4 +30,4 @@ def get_last_model(models_folder: str) -> str:
     if model_path.suffix != ".pt":
         raise ValueError(f"Model {model_path} is not a pytorch model")
 
-    return model_path.name
+    return str(model_path)

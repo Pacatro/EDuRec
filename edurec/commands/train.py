@@ -7,7 +7,7 @@ import typer
 from ..core import config
 from ..core.datamodule import ELearningDataModule
 from ..core.engine import RecSys
-from ..core.model import NeuralHybrid
+from ..core.model import EDuRec
 from ..core.datasets import DatasetName, load_data
 from ..core.model_io import save_best_model
 
@@ -63,9 +63,7 @@ def train(
         # balance=balance,
     )
 
-    dm.setup("fit")
-
-    model = NeuralHybrid(
+    model = EDuRec(
         n_users=dm.num_users,
         n_items=dm.num_items,
         cont_features=dm.cont_features,
@@ -98,7 +96,7 @@ def train(
     )
 
     train_logger = (
-        MLFlowLogger(experiment_name="lse2text", tracking_uri="file:./mlruns")
+        MLFlowLogger(experiment_name="edurec", tracking_uri="file:./mlruns")
         if use_logger and not debug
         else None
     )

@@ -71,15 +71,15 @@ class RecSys(L.LightningModule):
 
         ranking_metrics = MetricCollection(
             {
-                f"Precision@{top_k}": RetrievalPrecision(top_k=top_k, adaptive_k=True),
-                f"Recall@{top_k}": RetrievalRecall(top_k=top_k),
-                f"F1@{top_k}": RetrievalFBetaScore(
+                f"Precision_{top_k}": RetrievalPrecision(top_k=top_k, adaptive_k=True),
+                f"Recall_{top_k}": RetrievalRecall(top_k=top_k),
+                f"F1_{top_k}": RetrievalFBetaScore(
                     top_k=top_k, beta=1.0, adaptive_k=True
                 ),
-                f"NDCG@{top_k}": RetrievalNormalizedDCG(top_k=top_k),
-                f"HR@{top_k}": RetrievalHitRate(top_k=top_k),
-                f"MAP@{top_k}": RetrievalMAP(top_k=top_k),
-                f"MRR@{top_k}": RetrievalMRR(top_k=top_k),
+                f"NDCG_{top_k}": RetrievalNormalizedDCG(top_k=top_k),
+                f"HR_{top_k}": RetrievalHitRate(top_k=top_k),
+                f"MAP_{top_k}": RetrievalMAP(top_k=top_k),
+                f"MRR_{top_k}": RetrievalMRR(top_k=top_k),
             }
         )
 

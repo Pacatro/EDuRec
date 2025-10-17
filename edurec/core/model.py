@@ -2,9 +2,9 @@ import torch
 from torch import nn
 
 
-class NeuralHybrid(nn.Module):
+class EDuRec(nn.Module):
     """
-    This is the proposed model for the UCO RecSys, NeuralHybrid is a hybrid recommendation model that combines collaborative filtering (CF)
+    This is the proposed model for the RecSys, is a hybrid recommendation model that combines collaborative filtering (CF)
     and content-based (CB) features using a neural network architecture.
 
     The model uses user and item embeddings for CF, category embeddings for CB features,

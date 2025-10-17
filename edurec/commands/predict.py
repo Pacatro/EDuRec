@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ..core.datamodule import ELearningDataModule
 from ..core.engine import RecSys
-from ..core.model import NeuralHybrid
+from ..core.model import EDuRec
 from ..core import config
 from ..core.datasets import DatasetName, load_data
 from ..core.model_io import get_last_model
@@ -68,7 +68,7 @@ def predict(
 def recommend(
     dm: ELearningDataModule, top_k: int, model_path: str | Path
 ) -> pd.DataFrame:
-    model = NeuralHybrid(
+    model = EDuRec(
         n_users=dm.num_users,
         n_items=dm.num_items,
         cont_features=dm.cont_features,

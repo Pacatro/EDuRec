@@ -6,7 +6,7 @@ import typer
 from ..core import config
 from ..core.datasets import DatasetName, load_data
 from ..core.evaluation import cross_validate, CVType
-from ..core.model import NeuralHybrid
+from ..core.model import EDuRec
 from ..core.stats import friedman_test
 
 
@@ -58,7 +58,7 @@ def eval(
 
     avg_metrics = cross_validate(
         df=df,
-        model_class=NeuralHybrid,
+        model_class=EDuRec,
         n_splits=n_splits,
         random_state=42,
         epochs=epochs,

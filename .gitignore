@@ -9,8 +9,10 @@ wheels/
 # Virtual environments
 .venv
 
-# Model checkpoints
+# Model training metadata
 lightning_logs/
+mlruns/
+
 
 # Other exetensions
 *.json
