@@ -102,7 +102,7 @@ def train(
 
         train_logger = (
             MLFlowLogger(
-                experiment_name="edurec",
+                experiment_name=config.EXPERIMENT_NAME,
                 run_name=f"{model.__class__.__name__}",
                 tracking_uri="file:./mlruns",
                 # log_model=True,

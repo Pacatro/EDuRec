@@ -5,6 +5,7 @@ from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import MLFlowLogger
 from enum import Enum
 
+from . import config
 from .datamodule import ELearningDataModule
 from .engine import RecSys
 
@@ -72,7 +73,9 @@ def cross_validate(
     )
 
     eval_logger = (
-        MLFlowLogger(experiment_name="edurec", tracking_uri="file:./mlruns")
+        MLFlowLogger(
+            experiment_name=config.EXPERIMENT_NAME, tracking_uri="file:./mlruns"
+        )
         if use_logger
         else None
     )

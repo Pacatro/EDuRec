@@ -1,6 +1,9 @@
 # Global state
 state = {"verbose": False}
 
+# MLFlow
+EXPERIMENT_NAME: str = "TFM"
+
 # Folders
 RESULTS_FOLDER: str = "results"
 MODELS_FOLDER: str = "saved_models"
