@@ -63,7 +63,7 @@ class EDuRec(nn.Module):
         # MLP
         n_cat = len(self.cat_embeddings)
         n_num = len(cont_features)
-        mlp_input = emb_dim + n_cat * (emb_dim // 2) + n_num
+        mlp_input = 1 + n_cat * (emb_dim // 2) + n_num
         layers = []
         for h in hidden_dims:
             layers += [
@@ -89,7 +89,7 @@ class EDuRec(nn.Module):
         u_emb = self.user_embedding(u)
         i_emb = self.item_embedding(i)
 
-        i_ui = u_emb * i_emb
+        i_ui = torch.sum(u_emb * i_emb, dim=1, keepdim=True)
 
         cat_vecs = [emb(batch[key].long()) for key, emb in self.cat_embeddings.items()]
         cat_embs = (
@@ -111,3 +111,46 @@ class EDuRec(nn.Module):
         raw = self.mlp(x).squeeze(1) + u_b + i_b
 
         return torch.clamp(input=raw, min=self.min_rating, max=self.max_rating)
+
+
+class MF(nn.Module):
+    """
+    A simple implementation of the Matrix Factorization model.
+
+    The model factorizes the user-item interaction matrix into
+    the product of two lower-rank matrices, capturing the lower-rank
+    structure of the user-item interactions.
+
+    Args:
+        - n_users (int): Number of unique users.
+        - n_items (int): Number of unique items.
+        - emb_dim (int): Embedding dimension for user/item embeddings.
+
+    Forward Input:
+        batch (dict[str, torch.Tensor]): Batch dictionary containing user_id, item_id,
+            categorical and continuous features.
+
+    Forward Output:
+        torch.Tensor: Predicted ratings, clamped between min_rating and max_rating.
+    """
+
+    def __init__(self, n_users: int, n_items: int, emb_dim: int = 128):
+        super().__init__()
+        self.user_embedding = nn.Embedding(n_users, emb_dim)
+        self.item_embedding = nn.Embedding(n_items, emb_dim)
+        self.user_bias = nn.Embedding(n_users, 1)
+        self.item_bias = nn.Embedding(n_items, 1)
+
+    def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+        u = batch["user_id"].long()
+        i = batch["item_id"].long()
+
+        p_u = self.user_embedding(u)
+        q_i = self.item_embedding(i)
+
+        u_b = self.user_bias(u).squeeze(1)
+        i_b = self.item_bias(i).squeeze(1)
+
+        out = torch.sum(p_u * q_i, dim=1) + u_b + i_b
+
+        return out
