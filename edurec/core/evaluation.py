@@ -2,6 +2,7 @@ import pandas as pd
 import lightning as L
 from sklearn.model_selection import KFold, LeaveOneOut
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+from lightning.pytorch.loggers import MLFlowLogger
 from enum import Enum
 
 from .datamodule import ELearningDataModule
@@ -26,6 +27,7 @@ def cross_validate(
     patience: int = 5,
     delta: float = 0.001,
     ignored_cols: list[str] = [],
+    use_logger: bool = False,
     verbose: bool = False,
 ) -> pd.DataFrame:
     """Perform cross-validation for the given model.
@@ -57,6 +59,24 @@ def cross_validate(
     fold_metrics = []
     n_folds = cv.get_n_splits(X=df)
 
+    earlystop = EarlyStopping(
+        monitor="val/MSE",
+        patience=patience,
+        mode="min",
+        min_delta=delta,
+        verbose=verbose,
+    )
+
+    ckpt = ModelCheckpoint(
+        monitor="val/MSE", mode="min", save_top_k=1, filename="best-model"
+    )
+
+    eval_logger = (
+        MLFlowLogger(experiment_name="edurec", tracking_uri="file:./mlruns")
+        if use_logger
+        else None
+    )
+
     for fold, (train_idx, test_idx) in enumerate(cv.split(df), start=1):
         print(f"Fold {fold}/{n_folds}")
 
@@ -81,19 +101,9 @@ def cross_validate(
 
         recsys = RecSys(model=model, threshold=dm.threshold, lr=lr)
 
-        earlystop = EarlyStopping(
-            monitor="val/MSE",
-            patience=patience,
-            mode="min",
-            min_delta=delta,
-            verbose=verbose,
-        )
-        ckpt = ModelCheckpoint(
-            monitor="val/MSE", mode="min", save_top_k=1, filename="best-model"
-        )
-
         trainer = L.Trainer(
             max_epochs=epochs,
+            logger=eval_logger,
             accelerator="auto",
             devices="auto",
             callbacks=[earlystop, ckpt],

@@ -51,8 +51,12 @@ def eval(
     results_folder: Annotated[
         str, typer.Option("--results-folder", help="Folder to save results.")
     ] = config.RESULTS_FOLDER,
+    use_logger: Annotated[
+        bool, typer.Option("--use_logger", "-L", help="Use MLFlow logger")
+    ] = False,
 ):
     df = load_data(dataset)
+
     if config.state["verbose"]:
         print(f"[EVAL] Dataset: {dataset.name} | top-{top_k} | CV type: {cv_type.name}")
 
@@ -67,6 +71,7 @@ def eval(
         top_k=top_k,
         patience=patience,
         delta=delta,
+        use_logger=use_logger,
         verbose=config.state["verbose"],
     )
 
