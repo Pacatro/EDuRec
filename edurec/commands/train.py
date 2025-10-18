@@ -19,7 +19,7 @@ def train(
     dataset: Annotated[
         DatasetName,
         typer.Option("--dataset", "-d", help="Dataset to use"),
-    ] = DatasetName.mars,
+    ] = DatasetName.MARS,
     target: Annotated[
         str, typer.Option("--target", "-t", help="Target column")
     ] = config.TARGET_COL,

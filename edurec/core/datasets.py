@@ -1,14 +1,57 @@
 from enum import Enum
+from typing import Callable
 import pandas as pd
+from functools import wraps
+
+type ExportFn = Callable[[], pd.DataFrame]
 
 
 class DatasetName(str, Enum):
-    mars = "mars"
-    itm = "itm"
+    MARS = "mars"
+    ITM = "itm"
 
 
+dataset_loaders: dict[DatasetName, ExportFn] = {}
+
+
+def register_dataset(ds_name: DatasetName) -> Callable[[ExportFn], ExportFn]:
+    """Decorator for registering a dataset loader.
+
+    This decorator associates a dataset loading function with a given
+    `DatasetName` and stores it in the global `dataset_loaders` dictionary.
+
+    Example:
+        ```python
+        @register_dataset(DatasetName.MARS)
+        def load_mars() -> pd.DataFrame:
+            ...
+        ```
+
+    Args:
+        ds_name (DatasetName): The dataset identifier to register.
+
+    Returns:
+        Callable[[ExportFn], ExportFn]: The decorator that registers the loader.
+    """
+
+    def decorator(fn: ExportFn) -> ExportFn:
+        @wraps(fn)
+        def wrapper() -> pd.DataFrame:
+            return fn()
+
+        dataset_loaders[ds_name] = wrapper
+        return wrapper
+
+    return decorator
+
+
+@register_dataset(DatasetName.MARS)
 def load_mars() -> pd.DataFrame:
-    """Load the MARS dataset.
+    """Load and preprocess the MARS dataset.
+
+    This loader combines English and French rating files and merges them with
+    item metadata. It also standardizes column names and ensures consistent
+    schema across sources.
 
     Returns:
         pd.DataFrame: The MARS dataset.
@@ -47,8 +90,12 @@ def load_mars() -> pd.DataFrame:
     return result_df
 
 
+@register_dataset(DatasetName.ITM)
 def load_itm() -> pd.DataFrame:
-    """Load the ITM dataset.
+    """Load and preprocess the ITM dataset.
+
+    This loader merges ratings, items, and user information into a unified
+    DataFrame and normalizes column names for consistency.
 
     Returns:
         pd.DataFrame: The ITM dataset.
@@ -94,8 +141,10 @@ def load_data(dataset_name: DatasetName) -> pd.DataFrame:
     Returns:
         pd.DataFrame: The loaded dataset as a pandas DataFrame.
     """
-    match dataset_name:
-        case DatasetName.mars:
-            return load_mars()
-        case DatasetName.itm:
-            return load_itm()
+
+    loader = dataset_loaders.get(dataset_name)
+
+    if loader is None:
+        raise ValueError(f"Dataset {dataset_name} not supported.")
+
+    return loader()

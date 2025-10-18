@@ -20,7 +20,7 @@ def eval(
     dataset: Annotated[
         DatasetName,
         typer.Option("--dataset", "-d", help="Dataset to use"),
-    ] = DatasetName.mars,
+    ] = DatasetName.MARS,
     batch_size: Annotated[
         int, typer.Option("--batch-size", "-b", help="Batch size for training.")
     ] = config.BATCH_SIZE,
