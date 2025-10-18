@@ -1,7 +1,6 @@
 import torch
 from torch import nn
 import lightning.pytorch as L
-from typing import Optional
 from torchmetrics import MetricCollection, Metric
 from torchmetrics.retrieval import (
     RetrievalPrecision,
@@ -10,6 +9,7 @@ from torchmetrics.retrieval import (
     RetrievalHitRate,
     RetrievalMAP,
     RetrievalMRR,
+    RetrievalAUROC,
 )
 
 
@@ -49,17 +49,17 @@ class RecSys(L.LightningModule):
         lr: float = 1e-3,
         weight_decay: float = 1e-6,
         top_k: int = 10,
-        loss_fn: Optional[nn.Module] = None,
+        loss_fn: nn.Module | None = None,
         val_metrics_path: str = "val_metrics.png",
         train_metrics_path: str = "train_metrics.png",
         train_losses_path: str = "train_losses.png",
-        encoders: Optional[dict] = None,
+        encoders: dict | None = None,
         plot: bool = False,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
         self.model = model
-        self.loss_fn = nn.MSELoss() if loss_fn is None else loss_fn
+        self.loss_fn = loss_fn or nn.MSELoss()
         self.threshold = threshold
         self.lr = lr
         self.weight_decay = weight_decay
@@ -80,6 +80,7 @@ class RecSys(L.LightningModule):
                 f"HR_{top_k}": RetrievalHitRate(top_k=top_k),
                 f"MAP_{top_k}": RetrievalMAP(top_k=top_k),
                 f"MRR_{top_k}": RetrievalMRR(top_k=top_k),
+                f"AUROC_{top_k}": RetrievalAUROC(top_k=top_k),
             }
         )
 
