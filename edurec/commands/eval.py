@@ -71,7 +71,7 @@ def eval(
         top_k=top_k,
         patience=patience,
         delta=delta,
-        use_logger=use_logger,
+        # use_logger=use_logger,
         verbose=config.state["verbose"],
     )
 

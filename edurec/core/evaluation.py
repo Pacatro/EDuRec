@@ -2,10 +2,8 @@ import pandas as pd
 import lightning as L
 from sklearn.model_selection import KFold, LeaveOneOut
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
-from lightning.pytorch.loggers import MLFlowLogger
 from enum import Enum
 
-from . import config
 from .datamodule import ELearningDataModule
 from .engine import RecSys
 
@@ -28,7 +26,6 @@ def cross_validate(
     patience: int = 5,
     delta: float = 0.001,
     ignored_cols: list[str] = [],
-    use_logger: bool = False,
     verbose: bool = False,
 ) -> pd.DataFrame:
     """Perform cross-validation for the given model.
@@ -46,7 +43,6 @@ def cross_validate(
         patience (int, optional): The patience for early stopping. Defaults to 5.
         delta (float, optional): The minimum change to qualify as an improvement. Defaults to 0.001.
         ignored_cols (list[str], optional): The columns to ignore during training. Defaults to [].
-        use_logger (bool, optional): Whether to use MLFlow logger. Defaults to False.
         verbose (bool, optional): Whether to print verbose output. Defaults to False.
 
     Returns:
@@ -100,29 +96,9 @@ def cross_validate(
             filename=f"fold{fold}_best_model",
         )
 
-        # Every fold is a run in MLFlow
-        eval_logger = None
-        if use_logger:
-            eval_logger = MLFlowLogger(
-                experiment_name=f"{config.EXPERIMENT_NAME}_CV",
-                tracking_uri="file:./mlruns",
-                run_name=f"{model_class.__name__}_fold{fold}",
-                # log_model=True,
-            )
-
-            fold_hp = {
-                "fold": fold,
-                "lr": lr,
-                "batch_size": batch_size,
-                "top_k": top_k,
-                "model": model_class.__name__,
-            }
-
-            eval_logger.log_hyperparams(fold_hp)
-
         trainer = L.Trainer(
             max_epochs=epochs,
-            logger=eval_logger,
+            # logger=eval_logger,
             accelerator="auto",
             devices="auto",
             callbacks=[earlystop, ckpt],
