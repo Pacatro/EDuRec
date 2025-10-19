@@ -46,7 +46,7 @@ def cross_validate(
         patience (int, optional): The patience for early stopping. Defaults to 5.
         delta (float, optional): The minimum change to qualify as an improvement. Defaults to 0.001.
         ignored_cols (list[str], optional): The columns to ignore during training. Defaults to [].
-        plot (bool, optional): Whether to plot the training progress. Defaults to False.
+        use_logger (bool, optional): Whether to use MLFlow logger. Defaults to False.
         verbose (bool, optional): Whether to print verbose output. Defaults to False.
 
     Returns:
@@ -57,28 +57,9 @@ def cross_validate(
         if cv_type == "kfold"
         else LeaveOneOut()
     )
+
     fold_metrics = []
     n_folds = cv.get_n_splits(X=df)
-
-    earlystop = EarlyStopping(
-        monitor="val/MSE",
-        patience=patience,
-        mode="min",
-        min_delta=delta,
-        verbose=verbose,
-    )
-
-    ckpt = ModelCheckpoint(
-        monitor="val/MSE", mode="min", save_top_k=1, filename="best-model"
-    )
-
-    eval_logger = (
-        MLFlowLogger(
-            experiment_name=config.EXPERIMENT_NAME, tracking_uri="file:./mlruns"
-        )
-        if use_logger
-        else None
-    )
 
     for fold, (train_idx, test_idx) in enumerate(cv.split(df), start=1):
         print(f"Fold {fold}/{n_folds}")
@@ -103,6 +84,41 @@ def cross_validate(
         )
 
         recsys = RecSys(model=model, threshold=dm.threshold, lr=lr)
+
+        earlystop = EarlyStopping(
+            monitor="val/MSE",
+            patience=patience,
+            mode="min",
+            min_delta=delta,
+            verbose=verbose,
+        )
+
+        ckpt = ModelCheckpoint(
+            monitor="val/MSE",
+            mode="min",
+            save_top_k=1,
+            filename=f"fold{fold}_best_model",
+        )
+
+        # Every fold is a run in MLFlow
+        eval_logger = None
+        if use_logger:
+            eval_logger = MLFlowLogger(
+                experiment_name=f"{config.EXPERIMENT_NAME}_CV",
+                tracking_uri="file:./mlruns",
+                run_name=f"{model_class.__name__}_fold{fold}",
+                # log_model=True,
+            )
+
+            fold_hp = {
+                "fold": fold,
+                "lr": lr,
+                "batch_size": batch_size,
+                "top_k": top_k,
+                "model": model_class.__name__,
+            }
+
+            eval_logger.log_hyperparams(fold_hp)
 
         trainer = L.Trainer(
             max_epochs=epochs,
