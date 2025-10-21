@@ -50,7 +50,7 @@ def cross_validate(
     """
     cv = (
         KFold(n_splits=n_splits, random_state=random_state, shuffle=True)
-        if cv_type == "kfold"
+        if cv_type == CVType.kfold
         else LeaveOneOut()
     )
 
@@ -71,12 +71,14 @@ def cross_validate(
             ignored_cols=ignored_cols,
         )
 
-        model = model_class(
-            cat_cardinalities=dm.cat_cardinalities,
-            cont_features=dm.cont_features,
-            n_users=dm.num_users,
-            n_items=dm.num_items,
-        )
+        model_config = {
+            "n_users": dm.num_users,
+            "n_items": dm.num_items,
+            "cat_cardinalities": dm.cat_cardinalities,
+            "cont_features": dm.cont_features,
+        }
+
+        model = model_class(**model_config)
 
         recsys = RecSys(model=model, threshold=dm.threshold, lr=lr)
 

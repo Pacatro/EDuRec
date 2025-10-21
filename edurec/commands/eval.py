@@ -6,7 +6,7 @@ import typer
 from ..core import config
 from ..core.datasets import DatasetName, load_data
 from ..core.evaluation import cross_validate, CVType
-from ..core.model import EDuRec
+from ..core.model import EDuRec, NeuralMF, MF
 from ..core.stats import friedman_test
 
 
@@ -51,35 +51,46 @@ def eval(
     results_folder: Annotated[
         str, typer.Option("--results-folder", help="Folder to save results.")
     ] = config.RESULTS_FOLDER,
-    use_logger: Annotated[
-        bool, typer.Option("--use_logger", "-L", help="Use MLFlow logger")
-    ] = False,
+    # use_logger: Annotated[
+    #     bool, typer.Option("--use_logger", "-L", help="Use MLFlow logger")
+    # ] = False,
 ):
     df = load_data(dataset)
 
-    if config.state["verbose"]:
-        print(f"[EVAL] Dataset: {dataset.name} | top-{top_k} | CV type: {cv_type.name}")
+    models_classes = [
+        EDuRec,
+        MF,
+        NeuralMF,
+    ]
 
-    avg_metrics = cross_validate(
-        df=df,
-        model_class=EDuRec,
-        n_splits=n_splits,
-        random_state=42,
-        epochs=epochs,
-        cv_type=cv_type,
-        batch_size=batch_size,
-        top_k=top_k,
-        patience=patience,
-        delta=delta,
-        # use_logger=use_logger,
-        verbose=config.state["verbose"],
-    )
+    for model_class in models_classes:
+        if config.state["verbose"]:
+            print(
+                f"[EVAL] Model: {model_class.__name__} | Dataset: {dataset.name} | top-{top_k} | CV type: {cv_type.name}"
+            )
 
-    results_path = f"{results_folder}/metrics_{cv_type}_k={n_splits}_{dataset.value}_top-{top_k}.csv"
-    avg_metrics.to_csv(results_path)
+        avg_metrics = cross_validate(
+            df=df,
+            model_class=model_class,
+            n_splits=n_splits,
+            random_state=42,
+            epochs=epochs,
+            cv_type=cv_type,
+            batch_size=batch_size,
+            top_k=top_k,
+            patience=patience,
+            delta=delta,
+            # use_logger=use_logger,
+            verbose=config.state["verbose"],
+        )
 
-    if config.state["verbose"]:
-        print(f"Resultados guardados en {results_path}")
+        model_run_name = f"metrics_{model_class.__name__}_{cv_type}_k={n_splits}_{dataset.name}_top-{top_k}"
+
+        results_path = f"{results_folder}/{model_run_name}.csv"
+        avg_metrics.to_csv(results_path)
+
+        if config.state["verbose"]:
+            print(f"Resultados guardados en {results_path}")
 
 
 @app.command("stats", help="Performs statistical tests to compare model performances.")
