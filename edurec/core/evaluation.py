@@ -32,7 +32,7 @@ def cross_validate(
 
     Args:
         df (pd.DataFrame): The input DataFrame containing the dataset.
-        model_class (type): The class of the model to be evaluated. It should inherit from `UcoRecSys`.
+        model_class (type): The class of the model to be evaluated.
         lr (float, optional): The learning rate for the optimizer. Defaults to 0.001.
         n_splits (int, optional): The number of splits for the cross-validation. Defaults to 5.
         random_state (int, optional): The random state for the cross-validation. Defaults to 42.
@@ -70,7 +70,6 @@ def cross_validate(
             val_size=len(val_df) / (len(train_df) + len(val_df)),
             ignored_cols=ignored_cols,
         )
-        dm.setup("fit")
 
         model = model_class(
             cat_cardinalities=dm.cat_cardinalities,
@@ -98,7 +97,6 @@ def cross_validate(
 
         trainer = L.Trainer(
             max_epochs=epochs,
-            # logger=eval_logger,
             accelerator="auto",
             devices="auto",
             callbacks=[earlystop, ckpt],
