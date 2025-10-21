@@ -16,7 +16,7 @@ Posible datasets to use for the project:
 See more interesting models [here](https://www.d2l.ai/chapter_recommender-systems/index.html).
 
 - [x] [MF](https://www.d2l.ai/chapter_recommender-systems/mf.html#model-implementation)
-- [ ] [NeuralMF](https://www.d2l.ai/chapter_recommender-systems/neumf.html#the-neumf-model)
+- [x] [NeuralMF](https://www.d2l.ai/chapter_recommender-systems/neumf.html#the-neumf-model)
 - [ ] [Massive Open Online Courses (MOOCs) Recommendation Modeling using Deep Learning](https://www.researchgate.net/publication/338946585_Massive_Open_Online_Courses_MOOCs_Recommendation_Modeling_using_Deep_Learning) --> Classification, very similar to the old proposed
 - [ ] [Research on Online Learning Resource Recommendation Method Based on Wide & Deep and Elmo Model](https://www.researchgate.net/publication/338425005_Research_on_Online_Learning_Resource_Recommendation_Method_Based_on_Wide_Deep_and_Elmo_Model)
 - [ ] [CBCNN](https://dl.acm.org/doi/10.1007/s00530-017-0539-8)

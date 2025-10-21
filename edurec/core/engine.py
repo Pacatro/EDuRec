@@ -55,6 +55,8 @@ class RecSys(L.LightningModule):
         train_losses_path: str = "train_losses.png",
         encoders: dict | None = None,
         plot: bool = False,
+        min_rating: float = 1.0,
+        max_rating: float = 10.0,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
@@ -68,6 +70,8 @@ class RecSys(L.LightningModule):
         self.train_losses_path = train_losses_path
         self.plot = plot
         self.encoders = encoders
+        self.min_rating = min_rating
+        self.max_rating = max_rating
 
         ranking_metrics = MetricCollection(
             {
@@ -126,10 +130,13 @@ class RecSys(L.LightningModule):
         preds = self.model(batch)
         loss = self.loss_fn(preds, ratings.float())
 
-        if ranking_metrics is not None:
+        if ranking_metrics is not None and prefix in ["val", "test"]:
             target = (ratings >= self.threshold).int()
+            preds_rating = torch.clamp(
+                input=preds, min=self.min_rating, max=self.max_rating
+            )
             ranking_metrics.update(
-                preds,
+                preds_rating,
                 target,
                 indexes=user_ids,
             )
@@ -171,7 +178,7 @@ class RecSys(L.LightningModule):
     def predict_step(self, batch):
         return self.forward(batch)
 
-    def configure_optimizers(self):
+    def configure_optimizers(self) -> dict:
         optimizer = torch.optim.Adam(
             self.parameters(), lr=self.lr, weight_decay=self.weight_decay
         )
