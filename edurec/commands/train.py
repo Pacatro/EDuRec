@@ -7,7 +7,7 @@ import typer
 from ..core import config
 from ..core.datamodule import ELearningDataModule
 from ..core.engine import RecSys
-from ..core.model import MF, EDuRec
+from ..core.model import MF, EDuRec, NeuralMF
 from ..core.datasets import DatasetName, load_data
 from ..core.model_io import save_best_model
 
@@ -71,6 +71,7 @@ def train(
             cat_cardinalities=dm.cat_cardinalities,
         ),
         MF(n_users=dm.num_users, n_items=dm.num_items),
+        NeuralMF(n_users=dm.num_users, n_items=dm.num_items),
     ]
 
     if config.state["verbose"]:
@@ -83,7 +84,6 @@ def train(
             print(f"[TRAIN] Training model: {model.__class__.__name__}")
             print(f"[TRAIN] Using logger: {use_logger}")
 
-        # Crear callbacks únicos para cada modelo
         early_stop_model = EarlyStopping(
             monitor="val/MSE",
             patience=config.PATIENCE,
@@ -135,7 +135,7 @@ def train(
 
         if debug:
             print("Debug mode enabled. Skipping evaluation.")
-            continue  # Usar continue en lugar de return
+            continue
 
         dm.setup("test")
         trainer.test(model=recsys, datamodule=dm)
@@ -144,10 +144,9 @@ def train(
         if save_model:
             save_best_model(
                 model.__class__.__name__,
-                checkpoint_model.best_model_path,  # Usar el checkpoint específico
+                checkpoint_model.best_model_path,
                 models_folder,
             )
 
-        # Finalizar el logger si existe
         if train_logger is not None:
             train_logger.finalize("success")
