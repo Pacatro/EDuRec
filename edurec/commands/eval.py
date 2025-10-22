@@ -1,7 +1,7 @@
 from typing import Annotated
 import pandas as pd
 import typer
-
+import mlflow
 
 from ..core import config
 from ..core.datasets import DatasetName, load_data
@@ -24,9 +24,15 @@ def eval(
     batch_size: Annotated[
         int, typer.Option("--batch-size", "-b", help="Batch size for training.")
     ] = config.BATCH_SIZE,
-    top_k: Annotated[
-        int, typer.Option("--top_k", "-k", help="Top-k value")
-    ] = config.TOP_K,
+    min_topk: Annotated[
+        int, typer.Option("--min-topk", "-k", help="Minimum top-k value.")
+    ] = 10,
+    max_topk: Annotated[
+        int, typer.Option("--max-topk", "-K", help="Maximum top-k value.")
+    ] = 20,
+    topk_step: Annotated[
+        int, typer.Option("--topk-step", "-s", help="Top-k step.")
+    ] = 5,
     epochs: Annotated[
         int, typer.Option("--epochs", "-e", help="Number of epochs for training.")
     ] = config.EPOCHS,
@@ -51,9 +57,6 @@ def eval(
     results_folder: Annotated[
         str, typer.Option("--results-folder", help="Folder to save results.")
     ] = config.RESULTS_FOLDER,
-    # use_logger: Annotated[
-    #     bool, typer.Option("--use_logger", "-L", help="Use MLFlow logger")
-    # ] = False,
 ):
     df = load_data(dataset)
 
@@ -63,34 +66,54 @@ def eval(
         NeuralMF,
     ]
 
-    for model_class in models_classes:
-        if config.state["verbose"]:
-            print(
-                f"[EVAL] Model: {model_class.__name__} | Dataset: {dataset.name} | top-{top_k} | CV type: {cv_type.name}"
-            )
+    mlflow.set_experiment(f"{config.EXPERIMENT_NAME}_CV")
 
-        avg_metrics = cross_validate(
-            df=df,
-            model_class=model_class,
-            n_splits=n_splits,
-            random_state=42,
-            epochs=epochs,
-            cv_type=cv_type,
-            batch_size=batch_size,
-            top_k=top_k,
-            patience=patience,
-            delta=delta,
-            # use_logger=use_logger,
-            verbose=config.state["verbose"],
-        )
+    for top_k in range(min_topk, max_topk + 1, topk_step):
+        for model_class in models_classes:
+            if config.state["verbose"]:
+                print(
+                    f"[EVAL] Model: {model_class.__name__} | Dataset: {dataset.name} | top-{top_k} | CV type: {cv_type.name}"
+                )
 
-        model_run_name = f"metrics_{model_class.__name__}_{cv_type}_k={n_splits}_{dataset.name}_top-{top_k}"
+            model_run_name = f"{model_class.__name__}_{cv_type.name}_k={n_splits}_{dataset.name}_top-{top_k}"
 
-        results_path = f"{results_folder}/{model_run_name}.csv"
-        avg_metrics.to_csv(results_path)
+            with mlflow.start_run(run_name=model_run_name):
+                mlflow.log_params(
+                    {
+                        "model": model_class.__name__,
+                        "top-k": top_k,
+                    }
+                )
 
-        if config.state["verbose"]:
-            print(f"Resultados guardados en {results_path}")
+                avg_metrics = cross_validate(
+                    df=df,
+                    model_class=model_class,
+                    n_splits=n_splits,
+                    random_state=42,
+                    epochs=epochs,
+                    cv_type=cv_type,
+                    batch_size=batch_size,
+                    top_k=top_k,
+                    patience=patience,
+                    delta=delta,
+                    verbose=config.state["verbose"],
+                )
+
+                metrics_dict = {}
+                for metric_name, row in avg_metrics.iterrows():
+                    metrics_dict[f"{metric_name}_mean"] = float(row["mean"])
+                    metrics_dict[f"{metric_name}_std"] = float(row["std"])
+
+                metrics_dict["top_k"] = top_k
+                mlflow.log_metrics(metrics_dict)
+
+                results_path = f"{results_folder}/{model_run_name}.csv"
+                avg_metrics.to_csv(results_path)
+
+                mlflow.log_artifact(results_path)
+
+                if config.state["verbose"]:
+                    print(f"Resultados guardados en {results_path}")
 
 
 @app.command("stats", help="Performs statistical tests to compare model performances.")
