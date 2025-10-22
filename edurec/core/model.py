@@ -41,7 +41,8 @@ class EDuRec(nn.Module):
         dropout: float = 0.5,
         **kwargs,
     ):
-        super().__init__(**kwargs)
+        super().__init__()
+        _ = kwargs
 
         # CF embeddings
         self.user_embedding = nn.Embedding(n_users, emb_dim)
@@ -140,7 +141,8 @@ class MF(nn.Module):
         emb_dim: int = 128,
         **kwargs,
     ):
-        super().__init__(**kwargs)
+        super().__init__()
+        _ = kwargs
         self.user_embedding = nn.Embedding(n_users, emb_dim)
         self.item_embedding = nn.Embedding(n_items, emb_dim)
         self.user_bias = nn.Embedding(n_users, 1)
@@ -170,7 +172,8 @@ class NeuralMF(nn.Module):
         hidden_dims: list[int] = [256, 128, 64, 32, 16],
         **kwargs,
     ):
-        super().__init__(**kwargs)
+        super().__init__()
+        _ = kwargs
         # Embeddings for GMF
         self.P = nn.Embedding(n_users, emb_dim)
         self.Q = nn.Embedding(n_items, emb_dim)
