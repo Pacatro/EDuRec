@@ -74,8 +74,6 @@ def train(
         print(f"[TRAIN] Dataset {dataset} sparsity: {dm.sparsity}")
         print(f"[TRAIN] Dataset {dataset} threshold: {dm.threshold}")
         print(f"[TRAIN] Dataset {dataset} lenght: {len(dm.df)}")
-
-    if config.state["verbose"]:
         print(f"[TRAIN] Training model: {model.__class__.__name__}")
         print(f"[TRAIN] Using logger: {use_logger}")
 
