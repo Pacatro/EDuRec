@@ -79,7 +79,7 @@ class EDuRec(nn.Module):
         self.mlp = nn.Sequential(*layers)
 
         # Hyperparameters
-        self.cont_features = cont_features
+        self.cont_features: list[str] = cont_features
 
     def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         u = batch["user_id"].long()
