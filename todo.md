@@ -24,9 +24,6 @@ See more interesting models [here](https://www.d2l.ai/chapter_recommender-system
 
 ## Ideas for improvements to the actual model
 
-- Use Dot product and of Hadamard product
-- Use [BPR](https://www.d2l.ai/chapter_recommender-systems/ranking.html#bayesian-personalized-ranking-loss-and-its-implementation) loss
-  - To use this, we have to take negative samples of the dataset
-- Transformers for attention mechanism in user/item text data
+- [Transformed based recommender system](https://www.nature.com/articles/s41598-025-08931-1)
 
 ## Actual improvements

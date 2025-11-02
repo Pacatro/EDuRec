@@ -1,15 +1,16 @@
-import torch
-from torch import nn
 import lightning.pytorch as L
-from torchmetrics import MetricCollection, Metric
+import torch
+from lightning.pytorch.utilities.types import OptimizerLRScheduler
+from torch import nn
+from torchmetrics import Metric, MetricCollection
 from torchmetrics.retrieval import (
-    RetrievalPrecision,
-    RetrievalRecall,
-    RetrievalNormalizedDCG,
+    RetrievalAUROC,
     RetrievalHitRate,
     RetrievalMAP,
     RetrievalMRR,
-    RetrievalAUROC,
+    RetrievalNormalizedDCG,
+    RetrievalPrecision,
+    RetrievalRecall,
 )
 
 
@@ -50,11 +51,7 @@ class RecSys(L.LightningModule):
         weight_decay: float = 1e-6,
         top_k: int = 10,
         loss_fn: nn.Module | None = None,
-        val_metrics_path: str = "val_metrics.png",
-        train_metrics_path: str = "train_metrics.png",
-        train_losses_path: str = "train_losses.png",
         encoders: dict | None = None,
-        plot: bool = False,
         min_rating: float = 1.0,
         max_rating: float = 10.0,
     ):
@@ -65,27 +62,19 @@ class RecSys(L.LightningModule):
         self.threshold = threshold
         self.lr = lr
         self.weight_decay = weight_decay
-        self.val_metrics_path = val_metrics_path
-        self.train_metrics_path = train_metrics_path
-        self.train_losses_path = train_losses_path
-        self.plot = plot
         self.encoders = encoders
         self.min_rating = min_rating
         self.max_rating = max_rating
 
         ranking_metrics = MetricCollection(
-            {
-                f"Precision_{top_k}": RetrievalPrecision(top_k=top_k, adaptive_k=True),
-                f"Recall_{top_k}": RetrievalRecall(top_k=top_k),
-                f"F1_{top_k}": RetrievalFBetaScore(
-                    top_k=top_k, beta=1.0, adaptive_k=True
-                ),
-                f"NDCG_{top_k}": RetrievalNormalizedDCG(top_k=top_k),
-                f"HR_{top_k}": RetrievalHitRate(top_k=top_k),
-                f"MAP_{top_k}": RetrievalMAP(top_k=top_k),
-                f"MRR_{top_k}": RetrievalMRR(top_k=top_k),
-                f"AUROC_{top_k}": RetrievalAUROC(top_k=top_k),
-            }
+            RetrievalPrecision(top_k=top_k, adaptive_k=True),
+            RetrievalRecall(top_k=top_k),
+            RetrievalFBetaScore(top_k=top_k, beta=1.0, adaptive_k=True),
+            RetrievalNormalizedDCG(top_k=top_k),
+            RetrievalHitRate(top_k=top_k),
+            RetrievalMAP(top_k=top_k),
+            RetrievalMRR(top_k=top_k),
+            RetrievalAUROC(top_k=top_k),
         )
 
         self.val_ranking_metrics = ranking_metrics.clone(prefix="val/")
@@ -178,7 +167,7 @@ class RecSys(L.LightningModule):
     def predict_step(self, batch):
         return self.forward(batch)
 
-    def configure_optimizers(self) -> dict:
+    def configure_optimizers(self) -> OptimizerLRScheduler:
         optimizer = torch.optim.Adam(
             self.parameters(), lr=self.lr, weight_decay=self.weight_decay
         )

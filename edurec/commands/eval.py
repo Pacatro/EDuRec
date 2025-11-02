@@ -101,8 +101,8 @@ def eval(
 
                 metrics_dict = {}
                 for metric_name, row in avg_metrics.iterrows():
-                    metrics_dict[f"{metric_name}_mean"] = float(row["mean"])
-                    metrics_dict[f"{metric_name}_std"] = float(row["std"])
+                    metrics_dict[f"{metric_name}"] = float(row["mean"])
+                    # metrics_dict[f"{metric_name}_std"] = float(row["std"])
 
                 metrics_dict["top_k"] = top_k
                 mlflow.log_metrics(metrics_dict)
