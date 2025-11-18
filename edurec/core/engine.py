@@ -80,7 +80,7 @@ class RecSys(L.LightningModule):
         self.val_ranking_metrics = ranking_metrics.clone(prefix="val/")
         self.test_ranking_metrics = ranking_metrics.clone(prefix="test/")
 
-    def forward(self, batch):
+    def forward(self, batch) -> dict[str, int | float | bool]:
         score = self.model(batch)
 
         if self.encoders:
@@ -109,7 +109,7 @@ class RecSys(L.LightningModule):
 
     def _step(
         self,
-        batch: dict,
+        batch: dict[str, torch.Tensor],
         prefix: str,
         ranking_metrics: MetricCollection | None = None,
     ):
@@ -135,37 +135,37 @@ class RecSys(L.LightningModule):
 
         return loss
 
-    def training_step(self, batch):
+    def training_step(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         return self._step(batch, "train")
 
-    def validation_step(self, batch):
+    def validation_step(self, batch: dict[str, torch.Tensor]) -> None:
         self._step(
             batch,
             "val",
             ranking_metrics=self.val_ranking_metrics,
         )
 
-    def test_step(self, batch):
+    def test_step(self, batch: dict[str, torch.Tensor]) -> None:
         self._step(
             batch,
             "test",
             ranking_metrics=self.test_ranking_metrics,
         )
 
-    def on_validation_epoch_start(self):
+    def on_validation_epoch_start(self) -> None:
         self.val_ranking_metrics.reset()
 
-    def on_validation_epoch_end(self):
+    def on_validation_epoch_end(self) -> None:
         self.log_dict(self.val_ranking_metrics.compute())
 
-    def on_test_epoch_start(self):
+    def on_test_epoch_start(self) -> None:
         self.test_ranking_metrics.reset()
 
-    def on_test_epoch_end(self):
+    def on_test_epoch_end(self) -> None:
         self.log_dict(self.test_ranking_metrics.compute())
 
-    def predict_step(self, batch):
-        return self.forward(batch)
+    def predict_step(self, batch: dict[str, torch.Tensor]) -> dict[str, int | float]:
+        return self(batch)
 
     def configure_optimizers(self) -> OptimizerLRScheduler:
         optimizer = torch.optim.Adam(
