@@ -122,15 +122,9 @@ class RecSys(L.LightningModule):
         mae = mean_absolute_error(preds, ratings.float())
 
         if ranking_metrics is not None and prefix in ["val", "test"]:
+            # preds = torch.clamp(input=preds, min=self.min_rating, max=self.max_rating)
             target = (ratings >= self.threshold).int()
-            preds_rating = torch.clamp(
-                input=preds, min=self.min_rating, max=self.max_rating
-            )
-            ranking_metrics.update(
-                preds_rating,
-                target,
-                indexes=user_ids,
-            )
+            ranking_metrics.update(preds, target, indexes=user_ids)
 
         self.log(f"{prefix}/MSE", loss, prog_bar=False)
         self.log(f"{prefix}/RMSE", (loss**0.5), prog_bar=True)
