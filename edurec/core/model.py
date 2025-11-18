@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 
-class EDuRec(nn.Module):
+class EDuRecV1(nn.Module):
     """
     This is the proposed model for the RecSys, is a hybrid recommendation model that combines collaborative filtering (CF)
     and content-based (CB) features using a neural network architecture.

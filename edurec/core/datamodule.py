@@ -144,12 +144,13 @@ class ELearningDataModule(L.LightningDataModule):
             col for col in self.df.columns if col not in self.protected_cols
         ]
 
+        # If the column is numeric, scale it
+        # If the column is categorical, encode it (handle NaNs as "Undefined")
         for col in remaining_cols:
             if is_numeric_dtype(self.df[col]):
                 scaler = MinMaxScaler().fit(self.df[[col]])
                 self.scalers[col] = scaler
                 self.cont_features.append(col)
-
             else:
                 self.df[col] = self.df[col].astype("category")
                 num_nans = self.df[col].isna().sum()

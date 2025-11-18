@@ -3,8 +3,9 @@ import torch
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from torch import nn
 from torchmetrics import Metric, MetricCollection
+from torchmetrics.functional import mean_absolute_error
 from torchmetrics.retrieval import (
-    RetrievalAUROC,
+    # RetrievalAUROC,
     RetrievalHitRate,
     RetrievalMAP,
     RetrievalMRR,
@@ -74,7 +75,7 @@ class RecSys(L.LightningModule):
             RetrievalHitRate(top_k=top_k),
             RetrievalMAP(top_k=top_k),
             RetrievalMRR(top_k=top_k),
-            RetrievalAUROC(top_k=top_k),
+            # RetrievalAUROC(top_k=top_k),
         )
 
         self.val_ranking_metrics = ranking_metrics.clone(prefix="val/")
@@ -118,6 +119,7 @@ class RecSys(L.LightningModule):
 
         preds = self.model(batch)
         loss = self.loss_fn(preds, ratings.float())
+        mae = mean_absolute_error(preds, ratings.float())
 
         if ranking_metrics is not None and prefix in ["val", "test"]:
             target = (ratings >= self.threshold).int()
@@ -130,8 +132,9 @@ class RecSys(L.LightningModule):
                 indexes=user_ids,
             )
 
-        self.log(f"{prefix}/MSE", loss, prog_bar=True)
+        self.log(f"{prefix}/MSE", loss, prog_bar=False)
         self.log(f"{prefix}/RMSE", (loss**0.5), prog_bar=True)
+        self.log(f"{prefix}/MAE", mae, prog_bar=False)
 
         return loss
 
@@ -146,6 +149,7 @@ class RecSys(L.LightningModule):
         )
 
     def test_step(self, batch: dict[str, torch.Tensor]) -> None:
+        # TODO: The metrics calculation should be across all dataset isntead of a single batch
         self._step(
             batch,
             "test",
