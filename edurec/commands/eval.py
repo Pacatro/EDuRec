@@ -6,7 +6,7 @@ import mlflow
 from ..core import config
 from ..core.datasets import DatasetName, load_data
 from ..core.evaluation import cross_validate, CVType
-from ..core.model import EDuRec, NeuralMF, MF
+from ..core.model import EDuRecV1, NeuralMF, MF
 from ..core.stats import friedman_test
 
 
@@ -61,7 +61,7 @@ def eval(
     df = load_data(dataset)
 
     models_classes = [
-        EDuRec,
+        EDuRecV1,
         MF,
         NeuralMF,
     ]

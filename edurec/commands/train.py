@@ -7,7 +7,7 @@ import typer
 from ..core import config
 from ..core.datamodule import ELearningDataModule
 from ..core.engine import RecSys
-from ..core.model import EDuRec
+from ..core.model import EDuRecV1
 from ..core.datasets import DatasetName, load_data
 from ..core.model_io import save_best_model
 
@@ -63,7 +63,7 @@ def train(
         # balance=balance,
     )
 
-    model = EDuRec(
+    model = EDuRecV1(
         n_users=dm.num_users,
         n_items=dm.num_items,
         cont_features=dm.cont_features,
