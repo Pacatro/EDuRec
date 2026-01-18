@@ -16,7 +16,7 @@ USER_COL: str = "user_id"
 
 # Training
 LR: float = 0.001
-BATCH_SIZE: int = 64
+BATCH_SIZE: int = 128
 EPOCHS: int = 100
 PATIENCE: int = 5
 DELTA: float = 0.001
