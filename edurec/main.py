@@ -2,7 +2,9 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+
 from .core import config
+from .commands.train import app as train_app
 
 app = typer.Typer(
     rich_markup_mode=None,
@@ -10,7 +12,7 @@ app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 
-# app.add_typer(train_app)
+app.add_typer(train_app)
 # app.add_typer(eval_app)
 # app.add_typer(predict_app)
 

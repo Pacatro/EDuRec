@@ -1,12 +1,14 @@
 import lightning as L
 import pandas as pd
+from sklearn.preprocessing import LabelEncoder
 import torch
 from sklearn.model_selection import train_test_split
-from sklearn.pipeline import Pipeline
 from torch.utils.data import DataLoader, Dataset
+from pathlib import Path
 
 from . import config
 from .datasets import DatasetName, load_data
+from .preprocessing import Preprocessor
 
 
 class ElearningDataset(Dataset):
@@ -28,50 +30,87 @@ class ElearningDataModule(L.LightningDataModule):
         test_size: float,
         val_size: float,
         threshold: float,
-        random_state: int,
+        save_data: bool = True,
+        random_state: int | None = None,
     ) -> None:
         super().__init__()
+        self.dataset_name = dataset
         self.batch_size = batch_size
         self.test_size = test_size
         self.val_size = val_size
         self.threshold = threshold
         self.random_state = random_state
+        self.preprocessor: Preprocessor | None = None
+        self.save_data = save_data
 
-        self.df = load_data(dataset)
+    def _is_data_on_disk(self) -> bool:
+        p = Path(config.DATA_FOLDER) / self.dataset_name.value
+        return p.exists() and p.is_dir() and any(p.iterdir())
 
-    def _split(self) -> None:
+    def _split(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         if config.TIME_COL in self.df.columns:
             self.df = self.df.sort_values(by=config.TIME_COL)
-            train_val_df, self.test_df = train_test_split(
+            train_val_df, test_df = train_test_split(
                 self.df,
                 test_size=self.test_size,
                 shuffle=False,
                 random_state=self.random_state,
             )
-            self.train_df, self.val_df = train_test_split(
+            train_df, val_df = train_test_split(
                 train_val_df,
                 test_size=self.val_size / (1 - self.test_size),
                 shuffle=False,
                 random_state=self.random_state,
             )
         else:
-            train_val_df, self.test_df = train_test_split(
+            train_val_df, test_df = train_test_split(
                 self.df,
                 test_size=self.test_size,
                 random_state=self.random_state,
             )
-            self.train_df, self.val_df = train_test_split(
+            train_df, val_df = train_test_split(
                 train_val_df,
                 test_size=self.val_size / (1 - self.test_size),
                 random_state=self.random_state,
             )
 
-    def setup(self, stage: str | None = None) -> None:
-        self._split()
+        assert isinstance(train_df, pd.DataFrame)
+        assert isinstance(val_df, pd.DataFrame)
+        assert isinstance(test_df, pd.DataFrame)
 
-        assert isinstance(self.train_df, pd.DataFrame)
-        assert isinstance(self.val_df, pd.DataFrame)
-        assert isinstance(self.test_df, pd.DataFrame)
+        return train_df, val_df, test_df
+
+    def setup(self, stage: str | None = None) -> None:
+        data_path = Path(config.DATA_FOLDER) / self.dataset_name.value
+
+        if self._is_data_on_disk():
+            print("Loading data from disk")
+            self.train_df = pd.read_csv(data_path / "train.csv")
+            self.val_df = pd.read_csv(data_path / "val.csv")
+            self.test_df = pd.read_csv(data_path / "test.csv")
+        else:
+            self.df = load_data(self.dataset_name)
+            self.df[config.USER_COL] = LabelEncoder().fit_transform(
+                self.df[config.USER_COL]
+            )
+            self.df[config.ITEM_COL] = LabelEncoder().fit_transform(
+                self.df[config.ITEM_COL]
+            )
+
+            train_df, val_df, test_df = self._split()
+
+            self.preprocessor = Preprocessor(
+                train_df=train_df, val_df=val_df, test_df=test_df
+            )
+
+            self.train_df, self.val_df, self.test_df = self.preprocessor.fit_transform()
+
+            if self.save_data:
+                print("saving")
+                data_path.mkdir(parents=True, exist_ok=True)
+                self.train_df.to_csv(data_path / "train.csv", index=False)
+                self.val_df.to_csv(data_path / "val.csv", index=False)
+                self.test_df.to_csv(data_path / "test.csv", index=False)
 
         match stage:
             case "fit":
