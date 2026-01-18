@@ -2,7 +2,7 @@ import pandas as pd
 from pandas.api.types import is_numeric_dtype
 import torch
 from torch.utils.data import Dataset, DataLoader
-from sklearn.preprocessing import OrdinalEncoder, MinMaxScaler
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler
 from sklearn.model_selection import train_test_split
 import lightning as L
 
@@ -29,7 +29,7 @@ class ELearningDataset(Dataset):
         self.df = df.copy()
         if encoders:
             for col, encoder in encoders.items():
-                self.df[col] = encoder.transform(self.df[[col]])
+                self.df[col] = encoder.transform(self.df[col])
 
         if scalers:
             for col, scaler in scalers.items():
@@ -131,8 +131,8 @@ class ELearningDataModule(L.LightningDataModule):
 
         assert self.df[self.target].isna().sum() == 0
 
-        user_encoder = OrdinalEncoder().fit(self.df[[self.user_col]])
-        item_encoder = OrdinalEncoder().fit(self.df[[self.item_col]])
+        user_encoder = LabelEncoder().fit(self.df[self.user_col])
+        item_encoder = LabelEncoder().fit(self.df[self.item_col])
         self.encoders[self.user_col] = user_encoder
         self.encoders[self.item_col] = item_encoder
 
@@ -158,7 +158,7 @@ class ELearningDataModule(L.LightningDataModule):
                     self.df[col] = self.df[col].cat.add_categories("Undefined")
                     self.df[col] = self.df[col].fillna("Undefined")
 
-                le = OrdinalEncoder().fit(self.df[[col]])
+                le = LabelEncoder().fit(self.df[col])
                 self.encoders[col] = le
                 self.cat_cardinalities[col] = self.df[col].nunique()
 
