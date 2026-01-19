@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["mlflow>=3.4.0"]
+dev = ["mlflow>=3.4.0", "pytest>=9.0.2"]
 
 [tool.uv.sources]
 torch = [
@@ -33,6 +33,11 @@ torchvision = [
 name = "pytorch-cu126"
 url = "https://download.pytorch.org/whl/cu126"
 explicit = true
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-v"
 
 [project.scripts]
 edurec = "edurec.main:app"

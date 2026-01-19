@@ -4,7 +4,7 @@ from sklearn.model_selection import KFold, LeaveOneOut
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from enum import Enum
 
-from .datamodule import ELearningDataModule
+from .data import ElearningDataModule
 from .engine import RecSys
 
 
@@ -63,12 +63,11 @@ def cross_validate(
         train_df = df.iloc[train_idx].reset_index(drop=True)
         val_df = df.iloc[test_idx].reset_index(drop=True)
 
-        dm = ELearningDataModule(
+        dm = ElearningDataModule(
             df=pd.concat([train_df, val_df], ignore_index=True),
             batch_size=batch_size,
             test_size=0,
             val_size=len(val_df) / (len(train_df) + len(val_df)),
-            ignored_cols=ignored_cols,
         )
 
         model_config = {

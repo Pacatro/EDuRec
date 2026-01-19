@@ -23,3 +23,6 @@ saved_models/
 
 # Predict file
 ./data/predict_df.csv
+
+# Data
+raw_data/

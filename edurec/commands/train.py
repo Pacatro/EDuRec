@@ -5,9 +5,10 @@ from lightning.pytorch.loggers import MLFlowLogger
 import typer
 
 from ..core import config
-from ..core.datamodule import ELearningDataModule
-from ..core.engine import RecSys
-from ..core.model import EDuRecV1
+from ..core.data import ElearningDataModule
+
+# from ..core.engine import RecSys
+# from ..core.model import EDuRecV1
 from ..core.datasets import DatasetName, load_data
 from ..core.model_io import save_best_model
 
@@ -50,92 +51,15 @@ def train(
         ),
     ] = config.MODELS_FOLDER,
 ):
-    df = load_data(dataset)
-
-    droped_interactions = df[df["user_id"] == 292680].sample(n=10, random_state=1)
-    df = df.drop(droped_interactions.index.to_list())
-    droped_interactions.to_csv("./data/predict_df.csv")
-
-    dm = ELearningDataModule(
-        df,
-        target=target,
-        batch_size=batch_size,
-        # balance=balance,
+    dm = ElearningDataModule(
+        dataset=dataset,
+        batch_size=config.BATCH_SIZE,
+        test_size=0.2,
+        val_size=0.2,
+        threshold=0.5,
+        random_state=config.state["random_state"],
     )
 
-    model = EDuRecV1(
-        n_users=dm.num_users,
-        n_items=dm.num_items,
-        cont_features=dm.cont_features,
-        cat_cardinalities=dm.cat_cardinalities,
-    )
+    dm.setup()
 
-    if config.state["verbose"]:
-        print(f"[TRAIN] Dataset {dataset} sparsity: {dm.sparsity}")
-        print(f"[TRAIN] Dataset {dataset} threshold: {dm.threshold}")
-        print(f"[TRAIN] Dataset {dataset} lenght: {len(dm.df)}")
-        print(f"[TRAIN] Training model: {model.__class__.__name__}")
-        print(f"[TRAIN] Using logger: {use_logger}")
-
-    early_stop_model = EarlyStopping(
-        monitor="val/MSE",
-        patience=config.PATIENCE,
-        mode="min",
-        min_delta=config.DELTA,
-        verbose=True,
-    )
-
-    checkpoint_model = ModelCheckpoint(
-        monitor="val/MSE",
-        mode="min",
-        save_top_k=1,
-        filename="best_model",
-    )
-
-    train_logger = (
-        MLFlowLogger(
-            experiment_name=config.EXPERIMENT_NAME,
-            run_name=f"{model.__class__.__name__}",
-            tracking_uri="file:./mlruns",
-        )
-        if use_logger and not debug
-        else None
-    )
-
-    recsys = RecSys(
-        model=model,
-        top_k=top_k,
-        threshold=dm.threshold,
-        lr=lr,
-    )
-
-    trainer = L.Trainer(
-        logger=train_logger,
-        max_epochs=epochs,
-        accelerator="auto",
-        devices="auto",
-        log_every_n_steps=10,
-        callbacks=[early_stop_model, checkpoint_model],
-        fast_dev_run=debug,
-        enable_model_summary=config.state["verbose"],
-    )
-
-    trainer.fit(recsys, datamodule=dm)
-
-    if debug:
-        print("Debug mode enabled. Skipping evaluation.")
-        return
-
-    dm.setup("test")
-    trainer.test(model=recsys, datamodule=dm)
-
-    # Save best model path
-    if save_model:
-        save_best_model(
-            model.__class__.__name__,
-            checkpoint_model.best_model_path,
-            models_folder,
-        )
-
-    if train_logger is not None:
-        train_logger.finalize("success")
+    print(dm.train_df)
