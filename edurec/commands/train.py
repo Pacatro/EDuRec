@@ -1,15 +1,15 @@
 from typing import Annotated
+
 import lightning as L
+import typer
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import MLFlowLogger
-import typer
 
 from ..core import config
 from ..core.data import ElearningDataModule
-
-# from ..core.engine import RecSys
-# from ..core.model import EDuRecV1
-from ..core.datasets import DatasetName, load_data
+from ..core.datasets import DatasetName
+from ..core.engine import RecSys
+from ..core.model import EDuRecV1
 from ..core.model_io import save_best_model
 
 app = typer.Typer(no_args_is_help=True)
@@ -21,9 +21,6 @@ def train(
         DatasetName,
         typer.Option("--dataset", "-d", help="Dataset to use"),
     ] = DatasetName.MARS,
-    target: Annotated[
-        str, typer.Option("--target", "-t", help="Target column")
-    ] = config.TARGET_COL,
     epochs: Annotated[
         int, typer.Option("--epochs", "-e", help="Number of epochs")
     ] = config.EPOCHS,
@@ -31,6 +28,12 @@ def train(
     batch_size: Annotated[
         int, typer.Option("--batch_size", "-b", help="Batch size")
     ] = config.BATCH_SIZE,
+    val_size: Annotated[
+        float, typer.Option("--val_size", "-v", help="Validation size")
+    ] = config.VAL_SIZE,
+    test_size: Annotated[
+        float, typer.Option("--test_size", "-t", help="Test size")
+    ] = config.TEST_SIZE,
     top_k: Annotated[
         int, typer.Option("--top_k", "-k", help="Top-k value")
     ] = config.TOP_K,
@@ -53,13 +56,83 @@ def train(
 ):
     dm = ElearningDataModule(
         dataset=dataset,
-        batch_size=config.BATCH_SIZE,
-        test_size=0.2,
-        val_size=0.2,
-        threshold=0.5,
+        batch_size=batch_size,
+        test_size=test_size,
+        val_size=val_size,
         random_state=config.state["random_state"],
     )
 
-    dm.setup()
+    model = EDuRecV1(
+        n_users=dm.num_users,
+        n_items=dm.num_items,
+        cont_features=dm.numeric_features,
+        cat_cardinalities=dm.cat_cardinalities,
+    )
 
-    print(dm.train_df)
+    if config.state["verbose"]:
+        print(f"[TRAIN] Dataset {dataset} sparsity: {dm.sparsity}")
+        print(f"[TRAIN] Training model: {model.__class__.__name__}")
+        print(f"[TRAIN] Using logger: {use_logger}")
+
+    recsys = RecSys(
+        model=model,
+        top_k=top_k,
+        threshold=dm.threshold,
+        lr=lr,
+    )
+
+    early_stop_model = EarlyStopping(
+        monitor="val/MSE",
+        patience=config.PATIENCE,
+        mode="min",
+        min_delta=config.DELTA,
+        verbose=True,
+    )
+
+    checkpoint_model = ModelCheckpoint(
+        monitor="val/MSE",
+        mode="min",
+        save_top_k=1,
+        filename="best_model",
+    )
+
+    train_logger = (
+        MLFlowLogger(
+            experiment_name=config.EXPERIMENT_NAME,
+            run_name=f"{model.__class__.__name__}",
+            tracking_uri="file:./mlruns",
+        )
+        if use_logger and not debug
+        else None
+    )
+
+    trainer = L.Trainer(
+        logger=train_logger,
+        max_epochs=epochs,
+        accelerator="auto",
+        devices="auto",
+        log_every_n_steps=10,
+        callbacks=[early_stop_model, checkpoint_model],
+        fast_dev_run=debug,
+        enable_model_summary=config.state["verbose"],
+    )
+
+    trainer.fit(recsys, datamodule=dm)
+
+    if debug:
+        print("Debug mode enabled. Skipping evaluation.")
+        return
+
+    dm.setup("test")
+    trainer.test(model=recsys, datamodule=dm)
+
+    # Save best model path
+    if save_model:
+        save_best_model(
+            model.__class__.__name__,
+            checkpoint_model.best_model_path,
+            models_folder,
+        )
+
+    if train_logger is not None:
+        train_logger.finalize("success")

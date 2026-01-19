@@ -86,18 +86,17 @@ def load_mars() -> pd.DataFrame:
         inplace=True,
     )
 
-    # features = [
-    #     config.USER_COL,
-    #     config.ITEM_COL,
-    #     "item_type",
-    #     "difficulty",
-    #     "nb_views",
-    #     "watch_percentage",
-    #     "rating",
-    # ]
-    #
-    # result_df = df[features]
-    result_df = df
+    features = [
+        config.USER_COL,
+        config.ITEM_COL,
+        "item_type",
+        "difficulty",
+        "nb_views",
+        "watch_percentage",
+        "rating",
+    ]
+
+    result_df = df[features]
     assert isinstance(result_df, pd.DataFrame)
     return result_df
 
@@ -122,28 +121,28 @@ def load_itm() -> pd.DataFrame:
         columns={"UserID": config.USER_COL, "Item": config.ITEM_COL, "Rating": "rating"}
     )
 
-    # features = [
-    #     config.USER_COL,
-    #     config.ITEM_COL,
-    #     "Title",
-    #     "Semester",
-    #     "Class",
-    #     "App",
-    #     "Lockdown",
-    #     "Ease",
-    #     " Age",
-    #     "Married",
-    #     "rating",
-    # ]
-    #
-    # result_df = merged_df[features]
-    result_df = merged_df
+    features = [
+        config.USER_COL,
+        config.ITEM_COL,
+        "Title",
+        "Semester",
+        "Class",
+        "App",
+        "Lockdown",
+        "Ease",
+        " Age",
+        "Married",
+        "rating",
+    ]
+
+    result_df = merged_df[features]
     assert isinstance(result_df, pd.DataFrame)
     return result_df
 
 
-def load_data(dataset_name: DatasetName) -> pd.DataFrame:
-    """Load the specified dataset.
+def load_raw_data(dataset_name: DatasetName) -> pd.DataFrame:
+    """
+    Load the specified dataset. If data was processed before, laod the data from disk.
 
     Args:
         dataset_name (DatasetName): The name of the dataset to load.

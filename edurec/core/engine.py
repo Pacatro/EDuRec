@@ -143,7 +143,6 @@ class RecSys(L.LightningModule):
         )
 
     def test_step(self, batch: dict[str, torch.Tensor]) -> None:
-        # TODO: The metrics calculation should be across all dataset isntead of a single batch
         self._step(
             batch,
             "test",

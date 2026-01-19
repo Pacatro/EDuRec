@@ -1,19 +1,20 @@
+from pathlib import Path
 import lightning as L
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 import torch
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset
-from pathlib import Path
 
 from . import config
-from .datasets import DatasetName, load_data
+from .datasets import DatasetName, load_raw_data
 from .preprocess import Preprocessor
 
 
 class ElearningDataset(Dataset):
     def __init__(self, df: pd.DataFrame) -> None:
         self.df = df.copy()
+        self.columns = list(df.columns)
 
     def __len__(self) -> int:
         return len(self.df)
@@ -29,8 +30,6 @@ class ElearningDataModule(L.LightningDataModule):
         batch_size: int,
         test_size: float,
         val_size: float,
-        threshold: float,
-        save_data: bool = True,
         random_state: int | None = None,
     ) -> None:
         super().__init__()
@@ -38,13 +37,23 @@ class ElearningDataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.test_size = test_size
         self.val_size = val_size
-        self.threshold = threshold
         self.random_state = random_state
-        self.save_data = save_data
 
-    def _is_data_on_disk(self) -> bool:
-        p = Path(config.DATA_FOLDER) / self.dataset_name.value
-        return p.exists() and p.is_dir() and any(p.iterdir())
+        self.preprocessor = Preprocessor()
+        self.is_preprocessed = False
+        self.processed_path = (
+            Path(config.DATA_FOLDER) / f"{self.dataset_name.value}.csv"
+        )
+
+        self.df = self._load_data()
+        self._process_data()
+
+    def _load_data(self) -> pd.DataFrame:
+        if self.processed_path.exists() and self.processed_path.is_file():
+            self.is_preprocessed = True
+            return pd.read_csv(self.processed_path)
+
+        return load_raw_data(self.dataset_name)
 
     def _split(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         if config.TIME_COL in self.df.columns:
@@ -79,15 +88,9 @@ class ElearningDataModule(L.LightningDataModule):
 
         return train_df, val_df, test_df
 
-    def setup(self, stage: str | None = None) -> None:
-        data_path = Path(config.DATA_FOLDER) / self.dataset_name.value
-
-        if self._is_data_on_disk():
-            self.train_df = pd.read_csv(data_path / "train.csv")
-            self.val_df = pd.read_csv(data_path / "val.csv")
-            self.test_df = pd.read_csv(data_path / "test.csv")
-        else:
-            self.df = load_data(self.dataset_name)
+    def _process_data(self) -> None:
+        if not self.is_preprocessed:
+            print("Preprocessing data")
             self.df[config.USER_COL] = LabelEncoder().fit_transform(
                 self.df[config.USER_COL]
             )
@@ -97,18 +100,22 @@ class ElearningDataModule(L.LightningDataModule):
 
             train_df, val_df, test_df = self._split()
 
-            preprocessor = Preprocessor(
-                train_df=train_df, val_df=val_df, test_df=test_df
+            self.train_df, self.val_df, self.test_df = self.preprocessor.fit_transform(
+                train_df=train_df,
+                val_df=val_df,
+                test_df=test_df,
             )
 
-            self.train_df, self.val_df, self.test_df = preprocessor.fit_transform()
+            processed_df = pd.concat(
+                [self.train_df, self.val_df, self.test_df], ignore_index=True
+            )
 
-            if self.save_data:
-                data_path.mkdir(parents=True, exist_ok=True)
-                self.train_df.to_csv(data_path / "train.csv", index=False)
-                self.val_df.to_csv(data_path / "val.csv", index=False)
-                self.test_df.to_csv(data_path / "test.csv", index=False)
+            self.processed_path.parent.mkdir(parents=True, exist_ok=True)
+            processed_df.to_csv(self.processed_path, index=False)
+        else:
+            self.train_df, self.val_df, self.test_df = self._split()
 
+    def setup(self, stage: str | None = None) -> None:
         match stage:
             case "fit":
                 self.train_ds = ElearningDataset(self.train_df)
@@ -130,3 +137,27 @@ class ElearningDataModule(L.LightningDataModule):
         return DataLoader(
             self.test_ds, batch_size=self.batch_size, num_workers=config.NUM_WORKERS
         )
+
+    @property
+    def num_users(self) -> int:
+        return int(self.df[config.USER_COL].nunique())
+
+    @property
+    def num_items(self) -> int:
+        return int(self.df[config.ITEM_COL].nunique())
+
+    @property
+    def numeric_features(self) -> list[str]:
+        return self.preprocessor.numeric_cols
+
+    @property
+    def cat_cardinalities(self) -> dict[str, int]:
+        return self.preprocessor.categorical_lengths
+
+    @property
+    def sparsity(self) -> float:
+        return 1 - len(self.df) / (self.num_users * self.num_items)
+
+    @property
+    def threshold(self) -> float:
+        return float(self.df[config.TARGET_COL].mean())

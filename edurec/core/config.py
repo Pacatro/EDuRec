@@ -28,6 +28,8 @@ PATIENCE: int = 5
 DELTA: float = 0.001
 TOP_K: int = 10
 NUM_WORKERS: int = 2
+VAL_SIZE: float = 0.1
+TEST_SIZE: float = 0.4
 
 # Eval
 SEEDS: list[int] = [0, 1, 42]

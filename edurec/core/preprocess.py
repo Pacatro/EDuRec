@@ -1,24 +1,18 @@
 import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import MinMaxScaler, OrdinalEncoder
-from sklearn.impute import SimpleImputer
-# from sklearn.feature_selection import SelectKBest
 
 from . import config
 
 
 class Preprocessor:
-    def __init__(
-        self, train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFrame
-    ):
-        self.train_df = train_df.copy()
-        self.val_df = val_df.copy()
-        self.test_df = test_df.copy()
-        self.numeric_cols = []
-        self.categorical_cols = []
-        self.categorical_lengths = {}
+    def __init__(self):
+        self.numeric_cols: list[str] = []
+        self.categorical_cols: list[str] = []
+        self.categorical_lengths: dict[str, int] = {}
         self.id_cols = [config.USER_COL, config.ITEM_COL]
         self.preprocessor: Pipeline | None = None
 
@@ -35,7 +29,7 @@ class Preprocessor:
                 numeric_cols.append(col)
             else:
                 categorical_cols.append(col)
-                self.categorical_lengths[col] = self.train_df[col].unique()
+                self.categorical_lengths[col] = int(self.train_df[col].nunique())
 
         return numeric_cols, categorical_cols, id_cols
 
@@ -90,20 +84,17 @@ class Preprocessor:
         return Pipeline(
             steps=[
                 ("preprocessor", column_transformer),
-                # ("feature_selector", SelectKBest(k=config.SELECTED_K)),
             ]
         )
 
-    def _update_df_features(
-        self, df: pd.DataFrame, features: np.ndarray
-    ) -> pd.DataFrame:
-        for i, col in enumerate(self.numeric_cols + self.categorical_cols):
-            df[col] = features[:, i]
-        return df
-
-    def fit_transform(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    def fit_transform(
+        self, train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFrame
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        self.train_df = train_df.copy()
+        self.val_df = val_df.copy()
+        self.test_df = test_df.copy()
         self.preprocessor = self._build_preprocessor()
-        feats = self.numeric_cols + self.categorical_cols
+        feats = np.array(self.numeric_cols + self.categorical_cols)
 
         self.preprocessor.fit(self.train_df[feats])
 
@@ -111,15 +102,29 @@ class Preprocessor:
         val_features = self.preprocessor.transform(self.val_df[feats])
         test_features = self.preprocessor.transform(self.test_df[feats])
 
-        self.train_df = self._update_df_features(
-            self.train_df, np.array(train_features)
+        train_processed = pd.DataFrame(
+            train_features, columns=feats, index=self.train_df.index
         )
-        self.val_df = self._update_df_features(self.val_df, np.array(val_features))
-        self.test_df = self._update_df_features(self.test_df, np.array(test_features))
+        val_processed = pd.DataFrame(
+            val_features, columns=feats, index=self.val_df.index
+        )
+        test_processed = pd.DataFrame(
+            test_features, columns=feats, index=self.test_df.index
+        )
 
-        for col in feats:
-            self.train_df[col] = self.train_df[col].astype(np.float32)
-            self.val_df[col] = self.val_df[col].astype(np.float32)
-            self.test_df[col] = self.test_df[col].astype(np.float32)
+        self.train_df = self._merge_features(self.train_df, train_processed, feats)
+        self.val_df = self._merge_features(self.val_df, val_processed, feats)
+        self.test_df = self._merge_features(self.test_df, test_processed, feats)
 
         return self.train_df, self.val_df, self.test_df
+
+    def _merge_features(
+        self,
+        original: pd.DataFrame,
+        processed: pd.DataFrame,
+        feature_cols: np.ndarray,
+    ) -> pd.DataFrame:
+        result = original.copy()
+        for col in feature_cols:
+            result[col] = processed[col].astype(np.float32)
+        return result
