@@ -3,6 +3,8 @@ import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import MinMaxScaler, OrdinalEncoder
+from sklearn.impute import SimpleImputer
+from sklearn.feature_selection import SelectKBest
 
 from . import config
 
@@ -46,15 +48,36 @@ class Preprocessor:
 
         if self.numeric_cols:
             transformers.append(
-                ("num", Pipeline([("scaler", MinMaxScaler())]), self.numeric_cols)
+                (
+                    "num",
+                    Pipeline(
+                        [
+                            ("imputer", SimpleImputer(strategy="mean")),
+                            ("scaler", MinMaxScaler()),
+                        ]
+                    ),
+                    self.numeric_cols,
+                )
             )
 
         if self.categorical_cols:
             transformers.append(
                 (
                     "cat",
-                    OrdinalEncoder(
-                        handle_unknown="use_encoded_value", unknown_value=-1
+                    Pipeline(
+                        [
+                            (
+                                "imputer",
+                                SimpleImputer(strategy="most_frequent"),
+                            ),
+                            (
+                                "encoder",
+                                OrdinalEncoder(
+                                    handle_unknown="use_encoded_value",
+                                    unknown_value=-1,
+                                ),
+                            ),
+                        ]
                     ),
                     self.categorical_cols,
                 )
@@ -65,6 +88,7 @@ class Preprocessor:
         return Pipeline(
             steps=[
                 ("preprocessor", column_transformer),
+                ("feature_selector", SelectKBest(k=config.SELECTED_K)),
             ]
         )
 
@@ -77,9 +101,9 @@ class Preprocessor:
 
     def fit_transform(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         self.preprocessor = self._build_preprocessor()
-        self.preprocessor.fit(self.train_df[self.numeric_cols + self.categorical_cols])
-
         feats = self.numeric_cols + self.categorical_cols
+
+        self.preprocessor.fit(self.train_df[feats])
 
         train_features = self.preprocessor.transform(self.train_df[feats])
         val_features = self.preprocessor.transform(self.val_df[feats])

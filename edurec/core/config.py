@@ -15,6 +15,9 @@ TARGET_COL: str = "rating"
 ITEM_COL: str = "item_id"
 USER_COL: str = "user_id"
 TIME_COL: str = "created_at"
+
+# Preprocessing
+SELECTED_K: int = 10
 BALANCE: bool = False
 
 # Training

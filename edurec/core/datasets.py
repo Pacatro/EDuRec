@@ -95,7 +95,7 @@ def load_mars() -> pd.DataFrame:
     #     "watch_percentage",
     #     "rating",
     # ]
-
+    #
     # result_df = df[features]
     result_df = df
     assert isinstance(result_df, pd.DataFrame)
@@ -135,7 +135,7 @@ def load_itm() -> pd.DataFrame:
     #     "Married",
     #     "rating",
     # ]
-
+    #
     # result_df = merged_df[features]
     result_df = merged_df
     assert isinstance(result_df, pd.DataFrame)
