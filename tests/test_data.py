@@ -60,24 +60,20 @@ def test_data_preprocessing():
         }
     )
 
-    preprocessor = Preprocessor(
+    preprocessor = Preprocessor()
+
+    train_processed, val_processed, test_processed = preprocessor.fit_transform(
         train_df=train_df,
         val_df=val_df,
         test_df=test_df,
     )
 
-    numeric_cols, categorical_cols, id_cols = preprocessor._get_column_types()
-    assert numeric_cols == ["a"]
-    assert categorical_cols == ["b"]
-    assert id_cols == [config.USER_COL, config.ITEM_COL]
-
-    preprocessor.preprocessor = preprocessor._build_preprocessor()
-    assert preprocessor.preprocessor is not None
-
     assert "a" in preprocessor.numeric_cols
     assert "b" in preprocessor.categorical_cols
 
-    train_processed, val_processed, test_processed = preprocessor.fit_transform()
+    assert preprocessor.numeric_cols == ["a"]
+    assert preprocessor.categorical_cols == ["b"]
+    assert preprocessor.id_cols == [config.USER_COL, config.ITEM_COL]
 
     assert isinstance(train_processed, pd.DataFrame)
     assert isinstance(val_processed, pd.DataFrame)

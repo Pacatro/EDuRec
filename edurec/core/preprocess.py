@@ -3,7 +3,7 @@ import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import MinMaxScaler, OrdinalEncoder
+from sklearn.preprocessing import MinMaxScaler, OrdinalEncoder, FunctionTransformer
 
 from . import config
 
@@ -46,8 +46,12 @@ class Preprocessor:
                     "num",
                     Pipeline(
                         [
-                            ("imputer", SimpleImputer(strategy="mean")),
+                            # ("imputer", SimpleImputer(strategy="mean")),
                             ("scaler", MinMaxScaler()),
+                            (
+                                "to_f32",
+                                FunctionTransformer(lambda x: x.astype(np.float32)),
+                            ),
                         ]
                     ),
                     self.numeric_cols,
@@ -63,7 +67,7 @@ class Preprocessor:
                             (
                                 "imputer",
                                 SimpleImputer(
-                                    strategy="constant", fill_value="Unknown"
+                                    strategy="constant", fill_value="Undefined"
                                 ),
                             ),
                             (
@@ -73,17 +77,20 @@ class Preprocessor:
                                     unknown_value=-1,
                                 ),
                             ),
+                            # Shift to 1-based indexing
+                            (
+                                "shift_plus1",
+                                FunctionTransformer(lambda x: (x + 1).astype(np.int64)),
+                            ),
                         ]
                     ),
                     self.categorical_cols,
                 )
             )
 
-        column_transformer = ColumnTransformer(transformers, remainder="passthrough")
-
         return Pipeline(
             steps=[
-                ("preprocessor", column_transformer),
+                ("preprocessor", ColumnTransformer(transformers, remainder="drop")),
             ]
         )
 
@@ -93,8 +100,9 @@ class Preprocessor:
         self.train_df = train_df.copy()
         self.val_df = val_df.copy()
         self.test_df = test_df.copy()
+
         self.preprocessor = self._build_preprocessor()
-        feats = np.array(self.numeric_cols + self.categorical_cols)
+        feats = np.array(self.numeric_cols + self.categorical_cols, dtype=np.str_)
 
         self.preprocessor.fit(self.train_df[feats])
 
@@ -102,6 +110,7 @@ class Preprocessor:
         val_features = self.preprocessor.transform(self.val_df[feats])
         test_features = self.preprocessor.transform(self.test_df[feats])
 
+        # La salida es num + cat (en ese orden) y 1:1 columnas
         train_processed = pd.DataFrame(
             train_features, columns=feats, index=self.train_df.index
         )
@@ -112,19 +121,18 @@ class Preprocessor:
             test_features, columns=feats, index=self.test_df.index
         )
 
-        self.train_df = self._merge_features(self.train_df, train_processed, feats)
-        self.val_df = self._merge_features(self.val_df, val_processed, feats)
-        self.test_df = self._merge_features(self.test_df, test_processed, feats)
+        self.train_df = self._merge_features(self.train_df, train_processed)
+        self.val_df = self._merge_features(self.val_df, val_processed)
+        self.test_df = self._merge_features(self.test_df, test_processed)
 
         return self.train_df, self.val_df, self.test_df
 
     def _merge_features(
-        self,
-        original: pd.DataFrame,
-        processed: pd.DataFrame,
-        feature_cols: np.ndarray,
+        self, original: pd.DataFrame, processed: pd.DataFrame
     ) -> pd.DataFrame:
         result = original.copy()
-        for col in feature_cols:
+        for col in self.numeric_cols:
             result[col] = processed[col].astype(np.float32)
+        for col in self.categorical_cols:
+            result[col] = processed[col].astype(np.int64)
         return result
