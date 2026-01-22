@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Annotated
 import typer
 
-from .core import config
+from . import config
 from .cli.train import app as train_app
 # from .commands.eval import app as eval_app
 # from .commands.predict import app as predict_app

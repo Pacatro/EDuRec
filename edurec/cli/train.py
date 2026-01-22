@@ -5,12 +5,12 @@ import typer
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import MLFlowLogger
 
-from ..core import config
-from ..core.data import ElearningDataModule
-from ..core.datasets import DatasetName
-from ..core.engine import RecSys
-from ..core.model import EDuRecV1
-from ..core.model_io import save_best_model
+from .. import config
+from ..data.datamodule import ElearningDataModule
+from ..data.datasets import DatasetName
+from ..models.engine import RecSys
+from ..models.model import EDuRecV1
+from ..models.model_io import save_best_model
 
 app = typer.Typer(no_args_is_help=True)
 

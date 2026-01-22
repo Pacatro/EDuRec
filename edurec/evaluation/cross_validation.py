@@ -5,8 +5,8 @@ import pandas as pd
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from sklearn.model_selection import KFold, LeaveOneOut
 
-from .data import ElearningDataModule
-from .engine import RecSys
+from ..data.datamodule import ElearningDataModule
+from ..models.engine import RecSys
 
 
 class CVType(str, Enum):

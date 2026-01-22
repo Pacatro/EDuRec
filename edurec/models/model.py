@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from . import config
+from .. import config
 
 
 class EDuRecV1(nn.Module):

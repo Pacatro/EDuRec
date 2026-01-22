@@ -4,12 +4,12 @@ import lightning as L
 import typer
 from pathlib import Path
 
-from ..core.datamodule import ELearningDataModule
-from ..core.engine import RecSys
-from ..core.model import EDuRecV1
-from ..core import config
-from ..core.datasets import DatasetName, load_data
-from ..core.model_io import get_last_model
+from ..data.datamodule import ELearningDataModule
+from ..models.engine import RecSys
+from ..models.model import EDuRecV1
+from .. import config
+from ..data.datasets import DatasetName, load_data
+from ..models.model_io import get_last_model
 
 app = typer.Typer(no_args_is_help=True)
 

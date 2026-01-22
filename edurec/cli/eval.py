@@ -3,11 +3,11 @@ import pandas as pd
 import typer
 import mlflow
 
-from ..core import config
-from ..core.datasets import DatasetName, load_data
-from ..core.evaluation import cross_validate, CVType
-from ..core.model import EDuRecV1, NeuralMF, MF
-from ..core.stats import friedman_test
+from .. import config
+from ..data.datasets import DatasetName, load_data
+from ..evaluation.cross_validation import cross_validate, CVType
+from ..models.model import EDuRecV1, NeuralMF, MF
+from ..evaluation.stats import friedman_test
 
 
 app = typer.Typer(no_args_is_help=True)

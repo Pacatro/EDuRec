@@ -4,7 +4,7 @@ from typing import Callable
 
 import pandas as pd
 
-from . import config
+from .. import config
 
 type ExportFn = Callable[[], pd.DataFrame]
 

@@ -3,7 +3,7 @@ from scipy import stats
 import scikit_posthocs as sp
 import matplotlib.pyplot as plt
 
-from . import config
+from .. import config
 
 
 def extract_metrics_values(results_topk_paths: list[str], dataset: str) -> pd.DataFrame:

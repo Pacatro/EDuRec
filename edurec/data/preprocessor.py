@@ -3,9 +3,9 @@ import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import MinMaxScaler, OrdinalEncoder, FunctionTransformer
+from sklearn.preprocessing import FunctionTransformer, MinMaxScaler, OrdinalEncoder
 
-from . import config
+from .. import config
 
 
 class Preprocessor:
