@@ -82,6 +82,7 @@ class RecSys(L.LightningModule):
         self.test_ranking_metrics = ranking_metrics.clone(prefix="test/")
 
     def forward(self, batch) -> dict[str, int | float | bool]:
+        # TODO: ESTO ME VA A DAR PROBLEMAS AHORA QUE USO PIPELINES
         score = self.model(batch)
 
         if self.encoders:

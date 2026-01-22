@@ -1,10 +1,11 @@
 from pathlib import Path
 from typing import Annotated
 import typer
+from enum import Enum
 
 from . import config
 from .cli.train import app as train_app
-# from .commands.eval import app as eval_app
+from .cli.eval import app as eval_app
 # from .commands.predict import app as predict_app
 
 
@@ -15,12 +16,22 @@ app = typer.Typer(
 )
 
 app.add_typer(train_app)
-# app.add_typer(eval_app)
+app.add_typer(eval_app)
 # app.add_typer(predict_app)
+
+
+class Device(str, Enum):
+    AUTO = "auto"
+    CPU = "cpu"
+    CUDA = "cuda"
 
 
 @app.callback()
 def main(
+    device: Annotated[
+        Device,
+        typer.Option("--device", "-d", help="Device to use"),
+    ] = Device.AUTO,
     random_state: Annotated[
         int | None,
         typer.Option("--random-state", "-r", help="Random state"),
@@ -32,6 +43,11 @@ def main(
 ):
     config.state["verbose"] = verbose
     config.state["random_state"] = random_state
+    config.state["device"] = device.value
+
+    if verbose:
+        print(f"[CONFIG] Device: {device}")
+        print(f"[CONFIG] Random state: {random_state}")
 
     results_folder = Path(config.RESULTS_FOLDER)
 

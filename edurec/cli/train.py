@@ -47,6 +47,10 @@ def train(
     save_model: Annotated[
         bool, typer.Option("--save_model", "-S", help="Save model")
     ] = False,
+    save_preprocessed_data: Annotated[
+        bool,
+        typer.Option("--save_preprocessed_data", "-P", help="Save preprocessed data"),
+    ] = config.SAVE_PREPROCESSED_DATA,
     models_folder: Annotated[
         str,
         typer.Option(
@@ -59,6 +63,7 @@ def train(
         batch_size=batch_size,
         test_size=test_size,
         val_size=val_size,
+        save=save_preprocessed_data,
         random_state=config.state["random_state"],
     )
 
@@ -75,6 +80,7 @@ def train(
         print(f"[TRAIN] Using logger: {use_logger}")
         print(f"[TRAIN] Min rating: {dm.min_rating}")
         print(f"[TRAIN] Max rating: {dm.max_rating}")
+        print(dm.df.head())
 
     recsys = RecSys(
         model=model,
@@ -113,7 +119,7 @@ def train(
     trainer = L.Trainer(
         logger=train_logger,
         max_epochs=epochs,
-        accelerator="auto",
+        accelerator=config.state["device"],
         devices="auto",
         log_every_n_steps=10,
         callbacks=[early_stop_model, checkpoint_model],

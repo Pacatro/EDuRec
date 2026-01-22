@@ -79,6 +79,9 @@ def load_mars() -> pd.DataFrame:
 
     df.rename(
         columns={
+            "user_id": config.USER_COL,
+            "item_id": config.ITEM_COL,
+            "rating": config.TARGET_COL,
             "Difficulty": "difficulty",
             "type": "item_type",
             "created_at": config.TIME_COL,
@@ -93,7 +96,7 @@ def load_mars() -> pd.DataFrame:
         "difficulty",
         "nb_views",
         "watch_percentage",
-        "rating",
+        config.TARGET_COL,
     ]
 
     result_df = df[features]
@@ -118,7 +121,11 @@ def load_itm() -> pd.DataFrame:
     merged_df = pd.merge(left=items_df, right=ratings_df, how="inner", on="Item")
     merged_df = pd.merge(left=merged_df, right=users_df, how="inner", on="UserID")
     merged_df = merged_df.rename(
-        columns={"UserID": config.USER_COL, "Item": config.ITEM_COL, "Rating": "rating"}
+        columns={
+            "UserID": config.USER_COL,
+            "Item": config.ITEM_COL,
+            "Rating": config.TARGET_COL,
+        }
     )
 
     features = [
@@ -132,7 +139,7 @@ def load_itm() -> pd.DataFrame:
         "Ease",
         " Age",
         "Married",
-        "rating",
+        config.TARGET_COL,
     ]
 
     result_df = merged_df[features]

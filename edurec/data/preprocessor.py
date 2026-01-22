@@ -115,6 +115,7 @@ class Preprocessor:
         train_processed = pd.DataFrame(
             train_features, columns=feats, index=self.train_df.index
         )
+
         val_processed = pd.DataFrame(
             val_features, columns=feats, index=self.val_df.index
         )

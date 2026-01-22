@@ -1,5 +1,5 @@
 # Global state
-state = {"verbose": False, "random_state": 42}
+state = {"verbose": False, "random_state": 42, "device": "auto"}
 
 # MLFlow
 EXPERIMENT_NAME: str = "TFM"
@@ -21,7 +21,7 @@ SELECTED_K: int = 10
 BALANCE: bool = False
 
 # Model
-EMB_DIM: int = 256
+EMB_DIM: int = 128
 DROPOUT: float = 0.5
 HIDDEN_DIMS: list[int] = [256, 128, 64, 32, 16]
 
@@ -35,6 +35,7 @@ TOP_K: int = 10
 NUM_WORKERS: int = 2
 VAL_SIZE: float = 0.1
 TEST_SIZE: float = 0.4
+SAVE_PREPROCESSED_DATA: bool = False
 
 # Eval
 SEEDS: list[int] = [0, 1, 42]

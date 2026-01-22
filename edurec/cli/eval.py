@@ -1,14 +1,14 @@
 from typing import Annotated
+
+import mlflow
 import pandas as pd
 import typer
-import mlflow
 
 from .. import config
-from ..data.datasets import DatasetName, load_data
-from ..evaluation.cross_validation import cross_validate, CVType
-from ..models.model import EDuRecV1, NeuralMF, MF
+from ..data.datasets import DatasetName
+from ..evaluation.cross_validation import CVType, cross_validate
 from ..evaluation.stats import friedman_test
-
+from ..models.model import MF, EDuRecV1, NeuralMF
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -58,8 +58,6 @@ def eval(
         str, typer.Option("--results-folder", help="Folder to save results.")
     ] = config.RESULTS_FOLDER,
 ):
-    df = load_data(dataset)
-
     models_classes = [
         EDuRecV1,
         MF,
@@ -86,10 +84,9 @@ def eval(
                 )
 
                 avg_metrics = cross_validate(
-                    df=df,
+                    dataset_name=dataset,
                     model_class=model_class,
                     n_splits=n_splits,
-                    random_state=42,
                     epochs=epochs,
                     cv_type=cv_type,
                     batch_size=batch_size,
