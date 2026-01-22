@@ -46,7 +46,7 @@ class Preprocessor:
                     "num",
                     Pipeline(
                         [
-                            # ("imputer", SimpleImputer(strategy="mean")),
+                            ("imputer", SimpleImputer(strategy="mean")),
                             ("scaler", MinMaxScaler()),
                             (
                                 "to_f32",
@@ -95,11 +95,14 @@ class Preprocessor:
         )
 
     def fit_transform(
-        self, train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFrame
-    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        self,
+        train_df: pd.DataFrame,
+        val_df: pd.DataFrame,
+        test_df: pd.DataFrame | None,
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame | None]:
         self.train_df = train_df.copy()
         self.val_df = val_df.copy()
-        self.test_df = test_df.copy()
+        self.test_df = test_df.copy() if test_df is not None else None
 
         self.preprocessor = self._build_preprocessor()
         feats = np.array(self.numeric_cols + self.categorical_cols, dtype=np.str_)
@@ -108,8 +111,6 @@ class Preprocessor:
 
         train_features = self.preprocessor.transform(self.train_df[feats])
         val_features = self.preprocessor.transform(self.val_df[feats])
-        test_features = self.preprocessor.transform(self.test_df[feats])
-
         # La salida es num + cat (en ese orden) y 1:1 columnas
         train_processed = pd.DataFrame(
             train_features, columns=feats, index=self.train_df.index
@@ -117,13 +118,19 @@ class Preprocessor:
         val_processed = pd.DataFrame(
             val_features, columns=feats, index=self.val_df.index
         )
-        test_processed = pd.DataFrame(
-            test_features, columns=feats, index=self.test_df.index
-        )
-
         self.train_df = self._merge_features(self.train_df, train_processed)
         self.val_df = self._merge_features(self.val_df, val_processed)
-        self.test_df = self._merge_features(self.test_df, test_processed)
+
+        if self.test_df is not None:
+            test_features = self.preprocessor.transform(self.test_df[feats])
+
+            test_processed = pd.DataFrame(
+                test_features,
+                columns=feats,
+                index=self.test_df.index,
+            )
+
+            self.test_df = self._merge_features(self.test_df, test_processed)
 
         return self.train_df, self.val_df, self.test_df
 

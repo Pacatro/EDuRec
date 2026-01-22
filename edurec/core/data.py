@@ -89,31 +89,35 @@ class ElearningDataModule(L.LightningDataModule):
         return train_df, val_df, test_df
 
     def _process_data(self) -> None:
-        if not self.is_preprocessed:
-            print("Preprocessing data")
-            self.df[config.USER_COL] = LabelEncoder().fit_transform(
-                self.df[config.USER_COL]
-            )
-            self.df[config.ITEM_COL] = LabelEncoder().fit_transform(
-                self.df[config.ITEM_COL]
-            )
+        if self.is_preprocessed:
+            self.train_df, self.val_df, self.test = self._split()
+            return
 
-            train_df, val_df, test_df = self._split()
+        print("Preprocessing data")
+        self.df[config.USER_COL] = LabelEncoder().fit_transform(
+            self.df[config.USER_COL]
+        )
+        self.df[config.ITEM_COL] = LabelEncoder().fit_transform(
+            self.df[config.ITEM_COL]
+        )
 
-            self.train_df, self.val_df, self.test_df = self.preprocessor.fit_transform(
-                train_df=train_df,
-                val_df=val_df,
-                test_df=test_df,
-            )
+        train_df, val_df, test_df = self._split()
 
-            processed_df = pd.concat(
-                [self.train_df, self.val_df, self.test_df], ignore_index=True
-            )
+        self.train_df, self.val_df, self.test_df = self.preprocessor.fit_transform(
+            train_df=train_df,
+            val_df=val_df,
+            test_df=test_df,
+        )
 
-            self.processed_path.parent.mkdir(parents=True, exist_ok=True)
-            processed_df.to_csv(self.processed_path, index=False)
-        else:
-            self.train_df, self.val_df, self.test_df = self._split()
+        if self.test_df is None:
+            return
+
+        processed_df = pd.concat(
+            [self.train_df, self.val_df, self.test_df], ignore_index=True
+        )
+
+        self.processed_path.parent.mkdir(parents=True, exist_ok=True)
+        processed_df.to_csv(self.processed_path, index=False)
 
     def setup(self, stage: str | None = None) -> None:
         match stage:
@@ -121,7 +125,9 @@ class ElearningDataModule(L.LightningDataModule):
                 self.train_ds = ElearningDataset(self.train_df)
                 self.val_ds = ElearningDataset(self.val_df)
             case "test":
-                self.test_ds = ElearningDataset(self.test_df)
+                self.test_ds = (
+                    ElearningDataset(self.test_df) if self.test_df is not None else None
+                )
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
@@ -133,7 +139,10 @@ class ElearningDataModule(L.LightningDataModule):
             self.val_ds, batch_size=self.batch_size, num_workers=config.NUM_WORKERS
         )
 
-    def test_dataloader(self) -> DataLoader:
+    def test_dataloader(self) -> DataLoader | None:
+        if self.test_ds is None:
+            return None
+
         return DataLoader(
             self.test_ds, batch_size=self.batch_size, num_workers=config.NUM_WORKERS
         )

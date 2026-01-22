@@ -1,8 +1,9 @@
-import pandas as pd
-import lightning as L
-from sklearn.model_selection import KFold, LeaveOneOut
-from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from enum import Enum
+
+import lightning as L
+import pandas as pd
+from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+from sklearn.model_selection import KFold, LeaveOneOut
 
 from .data import ElearningDataModule
 from .engine import RecSys
