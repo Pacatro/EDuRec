@@ -20,6 +20,11 @@ TIME_COL: str = "created_at"
 SELECTED_K: int = 10
 BALANCE: bool = False
 
+# Model
+EMB_DIM: int = 256
+DROPOUT: float = 0.5
+HIDDEN_DIMS: list[int] = [256, 128, 64, 32, 16]
+
 # Training
 LR: float = 0.001
 BATCH_SIZE: int = 128

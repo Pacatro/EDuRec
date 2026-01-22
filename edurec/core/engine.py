@@ -47,14 +47,14 @@ class RecSys(L.LightningModule):
     def __init__(
         self,
         model: nn.Module,
+        min_rating: float,
+        max_rating: float,
         threshold: float = 8.0,
         lr: float = 1e-3,
         weight_decay: float = 1e-6,
         top_k: int = 10,
         loss_fn: nn.Module | None = None,
         encoders: dict | None = None,
-        min_rating: float = 1.0,
-        max_rating: float = 10.0,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
@@ -122,7 +122,7 @@ class RecSys(L.LightningModule):
         mae = mean_absolute_error(preds, ratings.float())
 
         if ranking_metrics is not None and prefix in ["val", "test"]:
-            # preds = torch.clamp(input=preds, min=self.min_rating, max=self.max_rating)
+            preds = torch.clamp(input=preds, min=self.min_rating, max=self.max_rating)
             target = (ratings >= self.threshold).int()
             ranking_metrics.update(preds, target, indexes=user_ids)
 

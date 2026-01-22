@@ -1,6 +1,8 @@
 import torch
 from torch import nn
 
+from . import config
+
 
 class EDuRecV1(nn.Module):
     """
@@ -36,9 +38,9 @@ class EDuRecV1(nn.Module):
         n_items: int,
         cat_cardinalities: dict[str, int],
         cont_features: list[str],
-        emb_dim: int = 128,
-        hidden_dims: list[int] = [256, 128, 64, 32, 16],
-        dropout: float = 0.5,
+        emb_dim: int = config.EMB_DIM,
+        hidden_dims: list[int] = config.HIDDEN_DIMS,
+        dropout: float = config.DROPOUT,
         **kwargs,
     ):
         super().__init__()
