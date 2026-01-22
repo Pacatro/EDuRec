@@ -73,9 +73,13 @@ def train(
         print(f"[TRAIN] Dataset {dataset} sparsity: {dm.sparsity}")
         print(f"[TRAIN] Training model: {model.__class__.__name__}")
         print(f"[TRAIN] Using logger: {use_logger}")
+        print(f"[TRAIN] Min rating: {dm.min_rating}")
+        print(f"[TRAIN] Max rating: {dm.max_rating}")
 
     recsys = RecSys(
         model=model,
+        min_rating=dm.min_rating,
+        max_rating=dm.max_rating,
         top_k=top_k,
         threshold=dm.threshold,
         lr=lr,

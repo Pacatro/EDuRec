@@ -161,3 +161,11 @@ class ElearningDataModule(L.LightningDataModule):
     @property
     def threshold(self) -> float:
         return float(self.df[config.TARGET_COL].mean())
+
+    @property
+    def min_rating(self) -> float:
+        return float(self.df[config.TARGET_COL].min())
+
+    @property
+    def max_rating(self) -> float:
+        return float(self.df[config.TARGET_COL].max())
