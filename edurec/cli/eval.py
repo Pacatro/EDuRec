@@ -64,7 +64,10 @@ def eval(
         NeuralMF,
     ]
 
-    mlflow.set_experiment(f"{config.EXPERIMENT_NAME}_CV")
+    try:
+        mlflow.set_experiment(f"{config.EXPERIMENT_NAME}_CV")
+    except mlflow.MlflowException:
+        mlflow.create_experiment(f"{config.EXPERIMENT_NAME}_CV")
 
     for top_k in range(min_topk, max_topk + 1, topk_step):
         for model_class in models_classes:
