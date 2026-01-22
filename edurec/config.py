@@ -2,42 +2,42 @@
 state = {"verbose": False, "random_state": 42, "device": "auto"}
 
 # MLFlow
-EXPERIMENT_NAME = "TFM"
+EXPERIMENT_NAME: str = "TFM"
 
 # Folders
-RESULTS_FOLDER = "eval_results"
-MODELS_FOLDER = "models"
-RAW_DATA_FOLDER = "raw_data"
-DATA_FOLDER = "data"
+RESULTS_FOLDER: str = "eval_results"
+MODELS_FOLDER: str = "models"
+RAW_DATA_FOLDER: str = "raw_data"
+DATA_FOLDER: str = "data"
 
 # Datasets
-TARGET_COL = "rating"
-ITEM_COL = "item_id"
-USER_COL = "user_id"
-TIME_COL = "created_at"
+TARGET_COL: str = "rating"
+ITEM_COL: str = "item_id"
+USER_COL: str = "user_id"
+TIME_COL: str = "created_at"
 
 # Preprocessing
-SELECTED_K = 10
-BALANCEl = False
+SELECTED_K: int = 10
+BALANCE: bool = False
 
 # Model
-EMB_DIM = 128
-DROPOUT = 0.5
-HIDDEN_DIMS = [256, 128, 64, 32, 16]
+EMB_DIM: int = 128
+DROPOUT: float = 0.5
+HIDDEN_DIMS: list[int] = [256, 128, 64, 32, 16]
 
 # Training
-LR = 0.001
-BATCH_SIZ = 128
-EPOCH = 100
-PATIENC = 5
-DELTA = 0.001
-TOP_ = 10
-NUM_WORKER = 2
-VAL_SIZE = 0.1
-TEST_SIZE = 0.4
-SAVE_PREPROCESSED_DATA = False
+LR: float = 0.001
+BATCH_SIZE: int = 128
+EPOCHS: int = 100
+PATIENCE: int = 5
+DELTA: float = 0.001
+TOP_K: int = 10
+NUM_WORKERS: int = 2
+VAL_SIZE: float = 0.1
+TEST_SIZE: float = 0.4
+SAVE_PREPROCESSED_DATA: bool = False
 
 # Eval
-K = 5
-SEEDS = [0, 1, 42]
-STATS_TEST = False
+SEEDS: list[int] = [0, 1, 42]
+K: int = 5
+STATS_TEST: bool = False
