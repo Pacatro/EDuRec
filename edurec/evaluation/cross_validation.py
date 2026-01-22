@@ -10,7 +10,7 @@ from edurec.evaluation.cv_datamodule import CvElearningDataModule
 
 from .. import config
 from ..data.datasets import DatasetName, load_raw_data
-from ..models.engine import RecSys
+from ..training.engine import RecSys
 
 
 class CVType(str, Enum):

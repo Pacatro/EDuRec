@@ -8,7 +8,7 @@ from .. import config
 from ..data.datasets import DatasetName
 from ..evaluation.cross_validation import CVType, cross_validate
 from ..evaluation.stats import friedman_test
-from ..models.model import MF, EDuRecV1, NeuralMF
+from ..training.model import MF, EDuRecV1, NeuralMF
 
 app = typer.Typer(no_args_is_help=True)
 

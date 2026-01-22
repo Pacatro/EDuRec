@@ -8,9 +8,9 @@ from lightning.pytorch.loggers import MLFlowLogger
 from .. import config
 from ..data.datamodule import ElearningDataModule
 from ..data.datasets import DatasetName
-from ..models.engine import RecSys
-from ..models.model import EDuRecV1
-from ..models.model_io import save_best_model
+from ..training.engine import RecSys
+from ..training.model import EDuRecV1
+from ..training.model_io import save_best_model
 
 app = typer.Typer(no_args_is_help=True)
 
