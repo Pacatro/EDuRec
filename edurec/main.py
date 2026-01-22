@@ -3,7 +3,7 @@ from typing import Annotated
 import typer
 
 from .core import config
-from .commands.train import app as train_app
+from .cli.train import app as train_app
 # from .commands.eval import app as eval_app
 # from .commands.predict import app as predict_app
 
