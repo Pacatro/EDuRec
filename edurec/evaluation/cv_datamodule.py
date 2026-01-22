@@ -76,7 +76,7 @@ class CvElearningDataModule(L.LightningDataModule):
 
     @property
     def cat_cardinalities(self) -> dict[str, int]:
-        return self.preprocessor.categorical_lengths
+        return {k: v + 2 for k, v in self.preprocessor.categorical_lengths.items()}
 
     @property
     def sparsity(self) -> float:
