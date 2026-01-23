@@ -6,7 +6,7 @@ from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import MLFlowLogger
 
 from .. import config
-from ..data import DatasetName, ElearningDataModule
+from ..datasets import DatasetName, ElearningDataModule
 from ..training.engine import RecSys
 from ..training.model import EDuRecV1
 from ..training.model_io import save_best_model

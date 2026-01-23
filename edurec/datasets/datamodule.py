@@ -7,7 +7,7 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset
 
 from .. import config
-from .datasets import DatasetName, load_raw_data
+from .loader import DatasetName, load_raw_data
 from .preprocessor import Preprocessor
 
 

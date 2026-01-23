@@ -5,7 +5,7 @@ from sklearn.preprocessing import LabelEncoder
 from torch.utils.data import DataLoader
 
 from .. import config
-from ..data import ElearningDataset, Preprocessor
+from ..datasets import ElearningDataset, Preprocessor
 
 
 class CvElearningDataModule(L.LightningDataModule):

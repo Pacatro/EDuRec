@@ -9,7 +9,7 @@ from torch import nn
 from edurec.evaluation.cv_datamodule import CvElearningDataModule
 
 from .. import config
-from ..data import DatasetName, load_raw_data
+from ..datasets import DatasetName, load_raw_data
 from ..training.engine import RecSys
 
 

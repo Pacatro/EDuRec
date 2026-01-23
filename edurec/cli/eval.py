@@ -5,7 +5,7 @@ import pandas as pd
 import typer
 
 from .. import config
-from ..data import DatasetName
+from ..datasets import DatasetName
 from ..evaluation.cross_validation import CVType, cross_validate
 from ..evaluation.stats import friedman_test
 from ..training.model import MF, EDuRecV1, NeuralMF
