@@ -4,8 +4,7 @@ import typer
 from enum import Enum
 
 from . import config
-from .cli.train import app as train_app
-from .cli.eval import app as eval_app
+from .cli import train_app, eval_app
 # from .commands.predict import app as predict_app
 
 

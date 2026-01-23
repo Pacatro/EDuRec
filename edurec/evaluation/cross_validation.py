@@ -9,7 +9,7 @@ from torch import nn
 from edurec.evaluation.cv_datamodule import CvElearningDataModule
 
 from .. import config
-from ..data.datasets import DatasetName, load_raw_data
+from ..data import DatasetName, load_raw_data
 from ..training.engine import RecSys
 
 
@@ -47,7 +47,7 @@ def cross_validate(
     for fold, (train_idx, val_idx) in enumerate(cv.split(df), start=1):
         print(f"Fold {fold}/{n_folds}")
 
-        dm = CvElearningDataModule(dataset_name, batch_size, train_idx, val_idx)
+        dm = CvElearningDataModule(df, batch_size, train_idx, val_idx)
 
         model_config = {
             "n_users": dm.num_users,

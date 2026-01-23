@@ -1,32 +1,30 @@
 import lightning as L
 import numpy as np
+import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 from torch.utils.data import DataLoader
 
 from .. import config
-from ..data.datamodule import ElearningDataset
-from ..data.datasets import DatasetName, load_raw_data
-from ..data.preprocessor import Preprocessor
+from ..data import ElearningDataset, Preprocessor
 
 
 class CvElearningDataModule(L.LightningDataModule):
     def __init__(
         self,
-        dataset: DatasetName,
+        df: pd.DataFrame,
         batch_size: int,
         train_idx: np.ndarray,
         val_idx: np.ndarray,
         random_state: int | None = None,
     ) -> None:
         super().__init__()
-        self.dataset_name = dataset
+        self.df = df.copy()
         self.batch_size = batch_size
         self.random_state = random_state
         self.train_idx = train_idx
         self.val_idx = val_idx
 
         self.preprocessor = Preprocessor()
-        self.df = load_raw_data(self.dataset_name)
         self._process_data()
 
     def _process_data(self) -> None:
