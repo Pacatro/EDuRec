@@ -2,7 +2,7 @@ from pathlib import Path
 from datetime import datetime
 
 
-def save_best_model(model_name: str, best_model_path: str, models_folder: str) -> None:
+def save_model(model_name: str, best_model_path: str, models_folder: str) -> None:
     """Save the best model to the specified folder."""
     out_model = f"{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     saving_models_folder = Path(models_folder)
@@ -13,7 +13,7 @@ def save_best_model(model_name: str, best_model_path: str, models_folder: str) -
     print(f"Model saved in: {file_path}")
 
 
-def get_last_model(models_folder: str) -> str:
+def load_model(models_folder: str) -> str:
     """Get the last model in the specified folder."""
     saving_models_folder = Path(models_folder)
 

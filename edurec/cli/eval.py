@@ -6,7 +6,7 @@ import typer
 
 from .. import config
 from ..datasets import DatasetName
-from ..evaluation.cross_validation import CVType, cross_validate
+from ..evaluation import CVType, cross_validate
 from ..evaluation.stats import friedman_test
 from ..training.model import MF, EDuRecV1, NeuralMF
 

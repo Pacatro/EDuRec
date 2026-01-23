@@ -9,7 +9,7 @@ from .. import config
 from ..datasets import DatasetName, ElearningDataModule
 from ..training.engine import RecSys
 from ..training.model import EDuRecV1
-from ..training.model_io import save_best_model
+from ..training.io import save_model
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -43,7 +43,7 @@ def train(
         bool, typer.Option("--use_logger", "-L", help="Use MLFlow logger")
     ] = False,
     debug: Annotated[bool, typer.Option("--debug", "-D", help="Debug mode")] = False,
-    save_model: Annotated[
+    save: Annotated[
         bool, typer.Option("--save_model", "-S", help="Save model")
     ] = False,
     save_preprocessed_data: Annotated[
@@ -136,8 +136,8 @@ def train(
     trainer.test(model=recsys, datamodule=dm)
 
     # Save best model path
-    if save_model:
-        save_best_model(
+    if save:
+        save_model(
             model.__class__.__name__,
             checkpoint_model.best_model_path,
             models_folder,
