@@ -44,7 +44,7 @@ class ElearningDataModule(L.LightningDataModule):
         self.preprocessor = Preprocessor()
         self.is_preprocessed = False
         self.processed_path = (
-            Path(config.DATA_FOLDER) / f"{self.dataset_name.value}.csv"
+            Path(config.DATA_FOLDER) / "preprocessed" / f"{self.dataset_name.value}.csv"
         )
 
         self.df = self._load_data()
@@ -95,7 +95,6 @@ class ElearningDataModule(L.LightningDataModule):
             self.train_df, self.val_df, self.test = self._split()
             return
 
-        print("Preprocessing data")
         self.df[config.USER_COL] = LabelEncoder().fit_transform(
             self.df[config.USER_COL]
         )

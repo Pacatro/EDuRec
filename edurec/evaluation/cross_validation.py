@@ -7,6 +7,7 @@ from sklearn.model_selection import KFold, LeaveOneOut
 from torch import nn
 
 from edurec.evaluation.cv_datamodule import CvElearningDataModule
+from edurec.training.model import EDuRecConfig
 
 from .. import config
 from ..datasets import DatasetName, load_raw_data
@@ -14,8 +15,8 @@ from ..training.engine import RecSys
 
 
 class CVType(str, Enum):
-    kfold = ""
-    loo = "loo"
+    KFOLD = "kfold"
+    LOO = "loo"
 
 
 def cross_validate(
@@ -24,7 +25,7 @@ def cross_validate(
     lr: float = 0.001,
     n_splits: int = 5,
     epochs: int = 100,
-    cv_type: CVType = CVType.kfold,
+    cv_type: CVType = CVType.KFOLD,
     top_k: int = 10,
     batch_size: int = 128,
     patience: int = 5,
@@ -35,7 +36,7 @@ def cross_validate(
         KFold(
             n_splits=n_splits, random_state=config.state["random_state"], shuffle=True
         )
-        if cv_type == CVType.kfold
+        if cv_type == CVType.KFOLD
         else LeaveOneOut()
     )
 
@@ -49,23 +50,16 @@ def cross_validate(
 
         dm = CvElearningDataModule(df, batch_size, train_idx, val_idx)
 
-        model_config = {
-            "n_users": dm.num_users,
-            "n_items": dm.num_items,
-            "cat_cardinalities": dm.cat_cardinalities,
-            "cont_features": dm.numeric_features,
-        }
-
-        model = model_class(**model_config)
-
-        recsys = RecSys(
-            model=model,
-            min_rating=dm.min_rating,
-            max_rating=dm.max_rating,
-            top_k=top_k,
-            threshold=dm.threshold,
-            lr=lr,
+        model_config = EDuRecConfig(
+            n_users=dm.num_users,
+            n_items=dm.num_items,
+            cat_cardinalities=dm.cat_cardinalities,
+            cont_features=dm.numeric_features,
         )
+
+        model = model_class(model_config)
+
+        recsys = RecSys(model=model, top_k=top_k, threshold=dm.threshold, lr=lr)
 
         earlystop = EarlyStopping(
             monitor="val/MSE",

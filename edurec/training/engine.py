@@ -47,8 +47,8 @@ class RecSys(L.LightningModule):
     def __init__(
         self,
         model: nn.Module,
-        min_rating: float,
-        max_rating: float,
+        # min_rating: float,
+        # max_rating: float,
         threshold: float = 8.0,
         lr: float = 1e-3,
         weight_decay: float = 1e-6,
@@ -64,8 +64,8 @@ class RecSys(L.LightningModule):
         self.lr = lr
         self.weight_decay = weight_decay
         self.encoders = encoders
-        self.min_rating = min_rating
-        self.max_rating = max_rating
+        # self.min_rating = min_rating
+        # self.max_rating = max_rating
 
         ranking_metrics = MetricCollection(
             RetrievalPrecision(top_k=top_k, adaptive_k=True),
@@ -120,15 +120,18 @@ class RecSys(L.LightningModule):
 
         preds = self.model(batch)
         loss = self.loss_fn(preds, ratings.float())
+        rmse = loss**0.5
+        # nrmse = torch.norm(rmse / ratings.float(), p=2)
         mae = mean_absolute_error(preds, ratings.float())
 
         if ranking_metrics is not None and prefix in ["val", "test"]:
-            preds = torch.clamp(input=preds, min=self.min_rating, max=self.max_rating)
+            # preds = torch.clamp(input=preds, min=self.min_rating, max=self.max_rating)
             target = (ratings >= self.threshold).int()
             ranking_metrics.update(preds, target, indexes=user_ids)
 
         self.log(f"{prefix}/MSE", loss, prog_bar=False)
-        self.log(f"{prefix}/RMSE", (loss**0.5), prog_bar=True)
+        self.log(f"{prefix}/RMSE", rmse, prog_bar=True)
+        # self.log(f"{prefix}/NRMSE", nrmse, prog_bar=True)
         self.log(f"{prefix}/MAE", mae, prog_bar=False)
 
         return loss

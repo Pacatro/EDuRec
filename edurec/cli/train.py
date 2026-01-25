@@ -1,6 +1,7 @@
 from typing import Annotated
 
 import lightning as L
+import torch
 import typer
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import MLFlowLogger
@@ -8,7 +9,7 @@ from lightning.pytorch.loggers import MLFlowLogger
 from .. import config
 from ..datasets import DatasetName, ElearningDataModule
 from ..training.engine import RecSys
-from ..training.model import EDuRecV1
+from ..training.model import EDuRecV1, EDuRecConfig
 from ..training.io import save_model
 
 app = typer.Typer(no_args_is_help=True)
@@ -46,10 +47,10 @@ def train(
     save: Annotated[
         bool, typer.Option("--save_model", "-S", help="Save model")
     ] = False,
-    save_preprocessed_data: Annotated[
+    save_data: Annotated[
         bool,
-        typer.Option("--save_preprocessed_data", "-P", help="Save preprocessed data"),
-    ] = config.SAVE_PREPROCESSED_DATA,
+        typer.Option("--save_data", "-P", help="Save preprocessed data"),
+    ] = config.SAVE_DATA,
     models_folder: Annotated[
         str,
         typer.Option(
@@ -57,21 +58,26 @@ def train(
         ),
     ] = config.MODELS_FOLDER,
 ):
+    if debug:
+        save_data = False
+
     dm = ElearningDataModule(
         dataset=dataset,
         batch_size=batch_size,
         test_size=test_size,
         val_size=val_size,
-        save=save_preprocessed_data,
+        save=save_data,
         random_state=config.state["random_state"],
     )
 
-    model = EDuRecV1(
+    model_config = EDuRecConfig(
         n_users=dm.num_users,
         n_items=dm.num_items,
         cont_features=dm.numeric_features,
         cat_cardinalities=dm.cat_cardinalities,
     )
+
+    model = EDuRecV1(model_config)
 
     if config.state["verbose"]:
         print(f"[TRAIN] Dataset {dataset} sparsity: {dm.sparsity}")
@@ -79,16 +85,11 @@ def train(
         print(f"[TRAIN] Using logger: {use_logger}")
         print(f"[TRAIN] Min rating: {dm.min_rating}")
         print(f"[TRAIN] Max rating: {dm.max_rating}")
-        print(dm.df.head())
 
-    recsys = RecSys(
-        model=model,
-        min_rating=dm.min_rating,
-        max_rating=dm.max_rating,
-        top_k=top_k,
-        threshold=dm.threshold,
-        lr=lr,
-    )
+    recsys = RecSys(model=model, top_k=top_k, threshold=dm.threshold, lr=lr)
+
+    # Compile model for better performance
+    torch.compile(recsys)
 
     early_stop_model = EarlyStopping(
         monitor="val/MSE",
@@ -139,6 +140,7 @@ def train(
     if save:
         save_model(
             model.__class__.__name__,
+            model_config,
             checkpoint_model.best_model_path,
             models_folder,
         )

@@ -5,9 +5,8 @@ state = {"verbose": False, "random_state": 42, "device": "auto"}
 EXPERIMENT_NAME: str = "TFM"
 
 # Folders
-RESULTS_FOLDER: str = "eval_results"
+RESULTS_FOLDER: str = "results"
 MODELS_FOLDER: str = "models"
-RAW_DATA_FOLDER: str = "raw_data"
 DATA_FOLDER: str = "data"
 
 # Datasets
@@ -35,7 +34,7 @@ TOP_K: int = 10
 NUM_WORKERS: int = 2
 VAL_SIZE: float = 0.1
 TEST_SIZE: float = 0.4
-SAVE_PREPROCESSED_DATA: bool = False
+SAVE_DATA: bool = False
 
 # Eval
 SEEDS: list[int] = [0, 1, 42]
