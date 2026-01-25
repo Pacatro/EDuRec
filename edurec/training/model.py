@@ -11,7 +11,7 @@ class EDuRecConfig:
     n_users: int
     n_items: int
     cat_cardinalities: dict[str, int]
-    cont_features: list[str]
+    numeric_features: list[str]
     emb_dim: int = config.EMB_DIM
     hidden_dims: list[int] = field(default_factory=lambda: config.HIDDEN_DIMS)
     dropout: float = config.DROPOUT
@@ -30,7 +30,7 @@ class EDuRecV1(nn.Module):
         n_users (int): Number of unique users.
         n_items (int): Number of unique items.
         cat_cardinalities (dict[str, int]): Dictionary mapping categorical feature names to their cardinalities.
-        cont_features (list[str]): List of continuous feature names.
+        numeric_features (list[str]): List of continuous feature names.
         emb_dim (int, optional): Embedding dimension for user/item embeddings. Defaults to 128.
         hidden_dims (list[int], optional): List of hidden layer sizes for the MLP. Defaults to [256, 128, 64, 32, 16].
         dropout (float, optional): Dropout rate for the MLP. Defaults to 0.5.
@@ -69,7 +69,7 @@ class EDuRecV1(nn.Module):
 
         # MLP
         n_cat = len(self.cat_embeddings)
-        n_num = len(config.cont_features)
+        n_num = len(config.numeric_features)
         mlp_input = config.emb_dim + n_cat * (cat_emb_dim) + n_num
         layers = []
         for h in config.hidden_dims:
@@ -85,7 +85,7 @@ class EDuRecV1(nn.Module):
         self.mlp = nn.Sequential(*layers)
 
         # Hyperparameters
-        self.cont_features = config.cont_features
+        self.numeric_features = config.numeric_features
 
     def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         u = batch["user_id"].long()
@@ -103,7 +103,7 @@ class EDuRecV1(nn.Module):
             else torch.zeros(u.size(0), 0, device=u_emb.device)
         )
 
-        num_vecs = [batch[n].unsqueeze(1).float() for n in self.cont_features]
+        num_vecs = [batch[n].unsqueeze(1).float() for n in self.numeric_features]
         num_embs = (
             torch.cat(num_vecs, dim=1)
             if num_vecs

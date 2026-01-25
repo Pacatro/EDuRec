@@ -41,7 +41,10 @@ class ElearningDataModule(L.LightningDataModule):
         self.random_state = random_state
         self.save = save
 
-        self.preprocessor = Preprocessor()
+        self.id_cols = [config.USER_COL, config.ITEM_COL]
+        self.numeric_cols: list[str] = []
+        self.categorical_lengths: dict[str, int] = {}
+
         self.is_preprocessed = False
         self.processed_path = (
             Path(config.DATA_FOLDER) / "preprocessed" / f"{self.dataset_name.value}.csv"
@@ -90,9 +93,23 @@ class ElearningDataModule(L.LightningDataModule):
 
         return train_df, val_df, test_df
 
+    def _get_column_types(self, train_df: pd.DataFrame) -> None:
+        assert train_df is not None, "The data must be splited to train/val/test first"
+
+        exclude_cols = self.id_cols + [config.TARGET_COL, config.TIME_COL]
+
+        for col in train_df.columns:
+            if col in exclude_cols:
+                continue
+            if pd.api.types.is_numeric_dtype(train_df[col]):
+                self.numeric_cols.append(col)
+            else:
+                self.categorical_lengths[col] = int(train_df[col].nunique())
+
     def _process_data(self) -> None:
         if self.is_preprocessed:
-            self.train_df, self.val_df, self.test = self._split()
+            self.train_df, self.val_df, self.test_df = self._split()
+            self._get_column_types(self.train_df)
             return
 
         self.df[config.USER_COL] = LabelEncoder().fit_transform(
@@ -103,6 +120,14 @@ class ElearningDataModule(L.LightningDataModule):
         )
 
         train_df, val_df, test_df = self._split()
+
+        self._get_column_types(train_df)
+
+        categorical_cols = [col for col in self.categorical_lengths.keys()]
+
+        self.preprocessor = Preprocessor(
+            self.numeric_cols, categorical_cols, self.id_cols
+        )
 
         self.train_df, self.val_df, self.test_df = self.preprocessor.fit_transform(
             train_df=train_df,
@@ -159,11 +184,11 @@ class ElearningDataModule(L.LightningDataModule):
 
     @property
     def numeric_features(self) -> list[str]:
-        return self.preprocessor.numeric_cols
+        return self.numeric_cols
 
     @property
     def cat_cardinalities(self) -> dict[str, int]:
-        return {k: v + 2 for k, v in self.preprocessor.categorical_lengths.items()}
+        return {k: v + 2 for k, v in self.categorical_lengths.items()}
 
     @property
     def sparsity(self) -> float:

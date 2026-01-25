@@ -9,35 +9,16 @@ from .. import config
 
 
 class Preprocessor:
-    def __init__(self):
-        self.numeric_cols: list[str] = []
-        self.categorical_cols: list[str] = []
-        self.categorical_lengths: dict[str, int] = {}
+    def __init__(
+        self, numeric_cols: list[str], categorical_cols: list[str], id_cols: list[str]
+    ):
+        self.numeric_cols: list[str] = numeric_cols
+        self.id_cols: list[str] = id_cols
+        self.categorical_cols: list[str] = categorical_cols
         self.id_cols = [config.USER_COL, config.ITEM_COL]
         self.preprocessor: Pipeline | None = None
 
-    def _get_column_types(self) -> tuple[list[str], list[str], list[str]]:
-        numeric_cols = []
-        categorical_cols = []
-        id_cols = self.id_cols
-        exclude_cols = id_cols + [config.TARGET_COL, config.TIME_COL]
-
-        for col in self.train_df.columns:
-            if col in exclude_cols:
-                continue
-            if pd.api.types.is_numeric_dtype(self.train_df[col]):
-                numeric_cols.append(col)
-            else:
-                categorical_cols.append(col)
-                self.categorical_lengths[col] = int(self.train_df[col].nunique())
-
-        return numeric_cols, categorical_cols, id_cols
-
     def _build_preprocessor(self) -> Pipeline:
-        self.numeric_cols, self.categorical_cols, self.id_cols = (
-            self._get_column_types()
-        )
-
         transformers = []
 
         if self.numeric_cols:

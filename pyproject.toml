@@ -16,6 +16,7 @@ dependencies = [
   "scikit-posthocs>=0.11.4",
   "pydantic>=2.11.9",
   "typer>=0.19.2",
+  "recbole>=1.2.0",
 ]
 
 [dependency-groups]

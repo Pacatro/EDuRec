@@ -70,10 +70,12 @@ def train(
         random_state=config.state["random_state"],
     )
 
+    print(dm.numeric_cols)
+
     model_config = EDuRecConfig(
         n_users=dm.num_users,
         n_items=dm.num_items,
-        cont_features=dm.numeric_features,
+        numeric_features=dm.numeric_features,
         cat_cardinalities=dm.cat_cardinalities,
     )
 
@@ -133,7 +135,6 @@ def train(
         print("Debug mode enabled. Skipping evaluation.")
         return
 
-    dm.setup("test")
     trainer.test(model=recsys, datamodule=dm)
 
     # Save best model path

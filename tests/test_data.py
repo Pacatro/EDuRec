@@ -1,10 +1,10 @@
 import numpy as np
 import pandas as pd
-import torch
-from edurec.core.data import ElearningDataset
-from edurec.core.preprocess import Preprocessor
-from edurec.core import config
 import pytest
+import torch
+
+from edurec import config
+from edurec.datasets import ElearningDataset, Preprocessor
 
 
 def test_elearning_dataset_getitem():
@@ -60,7 +60,7 @@ def test_data_preprocessing():
         }
     )
 
-    preprocessor = Preprocessor()
+    preprocessor = Preprocessor(["a"], ["b"], [config.USER_COL, config.ITEM_COL])
 
     train_processed, val_processed, test_processed = preprocessor.fit_transform(
         train_df=train_df,
@@ -84,7 +84,7 @@ def test_data_preprocessing():
     assert set(test_processed.columns) == set(test_df.columns)
 
     assert train_processed["a"].dtype == np.float32
-    assert train_processed["b"].dtype == np.float32
+    assert train_processed["b"].dtype == np.int64
     assert train_processed[config.USER_COL].dtype == np.int64
     assert train_processed[config.ITEM_COL].dtype == np.int64
 
