@@ -8,6 +8,19 @@ from .. import config
 
 @dataclass
 class EDuRecConfig:
+    """
+    Configuration dataclass for the EDuRec model.
+
+    Attributes:
+        n_users (int): Number of unique users.
+        n_items (int): Number of unique items.
+        cat_cardinalities (dict[str, int]): Dictionary mapping categorical feature names to their cardinalities.
+        numeric_features (list[str]): List of continuous feature names.
+        emb_dim (int, optional): Embedding dimension for user/item embeddings. Defaults to 128.
+        hidden_dims (list[int], optional): List of hidden layer sizes for the MLP. Defaults to [256, 128, 64, 32, 16].
+        dropout (float, optional): Dropout rate for the MLP. Defaults to 0.5.
+    """
+
     n_users: int
     n_items: int
     cat_cardinalities: dict[str, int]
@@ -27,15 +40,7 @@ class EDuRecV1(nn.Module):
     through a multi-layer perceptron (MLP) to predict the rating.
 
     Args:
-        n_users (int): Number of unique users.
-        n_items (int): Number of unique items.
-        cat_cardinalities (dict[str, int]): Dictionary mapping categorical feature names to their cardinalities.
-        numeric_features (list[str]): List of continuous feature names.
-        emb_dim (int, optional): Embedding dimension for user/item embeddings. Defaults to 128.
-        hidden_dims (list[int], optional): List of hidden layer sizes for the MLP. Defaults to [256, 128, 64, 32, 16].
-        dropout (float, optional): Dropout rate for the MLP. Defaults to 0.5.
-        min_rating (float, optional): Minimum possible rating. Defaults to 1.0.
-        max_rating (float, optional): Maximum possible rating. Defaults to 10.0.
+        config (EDuRecConfig): Configuration dataclass for the EDuRec model.
 
     Forward Input:
         batch (dict[str, torch.Tensor]): Batch dictionary containing user_id, item_id,
