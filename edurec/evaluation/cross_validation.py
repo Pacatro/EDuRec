@@ -6,12 +6,11 @@ from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from sklearn.model_selection import KFold, LeaveOneOut
 from torch import nn
 
-from edurec.evaluation.cv_datamodule import CvElearningDataModule
-from edurec.training.model import EDuRecConfig
-
 from .. import config
 from ..datasets import DatasetName, load_data
 from ..training.engine import RecSys
+from ..training.model import EDuRecConfig
+from .cv_datamodule import CvElearningDataModule
 
 
 class CVType(str, Enum):
@@ -22,15 +21,15 @@ class CVType(str, Enum):
 def cross_validate(
     dataset_name: DatasetName,
     model_class: type[nn.Module],
-    lr: float = 0.001,
-    n_splits: int = 5,
-    epochs: int = 100,
+    lr: float = config.LR,
+    n_splits: int = config.K,
+    epochs: int = config.EPOCHS,
     cv_type: CVType = CVType.KFOLD,
-    top_k: int = 10,
-    batch_size: int = 128,
-    patience: int = 5,
-    delta: float = 0.001,
-    verbose: bool = False,
+    top_k: int = config.TOP_K,
+    batch_size: int = config.BATCH_SIZE,
+    patience: int = config.PATIENCE,
+    delta: float = config.DELTA,
+    verbose: bool = config.state["verbose"],
 ) -> pd.DataFrame:
     cv = (
         KFold(
