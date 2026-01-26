@@ -28,7 +28,7 @@ HIDDEN_DIMS: list[int] = [256, 128, 64, 32, 16]
 LR: float = 0.001
 BATCH_SIZE: int = 128
 EPOCHS: int = 100
-PATIENCE: int = 5
+PATIENCE: int = 3
 DELTA: float = 0.001
 TOP_K: int = 10
 NUM_WORKERS: int = 2
@@ -38,5 +38,5 @@ SAVE_DATA: bool = False
 
 # Eval
 SEEDS: list[int] = [0, 1, 42]
-K: int = 5
 STATS_TEST: bool = False
+K: int = 5
