@@ -24,4 +24,14 @@ See [`recbole`](https://recbole.io/index.html) for implementations.
 
 ## Ideas for improvements to the actual model
 
+- Evitar sparsity:
+
+  Cuando no existen muchas interacciones entre los usuarios y los ítems en el dataset, el modelo debe ser capaz de prevenir este problema.
+
+  En la primera versión del modelo, el MLP recibía las intreacciones de los usuarios y las caracteristicas de los ítems, haciendo que aquellos usuarios que no tuvieran interacciones no sean considerados.
+
+  Una posible solución sería que el MLP reciba los embeddings de usuarios e ítem, junto con las interacciones, caracteristicas numéricas y categorícas.
+
+- Usar LayerNorm en lugar de BatchNorm: Para datsets con mucho sparsity, puede ser más ideal
+
 - [Transformed based recommender system](https://www.nature.com/articles/s41598-025-08931-1)

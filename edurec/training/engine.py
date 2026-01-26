@@ -47,8 +47,6 @@ class RecSys(L.LightningModule):
     def __init__(
         self,
         model: nn.Module,
-        # min_rating: float,
-        # max_rating: float,
         threshold: float = 8.0,
         lr: float = 1e-3,
         weight_decay: float = 1e-6,
@@ -64,8 +62,6 @@ class RecSys(L.LightningModule):
         self.lr = lr
         self.weight_decay = weight_decay
         self.encoders = encoders
-        # self.min_rating = min_rating
-        # self.max_rating = max_rating
 
         ranking_metrics = MetricCollection(
             RetrievalPrecision(top_k=top_k, adaptive_k=True),

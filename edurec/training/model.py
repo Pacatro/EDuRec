@@ -117,6 +117,9 @@ class EDuRecV1(nn.Module):
 
         u_b = self.user_bias(u).squeeze(1)
         i_b = self.item_bias(i).squeeze(1)
+
         x = torch.cat([i_ui, cat_embs, num_embs], dim=1)
 
-        return self.mlp(x).squeeze(1) + u_b + i_b
+        out = self.mlp(x).squeeze(1) + u_b + i_b
+
+        return out
