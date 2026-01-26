@@ -10,7 +10,7 @@ from edurec.evaluation.cv_datamodule import CvElearningDataModule
 from edurec.training.model import EDuRecConfig
 
 from .. import config
-from ..datasets import DatasetName, load_raw_data
+from ..datasets import DatasetName, load_data
 from ..training.engine import RecSys
 
 
@@ -40,7 +40,7 @@ def cross_validate(
         else LeaveOneOut()
     )
 
-    df = load_raw_data(dataset_name)
+    df = load_data(dataset_name)
 
     fold_metrics = []
     n_folds = cv.get_n_splits(X=df)

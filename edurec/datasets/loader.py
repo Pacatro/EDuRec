@@ -73,7 +73,6 @@ def load_mars() -> pd.DataFrame:
     df_explicit = pd.concat([explicit_df_en, explicit_df_fr], ignore_index=True)
     df_items = pd.concat([items_en, items_fr], ignore_index=True)
 
-    df_explicit["created_at"] = pd.to_datetime(df_explicit["created_at"])
     df_items = df_items.drop(columns=["created_at"])
 
     df = pd.merge(df_explicit, df_items, on=config.ITEM_COL, how="inner")
@@ -98,6 +97,7 @@ def load_mars() -> pd.DataFrame:
         "nb_views",
         "watch_percentage",
         config.TARGET_COL,
+        config.TIME_COL,
     ]
 
     result_df = df[features]
@@ -169,7 +169,7 @@ def load_elearning_student() -> pd.DataFrame:
     return result_df
 
 
-def load_raw_data(dataset_name: DatasetName) -> pd.DataFrame:
+def load_data(dataset_name: DatasetName) -> pd.DataFrame:
     """
     Load the specified dataset. If data was processed before, laod the data from disk.
 

@@ -1,13 +1,15 @@
 from pathlib import Path
+
 import lightning as L
+import numpy as np
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder
 import torch
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
 from torch.utils.data import DataLoader, Dataset
 
 from .. import config
-from .loader import DatasetName, load_raw_data
+from .loader import DatasetName, load_data
 from .preprocessor import Preprocessor
 
 
@@ -30,7 +32,6 @@ class ElearningDataModule(L.LightningDataModule):
         batch_size: int,
         test_size: float,
         val_size: float,
-        save: bool = False,
         random_state: int | None = None,
     ) -> None:
         super().__init__()
@@ -39,26 +40,17 @@ class ElearningDataModule(L.LightningDataModule):
         self.test_size = test_size
         self.val_size = val_size
         self.random_state = random_state
-        self.save = save
 
         self.id_cols = [config.USER_COL, config.ITEM_COL]
         self.numeric_cols: list[str] = []
         self.categorical_lengths: dict[str, int] = {}
 
-        self.is_preprocessed = False
         self.processed_path = (
             Path(config.DATA_FOLDER) / "preprocessed" / f"{self.dataset_name.value}.csv"
         )
 
-        self.df = self._load_data()
+        self.df = load_data(dataset)
         self._process_data()
-
-    def _load_data(self) -> pd.DataFrame:
-        if self.processed_path.exists() and self.processed_path.is_file():
-            self.is_preprocessed = True
-            return pd.read_csv(self.processed_path)
-
-        return load_raw_data(self.dataset_name)
 
     def _split(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         if config.TIME_COL in self.df.columns:
@@ -107,11 +99,7 @@ class ElearningDataModule(L.LightningDataModule):
                 self.categorical_lengths[col] = int(train_df[col].nunique())
 
     def _process_data(self) -> None:
-        if self.is_preprocessed:
-            self.train_df, self.val_df, self.test_df = self._split()
-            self._get_column_types(self.train_df)
-            return
-
+        # We need to encode the user and item ids of all dataset
         self.df[config.USER_COL] = LabelEncoder().fit_transform(
             self.df[config.USER_COL]
         )
@@ -119,14 +107,20 @@ class ElearningDataModule(L.LightningDataModule):
             self.df[config.ITEM_COL]
         )
 
+        # Process time column to timestamp format (nanoseconds)
+        if config.TIME_COL in self.df.columns:
+            self.df[config.TIME_COL] = (
+                pd.to_datetime(self.df[config.TIME_COL]).astype(np.int64) // 10**9
+            )
+
         train_df, val_df, test_df = self._split()
 
         self._get_column_types(train_df)
 
-        categorical_cols = [col for col in self.categorical_lengths.keys()]
-
         self.preprocessor = Preprocessor(
-            self.numeric_cols, categorical_cols, self.id_cols
+            self.numeric_cols,
+            list(self.categorical_lengths.keys()),
+            self.id_cols,
         )
 
         self.train_df, self.val_df, self.test_df = self.preprocessor.fit_transform(
@@ -138,13 +132,14 @@ class ElearningDataModule(L.LightningDataModule):
         if self.test_df is None:
             return
 
+        # TODO: Find a way to not concatenate the data
         self.df = pd.concat(
             [self.train_df, self.val_df, self.test_df], ignore_index=True
         )
 
-        if self.save:
-            self.processed_path.parent.mkdir(parents=True, exist_ok=True)
-            self.df.to_csv(self.processed_path, index=False)
+        # Save the preprocessed data
+        self.processed_path.parent.mkdir(parents=True, exist_ok=True)
+        self.df.to_csv(self.processed_path, index=False)
 
     def setup(self, stage: str | None = None) -> None:
         match stage:

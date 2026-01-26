@@ -47,10 +47,6 @@ def train(
     save: Annotated[
         bool, typer.Option("--save_model", "-S", help="Save model")
     ] = False,
-    save_data: Annotated[
-        bool,
-        typer.Option("--save_data", "-P", help="Save preprocessed data"),
-    ] = config.SAVE_DATA,
     models_folder: Annotated[
         str,
         typer.Option(
@@ -58,19 +54,13 @@ def train(
         ),
     ] = config.MODELS_FOLDER,
 ):
-    if debug:
-        save_data = False
-
     dm = ElearningDataModule(
         dataset=dataset,
         batch_size=batch_size,
         test_size=test_size,
         val_size=val_size,
-        save=save_data,
         random_state=config.state["random_state"],
     )
-
-    print(dm.numeric_cols)
 
     model_config = EDuRecConfig(
         n_users=dm.num_users,
@@ -82,13 +72,20 @@ def train(
     model = EDuRecV1(model_config)
 
     if config.state["verbose"]:
-        print(f"[TRAIN] Dataset {dataset} sparsity: {dm.sparsity}")
+        print(f"[TRAIN] Dataset {dataset.value} sparsity: {dm.sparsity}")
         print(f"[TRAIN] Training model: {model.__class__.__name__}")
         print(f"[TRAIN] Using logger: {use_logger}")
         print(f"[TRAIN] Min rating: {dm.min_rating}")
         print(f"[TRAIN] Max rating: {dm.max_rating}")
 
-    recsys = RecSys(model=model, top_k=top_k, threshold=dm.threshold, lr=lr)
+    recsys = RecSys(
+        model=model,
+        top_k=top_k,
+        threshold=dm.threshold,
+        lr=lr,
+        # SmoothL1Loss parece mas interasante que MSE
+        # loss_fn=torch.nn.SmoothL1Loss(),
+    )
 
     # Compile model for better performance
     torch.compile(recsys)
