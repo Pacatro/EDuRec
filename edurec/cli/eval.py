@@ -1,6 +1,6 @@
 from typing import Annotated
+from pathlib import Path
 
-import mlflow
 import pandas as pd
 import typer
 
@@ -60,50 +60,35 @@ def eval(
 ):
     model_class = EDuRecV1
 
+    results_path = Path(results_folder)
+    results_path.mkdir(parents=True, exist_ok=True)
+
     for top_k in range(min_topk, max_topk + 1, topk_step):
         if config.state["verbose"]:
             print(
-                f"[EVAL] Model: {model_class.__name__} | Dataset: {dataset.name} | top-{top_k} | CV type: {cv_type.name}"
+                f"[EVAL] Model: {model_class.__name__} | Dataset: {dataset.value} | top-{top_k} | CV type: {cv_type.value}"
             )
 
-        model_run_name = f"{model_class.__name__}_{cv_type.name}_k={n_splits}_{dataset.name}_top-{top_k}"
+        model_run_name = f"{model_class.__name__}_{cv_type.value}_k={n_splits}_{dataset.value}_top-{top_k}"
 
-        with mlflow.start_run(run_name=model_run_name):
-            mlflow.log_params(
-                {
-                    "model": model_class.__name__,
-                    "top-k": top_k,
-                }
-            )
+        avg_metrics = cross_validate(
+            dataset_name=dataset,
+            model_class=model_class,
+            n_splits=n_splits,
+            epochs=epochs,
+            cv_type=cv_type,
+            batch_size=batch_size,
+            top_k=top_k,
+            patience=patience,
+            delta=delta,
+            verbose=config.state["verbose"],
+        )
 
-            avg_metrics = cross_validate(
-                dataset_name=dataset,
-                model_class=model_class,
-                n_splits=n_splits,
-                epochs=epochs,
-                cv_type=cv_type,
-                batch_size=batch_size,
-                top_k=top_k,
-                patience=patience,
-                delta=delta,
-                verbose=config.state["verbose"],
-            )
+        results_path /= f"{model_run_name}.csv"
+        avg_metrics.to_csv(results_path)
 
-            metrics_dict = {}
-            for metric_name, row in avg_metrics.iterrows():
-                metrics_dict[f"{metric_name}"] = float(row["mean"])
-                # metrics_dict[f"{metric_name}_std"] = float(row["std"])
-
-            metrics_dict["top_k"] = top_k
-            mlflow.log_metrics(metrics_dict)
-
-            results_path = f"{results_folder}/{model_run_name}.csv"
-            avg_metrics.to_csv(results_path)
-
-            mlflow.log_artifact(results_path)
-
-            if config.state["verbose"]:
-                print(f"Resultados guardados en {results_path}")
+        if config.state["verbose"]:
+            print(f"Resultados guardados en {results_path}")
 
 
 @app.command("stats", help="Performs statistical tests to compare model performances.")

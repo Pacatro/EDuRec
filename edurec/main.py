@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import Annotated
 import typer
 from enum import Enum
@@ -47,13 +46,6 @@ def main(
     if verbose:
         print(f"[CONFIG] Device: {device}")
         print(f"[CONFIG] Random state: {random_state}")
-
-    results_folder = Path(config.RESULTS_FOLDER)
-
-    folders = [results_folder, results_folder / "stats"]
-
-    for folder in folders:
-        folder.mkdir(parents=True, exist_ok=True)
 
 
 if __name__ == "__main__":

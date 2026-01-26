@@ -78,7 +78,7 @@ def cross_validate(
         trainer = L.Trainer(
             max_epochs=epochs,
             accelerator="auto",
-            devices="auto",
+            devices=config.state["device"],
             callbacks=[earlystop, ckpt],
             log_every_n_steps=10,
             enable_model_summary=False,

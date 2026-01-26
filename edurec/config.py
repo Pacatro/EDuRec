@@ -5,7 +5,7 @@ state = {"verbose": False, "random_state": 42, "device": "auto"}
 EXPERIMENT_NAME: str = "TFM"
 
 # Folders
-RESULTS_FOLDER: str = "results"
+RESULTS_FOLDER: str = "evaluations"
 MODELS_FOLDER: str = "models"
 DATA_FOLDER: str = "data"
 
