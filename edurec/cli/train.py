@@ -109,7 +109,7 @@ def train(
         MLFlowLogger(
             experiment_name=config.EXPERIMENT_NAME,
             run_name=f"{model.__class__.__name__}",
-            tracking_uri="file:./mlruns",
+            tracking_uri="sqlite:///mlflow.db",
         )
         if use_logger and not debug
         else None

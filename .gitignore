@@ -12,6 +12,7 @@ wheels/
 # Model training metadata
 lightning_logs/
 mlruns/
+mlflow.db
 
 
 # Other exetensions
