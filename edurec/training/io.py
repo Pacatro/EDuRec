@@ -11,10 +11,11 @@ def save_model(
     model_config: EDuRecConfig,
     best_model_path: str,
     models_folder: str,
+    dataset_name: str,
 ) -> None:
     """Save the best model to the specified folder."""
     out_model = f"{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    saving_models_folder = Path(models_folder) / f"{out_model}"
+    saving_models_folder = Path(models_folder) / dataset_name / out_model
     saving_models_folder.mkdir(parents=True, exist_ok=True)
 
     model_file_path = saving_models_folder / f"{out_model}.pt"
@@ -29,9 +30,11 @@ def save_model(
     print(f"Model saved in: {model_file_path}")
 
 
-def load_model(models_folder: str | Path) -> tuple[Path, EDuRecConfig]:
+def load_model(
+    models_folder: str | Path, dataset_name: str
+) -> tuple[Path, EDuRecConfig]:
     """Get the last saved model and config."""
-    root = Path(models_folder)
+    root = Path(models_folder) / dataset_name
 
     if not root.exists():
         raise FileNotFoundError(f"Models folder {root} does not exist")

@@ -141,6 +141,7 @@ def train(
             model_config,
             checkpoint_model.best_model_path,
             models_folder,
+            dataset.value,
         )
 
     if train_logger is not None:
