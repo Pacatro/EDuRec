@@ -1,8 +1,9 @@
 import lightning as L
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder
 from torch.utils.data import DataLoader
+
+from edurec.datasets.utils import get_column_types, global_preprocessing
 
 from .. import config
 from ..datasets import ElearningDataset, Preprocessor
@@ -23,23 +24,25 @@ class CvElearningDataModule(L.LightningDataModule):
         self.random_state = random_state
         self.train_idx = train_idx
         self.val_idx = val_idx
+        self.id_cols = [config.USER_COL, config.ITEM_COL]
 
-        self.preprocessor = Preprocessor()
         self._process_data()
 
     def _process_data(self) -> None:
-        print("Preprocessing data")
-        self.df[config.USER_COL] = LabelEncoder().fit_transform(
-            self.df[config.USER_COL]
-        )
-        self.df[config.ITEM_COL] = LabelEncoder().fit_transform(
-            self.df[config.ITEM_COL]
-        )
+        global_preprocessing(self.df)
 
         train_df = self.df.iloc[self.train_idx].reset_index(drop=True)
         val_df = self.df.iloc[self.val_idx].reset_index(drop=True)
 
-        self.train_df, self.val_df, _ = self.preprocessor.fit_transform(
+        self.numeric_cols, self.categorical_lengths = get_column_types(
+            train_df, self.id_cols
+        )
+
+        preprocessor = Preprocessor(
+            self.numeric_cols, list(self.categorical_lengths.keys()), self.id_cols
+        )
+
+        self.train_df, self.val_df, _ = preprocessor.fit_transform(
             train_df=train_df, val_df=val_df, test_df=None
         )
 
@@ -70,11 +73,11 @@ class CvElearningDataModule(L.LightningDataModule):
 
     @property
     def numeric_features(self) -> list[str]:
-        return self.preprocessor.numeric_cols
+        return self.numeric_cols
 
     @property
     def cat_cardinalities(self) -> dict[str, int]:
-        return {k: v + 2 for k, v in self.preprocessor.categorical_lengths.items()}
+        return {k: v + 2 for k, v in self.categorical_lengths.items()}
 
     @property
     def sparsity(self) -> float:

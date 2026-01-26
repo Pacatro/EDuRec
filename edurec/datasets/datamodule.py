@@ -1,15 +1,14 @@
 from pathlib import Path
 
 import lightning as L
-import numpy as np
 import pandas as pd
 import torch
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
 from torch.utils.data import DataLoader, Dataset
 
 from .. import config
 from .loader import DatasetName, load_data
+from .utils import get_column_types, global_preprocessing
 from .preprocessor import Preprocessor
 
 
@@ -85,37 +84,14 @@ class ElearningDataModule(L.LightningDataModule):
 
         return train_df, val_df, test_df
 
-    def _get_column_types(self, train_df: pd.DataFrame) -> None:
-        assert train_df is not None, "The data must be splited to train/val/test first"
-
-        exclude_cols = self.id_cols + [config.TARGET_COL, config.TIME_COL]
-
-        for col in train_df.columns:
-            if col in exclude_cols:
-                continue
-            if pd.api.types.is_numeric_dtype(train_df[col]):
-                self.numeric_cols.append(col)
-            else:
-                self.categorical_lengths[col] = int(train_df[col].nunique())
-
     def _process_data(self) -> None:
-        # We need to encode the user and item ids of all dataset
-        self.df[config.USER_COL] = LabelEncoder().fit_transform(
-            self.df[config.USER_COL]
-        )
-        self.df[config.ITEM_COL] = LabelEncoder().fit_transform(
-            self.df[config.ITEM_COL]
-        )
-
-        # Process time column to timestamp format (nanoseconds)
-        if config.TIME_COL in self.df.columns:
-            self.df[config.TIME_COL] = (
-                pd.to_datetime(self.df[config.TIME_COL]).astype(np.int64) // 10**9
-            )
+        global_preprocessing(self.df)
 
         train_df, val_df, test_df = self._split()
 
-        self._get_column_types(train_df)
+        self.numeric_cols, self.categorical_lengths = get_column_types(
+            train_df, self.id_cols
+        )
 
         self.preprocessor = Preprocessor(
             self.numeric_cols,
