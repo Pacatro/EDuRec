@@ -21,7 +21,8 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=9.0.2"]
+dev = ["wandb>=0.24.0", "pytest>=9.0.2"]
+
 
 [tool.uv.sources]
 torch = [

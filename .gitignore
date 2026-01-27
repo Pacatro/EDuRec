@@ -9,10 +9,15 @@ wheels/
 # Virtual environments
 .venv
 
+# Environment variables
+.env
+
 # Model training metadata
 lightning_logs/
 mlruns/
 mlflow.db
+TFM/
+wandb/
 
 
 # Other exetensions

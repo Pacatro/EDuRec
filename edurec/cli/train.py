@@ -4,7 +4,7 @@ import lightning as L
 import torch
 import typer
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
-from lightning.pytorch.loggers import MLFlowLogger
+from lightning.pytorch.loggers import WandbLogger
 
 from .. import config
 from ..datasets import DatasetName, ElearningDataModule
@@ -106,10 +106,8 @@ def train(
     )
 
     train_logger = (
-        MLFlowLogger(
-            experiment_name=config.EXPERIMENT_NAME,
-            run_name=f"{model.__class__.__name__}",
-            tracking_uri="sqlite:///mlflow.db",
+        WandbLogger(
+            project=config.EXPERIMENT_NAME, name=f"train_{model.__class__.__name__}"
         )
         if use_logger and not debug
         else None
@@ -143,6 +141,3 @@ def train(
             models_folder,
             dataset.value,
         )
-
-    if train_logger is not None:
-        train_logger.finalize("success")
