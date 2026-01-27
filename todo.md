@@ -5,7 +5,8 @@ List of TODOs for the project.
 ## Code
 
 - [x] Separete prerpocessing logic from data management logic
-- [ ] Reorganize code
+- [x] Reorganize code
+- [ ] Include new models
 - [ ] Improve evaluations
 - [ ] Improve stadistics tests
 
@@ -23,6 +24,14 @@ Posible datasets to use for the project:
 See [`recbole`](https://recbole.io/index.html) for implementations.
 
 ## Ideas for improvements to the actual model
+
+- Mejor cálculo de métricas.
+
+  A la hora de calcular las métricas (Precision@K, Recall@K, etc), necesitamos añadir al dataset interacciones negativas (interacciones de usuarios e ítems que no aparezcan en el dataset).
+
+- Usar BPRLoss en lugar de MSELoss.
+
+  Si añadimos interacciones negativas, el BPRLoss puede llegar a dar mejores resultados.
 
 - Evitar sparsity:
 
