@@ -15,15 +15,14 @@ from .utils import get_column_types, global_preprocessing
 
 class ElearningDataset(Dataset):
     def __init__(self, df: pd.DataFrame) -> None:
-        self.df = df.copy()
-        self.columns = list(df.columns)
+        self.df = df.copy().map(lambda x: torch.tensor(x))
+        self.columns = df.columns
 
     def __len__(self) -> int:
         return len(self.df)
 
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
-        raw = self.df.iloc[idx].map(lambda x: torch.tensor(x)).to_dict()
-        return cast(dict[str, torch.Tensor], raw)
+        return cast(dict[str, torch.Tensor], self.df.iloc[idx].to_dict())
 
 
 class ElearningDataModule(L.LightningDataModule):
