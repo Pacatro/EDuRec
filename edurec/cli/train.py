@@ -5,14 +5,40 @@ import torch
 import typer
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
+from recbole.config import Config
+from recbole.data import create_dataset, data_preparation
+from recbole.model.general_recommender import NeuMF
+from recbole.trainer import Trainer as RecBoleTrainer
+from recbole.utils import init_seed
 
 from .. import config
 from ..datasets import DatasetName, ElearningDataModule
 from ..training.engine import RecSys
-from ..training.model import EDuRecV1, EDuRecConfig
 from ..training.io import save_model
+from ..training.model import EDuRecConfig, EDuRecV1
 
 app = typer.Typer(no_args_is_help=True)
+
+
+def train_recbole():
+    config_rec = Config(model="NeuMF", dataset="ml-100k")
+
+    init_seed(config_rec["seed"], config_rec["reproducibility"])
+
+    dataset = create_dataset(config_rec)
+    train_data, val_data, _ = data_preparation(config_rec, dataset)
+    device = "cuda" if config.state["device"] == "auto" else "cpu"
+    model = NeuMF(config_rec, train_data.dataset).to(device)  # type: ignore
+    trainer = RecBoleTrainer(config_rec, model)
+
+    best_valid_score, best_valid_result = trainer.fit(
+        train_data, val_data, show_progress=True
+    )
+    print(f"Best valid result: {best_valid_result}")
+    print(f"Best valid score: {best_valid_score}")
+
+    # test_result = trainer.evaluate(test_data)
+    # print(f"Test result: {test_result}")
 
 
 @app.command(help="Train the recommendation model.")
