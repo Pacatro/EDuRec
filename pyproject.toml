@@ -5,7 +5,7 @@ description = "The objective of this Master's Thesis is to develop a recommendat
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-  "pandas>=2.2.3",
+  "pandas>=3.0.0",
   "scikit-learn>=1.6.1",
   "torch>=2.8.0",
   "matplotlib>=3.10.1",
@@ -17,10 +17,11 @@ dependencies = [
   "pydantic>=2.11.9",
   "typer>=0.19.2",
   "recbole>=1.2.0",
+  "pandas-stubs>=2.3.3.260113",
 ]
 
 [dependency-groups]
-dev = ["mlflow>=3.4.0", "pytest>=9.0.2"]
+dev = ["pytest>=9.0.2"]
 
 [tool.uv.sources]
 torch = [

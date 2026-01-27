@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import cast
 
 import lightning as L
 import pandas as pd
@@ -7,9 +8,9 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset
 
 from .. import config
-from .loader import DatasetName, load_data
-from .utils import get_column_types, global_preprocessing
+from .loaders import DatasetName, load_data
 from .preprocessor import Preprocessor
+from .utils import get_column_types, global_preprocessing
 
 
 class ElearningDataset(Dataset):
@@ -21,7 +22,8 @@ class ElearningDataset(Dataset):
         return len(self.df)
 
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
-        return self.df.iloc[idx].map(lambda x: torch.tensor(x)).to_dict()
+        raw = self.df.iloc[idx].map(lambda x: torch.tensor(x)).to_dict()
+        return cast(dict[str, torch.Tensor], raw)
 
 
 class ElearningDataModule(L.LightningDataModule):
