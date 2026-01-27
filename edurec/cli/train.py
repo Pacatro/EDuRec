@@ -73,6 +73,9 @@ def train(
     save: Annotated[
         bool, typer.Option("--save_model", "-S", help="Save model")
     ] = False,
+    save_data: Annotated[
+        bool, typer.Option("--save_data", "-D", help="Save data")
+    ] = config.SAVE_DATA,
     models_folder: Annotated[
         str,
         typer.Option(
@@ -85,6 +88,7 @@ def train(
         batch_size=batch_size,
         test_size=test_size,
         val_size=val_size,
+        save_data=save_data,
         random_state=config.state["random_state"],
     )
 

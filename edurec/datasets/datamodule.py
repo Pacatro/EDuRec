@@ -32,6 +32,7 @@ class ElearningDataModule(L.LightningDataModule):
         batch_size: int,
         test_size: float,
         val_size: float,
+        save_data: bool = False,
         random_state: int | None = None,
     ) -> None:
         super().__init__()
@@ -40,6 +41,7 @@ class ElearningDataModule(L.LightningDataModule):
         self.test_size = test_size
         self.val_size = val_size
         self.random_state = random_state
+        self.save_data = save_data
 
         self.id_cols = [config.USER_COL, config.ITEM_COL]
         self.numeric_cols: list[str] = []
@@ -114,9 +116,10 @@ class ElearningDataModule(L.LightningDataModule):
             [self.train_df, self.val_df, self.test_df], ignore_index=True
         )
 
-        # Save the preprocessed data
-        self.processed_path.parent.mkdir(parents=True, exist_ok=True)
-        self.df.to_csv(self.processed_path, index=False)
+        if self.save_data:
+            # Save the preprocessed data
+            self.processed_path.parent.mkdir(parents=True, exist_ok=True)
+            self.df.to_csv(self.processed_path, index=False)
 
     def setup(self, stage: str | None = None) -> None:
         match stage:
