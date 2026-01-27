@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import Any
 
 import lightning as L
 import pandas as pd
@@ -104,3 +105,23 @@ def cross_validate(
     std_metrics = all_metrics.std()
 
     return pd.DataFrame({"mean": avg_metrics, "std": std_metrics})
+
+
+# TODO: Completar esta función
+def recbole_cross_validate(
+    dataset_name: DatasetName,
+    model: str,
+    threshold: float,
+    lr: float = config.LR,
+    n_splits: int = config.K,
+    epochs: int = config.EPOCHS,
+    cv_type: CVType = CVType.KFOLD,
+    top_k: int = config.TOP_K,
+    batch_size: int = config.BATCH_SIZE,
+    data_path: str = "./recbole_cv_data",
+    extra_config: dict[str, Any] | None = None,
+    verbose: bool = config.state["verbose"],
+):
+    df = load_data(dataset_name)
+
+    df["recommend"] = df[config.TARGET_COL] >= threshold

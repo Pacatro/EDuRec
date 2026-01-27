@@ -85,7 +85,8 @@ class CvElearningDataModule(L.LightningDataModule):
 
     @property
     def threshold(self) -> float:
-        return float(self.df[config.TARGET_COL].mean())
+        # We use the median rating as the threshold
+        return float(self.df[config.TARGET_COL].median())
 
     @property
     def min_rating(self) -> float:

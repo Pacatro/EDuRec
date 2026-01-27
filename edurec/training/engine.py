@@ -121,7 +121,7 @@ class RecSys(L.LightningModule):
         mae = mean_absolute_error(preds, ratings.float())
 
         if ranking_metrics is not None and prefix in ["val", "test"]:
-            # preds = torch.clamp(input=preds, min=self.min_rating, max=self.max_rating)
+            # An item is relevant if its rating is greater or equal than the threshold
             target = (ratings >= self.threshold).int()
             ranking_metrics.update(preds, target, indexes=user_ids)
 

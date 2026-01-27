@@ -26,7 +26,7 @@ def train_recbole():
     init_seed(config_rec["seed"], config_rec["reproducibility"])
 
     dataset = create_dataset(config_rec)
-    train_data, val_data, _ = data_preparation(config_rec, dataset)
+    train_data, val_data, test_data = data_preparation(config_rec, dataset)
     device = "cuda" if config.state["device"] == "auto" else "cpu"
     model = NeuMF(config_rec, train_data.dataset).to(device)  # type: ignore
     trainer = RecBoleTrainer(config_rec, model)
@@ -37,8 +37,8 @@ def train_recbole():
     print(f"Best valid result: {best_valid_result}")
     print(f"Best valid score: {best_valid_score}")
 
-    # test_result = trainer.evaluate(test_data)
-    # print(f"Test result: {test_result}")
+    test_result = trainer.evaluate(test_data)
+    print(f"Test result: {test_result}")
 
 
 @app.command(help="Train the recommendation model.")
