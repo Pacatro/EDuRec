@@ -15,6 +15,7 @@ USER_COL: str = "user_id"
 TIME_COL: str = "timestamp"
 RATING_COL: str = "rating"
 RELEVANT_COL: str = "relevant"
+NEG_SAMPLES: int = 50
 
 # Preprocessing
 SELECTED_K: int = 10
@@ -29,7 +30,7 @@ HIDDEN_DIMS: list[int] = [256, 128, 64, 32, 16]
 LR: float = 0.001
 BATCH_SIZE: int = 128
 EPOCHS: int = 100
-PATIENCE: int = 3
+PATIENCE: int = 5
 DELTA: float = 0.001
 TOP_K: int = 10
 NUM_WORKERS: int = 2

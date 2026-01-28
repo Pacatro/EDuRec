@@ -17,6 +17,37 @@ from torchmetrics.retrieval import (
 from .. import config
 
 
+class BPRLoss(nn.Module):
+    """Bayesian Personalized Ranking Loss for implicit feedback.
+
+    Args:
+        lambda_reg (float): L2 regularization parameter
+    """
+
+    def __init__(self, lambda_reg: float = 1e-4):
+        super().__init__()
+        self.lambda_reg = lambda_reg
+
+    def forward(
+        self, pos_scores: torch.Tensor, neg_scores: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Args:
+            pos_scores: scores for positive interactions
+            neg_scores: scores for negative interactions
+
+        Returns:
+            BPR loss
+        """
+        diff = pos_scores - neg_scores
+        loss = -torch.log(torch.sigmoid(diff)).mean()
+
+        # L2 regularization
+        reg_loss = self.lambda_reg * (pos_scores.pow(2).sum() + neg_scores.pow(2).sum())
+
+        return loss + reg_loss
+
+
 class RetrievalFBetaScore(Metric):
     def __init__(
         self, top_k: int = 10, beta: float = 1.0, adaptive_k: bool = True, **kwargs
@@ -58,7 +89,7 @@ class RecSys(L.LightningModule):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
         self.model = model
-        self.loss_fn = loss_fn or nn.MSELoss()
+        self.loss_fn = loss_fn or BPRLoss()
         self.threshold = threshold
         self.lr = lr
         self.weight_decay = weight_decay
@@ -89,7 +120,23 @@ class RecSys(L.LightningModule):
         preds: torch.Tensor = self.model(batch)
 
         ratings = batch[config.RATING_COL].float().view(-1)
-        loss = self.loss_fn(preds, ratings)
+
+        # For BPR Loss, we need positive and negative samples
+        if isinstance(self.loss_fn, BPRLoss):
+            # Split predictions into positive and negative based on ratings
+            pos_mask = ratings > 0
+            neg_mask = ratings <= 0
+
+            if pos_mask.sum() > 0 and neg_mask.sum() > 0:
+                pos_scores = preds[pos_mask]
+                neg_scores = preds[neg_mask]
+                loss = self.loss_fn(pos_scores, neg_scores)
+            else:
+                # Fallback to MSE if we don't have both positive and negative samples
+                loss = nn.functional.mse_loss(preds, ratings)
+        else:
+            loss = self.loss_fn(preds, ratings)
+
         mae = mean_absolute_error(preds, ratings)
         rmse = loss**0.5
 

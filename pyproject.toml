@@ -21,6 +21,7 @@ dependencies = [
   "ray[tune]>=2.53.0",
   "numpy<2.0.0",
   "kmeans-pytorch>=0.3",
+  "joblib>=1.5.3",
 ]
 
 [dependency-groups]

@@ -63,6 +63,9 @@ def train(
     top_k: Annotated[
         int, typer.Option("--top_k", "-k", help="Top-k value")
     ] = config.TOP_K,
+    neg_samples: Annotated[
+        int, typer.Option("--neg_samples", "-n", help="Negative samples")
+    ] = config.NEG_SAMPLES,
     # balance: Annotated[
     #     bool, typer.Option("--balance", "-B", help="Balance dataset")
     # ] = config.BALANCE,
@@ -89,6 +92,7 @@ def train(
         test_size=test_size,
         val_size=val_size,
         save_data=save_data,
+        negative_samples=neg_samples,
         random_state=config.state["random_state"],
     )
 
@@ -107,6 +111,7 @@ def train(
         print(f"[TRAIN] Using logger: {use_logger}")
         print(f"[TRAIN] Min rating: {dm.min_rating}")
         print(f"[TRAIN] Max rating: {dm.max_rating}")
+        print(f"{dm.df.shape}")
 
     recsys = RecSys(
         model=model,
