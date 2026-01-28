@@ -52,7 +52,6 @@ class RecSys(L.LightningModule):
         weight_decay: float = 1e-6,
         top_k: int = 10,
         loss_fn: nn.Module | None = None,
-        encoders: dict | None = None,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
@@ -61,7 +60,6 @@ class RecSys(L.LightningModule):
         self.threshold = threshold
         self.lr = lr
         self.weight_decay = weight_decay
-        self.encoders = encoders
 
         ranking_metrics = MetricCollection(
             RetrievalPrecision(top_k=top_k, adaptive_k=True),
@@ -77,33 +75,8 @@ class RecSys(L.LightningModule):
         self.val_ranking_metrics = ranking_metrics.clone(prefix="val/")
         self.test_ranking_metrics = ranking_metrics.clone(prefix="test/")
 
-    def forward(self, batch) -> dict[str, int | float | bool]:
-        # TODO: ESTO ME VA A DAR PROBLEMAS AHORA QUE USO PIPELINES
-        score = self.model(batch)
-
-        if self.encoders:
-            user_id_tensor = batch["user_id"]
-            item_id_tensor = batch["item_id"]
-
-            user_id_array = user_id_tensor.detach().cpu().numpy()
-            item_id_array = item_id_tensor.detach().cpu().numpy()
-
-            user_id = self.encoders["user_id"].inverse_transform(
-                user_id_array.reshape(-1, 1)
-            )
-            item_id = self.encoders["item_id"].inverse_transform(
-                item_id_array.reshape(-1, 1)
-            )
-        else:
-            user_id = batch["user_id"].long()
-            item_id = batch["item_id"].long()
-
-        return {
-            "user_id": user_id.ravel(),
-            "item_id": item_id.ravel(),
-            "prediction": score.detach(),
-            "relevant": score.detach() > self.threshold,
-        }
+    def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+        return self.model(batch)
 
     def _step(
         self,
@@ -114,7 +87,7 @@ class RecSys(L.LightningModule):
         ratings = batch["rating"]
         user_ids = batch["user_id"].long()
 
-        preds = self.model(batch)
+        preds: torch.Tensor = self.model(batch)
         loss = self.loss_fn(preds, ratings.float())
         rmse = loss**0.5
         # nrmse = torch.norm(rmse / ratings.float(), p=2)
@@ -122,8 +95,10 @@ class RecSys(L.LightningModule):
 
         if ranking_metrics is not None and prefix in ["val", "test"]:
             # An item is relevant if its rating is greater or equal than the threshold
-            target = (ratings >= self.threshold).int()
-            ranking_metrics.update(preds, target, indexes=user_ids)
+            target = (ratings >= self.threshold).int().view(-1)
+            ranking_metrics.update(
+                preds.detach().view(-1), target, indexes=user_ids.view(-1)
+            )
 
         self.log(f"{prefix}/MSE", loss, prog_bar=False)
         self.log(f"{prefix}/RMSE", rmse, prog_bar=True)

@@ -15,7 +15,7 @@ from .. import config
 from ..datasets import DatasetName, ElearningDataModule
 from ..training.engine import RecSys
 from ..training.io import save_model
-from ..training.model import EDuRecConfig, EDuRecV1
+from ..training.model import EDuRecConfig, EDuRec
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -99,7 +99,7 @@ def train(
         cat_cardinalities=dm.cat_cardinalities,
     )
 
-    model = EDuRecV1(model_config)
+    model = EDuRec(model_config)
 
     if config.state["verbose"]:
         print(f"[TRAIN] Dataset {dataset.value} sparsity: {dm.sparsity}")

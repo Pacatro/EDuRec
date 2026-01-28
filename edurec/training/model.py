@@ -30,6 +30,82 @@ class EDuRecConfig:
     dropout: float = config.DROPOUT
 
 
+class EDuRec(nn.Module):
+    def __init__(self, config: EDuRecConfig):
+        super().__init__()
+
+        self.config = config
+
+        # CF embeddings
+        self.user_embedding = nn.Embedding(config.n_users, config.emb_dim)
+        self.item_embedding = nn.Embedding(config.n_items, config.emb_dim)
+
+        # User-Item biases
+        self.user_bias = nn.Embedding(config.n_users, 1)
+        self.item_bias = nn.Embedding(config.n_items, 1)
+
+        # Content Categories embeddings (CB)
+        cat_emb_dim = config.emb_dim // 2
+        self.cat_embeddings = nn.ModuleDict(
+            {
+                key: nn.Embedding(card, cat_emb_dim)
+                for key, card in config.cat_cardinalities.items()
+            }
+        )
+
+        # MLP
+        n_cat = len(self.cat_embeddings)
+        n_num = len(config.numeric_features)
+        mlp_input = (config.emb_dim * 3) + n_cat * cat_emb_dim + n_num
+        layers = []
+        for h in config.hidden_dims:
+            layers += [
+                nn.Linear(mlp_input, h),
+                nn.LayerNorm(h),
+                nn.ReLU(inplace=True),
+                nn.Dropout(config.dropout),
+            ]
+            mlp_input = h
+
+        layers.append(nn.Linear(mlp_input, 1))
+        self.mlp = nn.Sequential(*layers)
+
+        # Hyperparameters
+        self.numeric_features = config.numeric_features
+
+    def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+        u = batch["user_id"].long()
+        i = batch["item_id"].long()
+
+        u_emb = self.user_embedding(u)
+        i_emb = self.item_embedding(i)
+
+        ui_i = u_emb * i_emb  # User-Item interactions
+
+        cat_vecs = [emb(batch[key].long()) for key, emb in self.cat_embeddings.items()]
+        cat_embs = (
+            torch.cat(cat_vecs, dim=1)
+            if cat_vecs
+            else torch.zeros(u.size(0), 0, device=u_emb.device)
+        )
+
+        num_vecs = [batch[n].unsqueeze(1).float() for n in self.numeric_features]
+        num_embs = (
+            torch.cat(num_vecs, dim=1)
+            if num_vecs
+            else torch.zeros(u.size(0), 0, device=u_emb.device)
+        )
+
+        u_b = self.user_bias(u).squeeze(1)
+        i_b = self.item_bias(i).squeeze(1)
+
+        x = torch.cat([u_emb, i_emb, ui_i, cat_embs, num_embs], dim=1)
+
+        out = self.mlp(x).squeeze(1) + u_b + i_b
+
+        return out
+
+
 class EDuRecV1(nn.Module):
     """
     This is the proposed model for the RecSys, is a hybrid recommendation model that combines collaborative filtering (CF)
