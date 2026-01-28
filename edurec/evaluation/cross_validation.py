@@ -124,4 +124,4 @@ def recbole_cross_validate(
 ):
     df = load_data(dataset_name)
 
-    df["recommend"] = df[config.TARGET_COL] >= threshold
+    df["recommend"] = df[config.RATING_COL] >= threshold

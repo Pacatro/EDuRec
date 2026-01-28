@@ -30,7 +30,7 @@
 #     ] = None,
 #     target: Annotated[
 #         str, typer.Option("--target", "-t", help="Target column")
-#     ] = config.TARGET_COL,
+#     ] = config.RATING_COL,
 #     batch_size: Annotated[
 #         int, typer.Option("--batch_size", "-b", help="Batch size")
 #     ] = config.BATCH_SIZE,

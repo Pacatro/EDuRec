@@ -10,10 +10,11 @@ MODELS_FOLDER: str = "models"
 DATA_FOLDER: str = "data"
 
 # Datasets
-TARGET_COL: str = "rating"
 ITEM_COL: str = "item_id"
 USER_COL: str = "user_id"
 TIME_COL: str = "timestamp"
+RATING_COL: str = "rating"
+RELEVANT_COL: str = "relevant"
 
 # Preprocessing
 SELECTED_K: int = 10

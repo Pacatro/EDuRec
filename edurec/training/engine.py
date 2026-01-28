@@ -14,6 +14,8 @@ from torchmetrics.retrieval import (
     RetrievalRecall,
 )
 
+from .. import config
+
 
 class RetrievalFBetaScore(Metric):
     def __init__(
@@ -84,25 +86,20 @@ class RecSys(L.LightningModule):
         prefix: str,
         ranking_metrics: MetricCollection | None = None,
     ):
-        ratings = batch["rating"]
-        user_ids = batch["user_id"].long()
-
         preds: torch.Tensor = self.model(batch)
-        loss = self.loss_fn(preds, ratings.float())
+
+        ratings = batch[config.RATING_COL].float().view(-1)
+        loss = self.loss_fn(preds, ratings)
+        mae = mean_absolute_error(preds, ratings)
         rmse = loss**0.5
-        # nrmse = torch.norm(rmse / ratings.float(), p=2)
-        mae = mean_absolute_error(preds, ratings.float())
 
         if ranking_metrics is not None and prefix in ["val", "test"]:
-            # An item is relevant if its rating is greater or equal than the threshold
-            target = (ratings >= self.threshold).int().view(-1)
-            ranking_metrics.update(
-                preds.detach().view(-1), target, indexes=user_ids.view(-1)
-            )
+            user_ids = batch[config.USER_COL].long().view(-1)
+            target = batch[config.RELEVANT_COL].int().view(-1)
+            ranking_metrics.update(preds.detach(), target, indexes=user_ids)
 
         self.log(f"{prefix}/MSE", loss, prog_bar=False)
         self.log(f"{prefix}/RMSE", rmse, prog_bar=True)
-        # self.log(f"{prefix}/NRMSE", nrmse, prog_bar=True)
         self.log(f"{prefix}/MAE", mae, prog_bar=False)
 
         return loss

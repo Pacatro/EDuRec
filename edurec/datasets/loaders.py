@@ -81,7 +81,7 @@ def load_mars() -> pd.DataFrame:
         columns={
             "user_id": config.USER_COL,
             "item_id": config.ITEM_COL,
-            "rating": config.TARGET_COL,
+            "rating": config.RATING_COL,
             "Difficulty": "difficulty",
             "type": "item_type",
             "created_at": config.TIME_COL,
@@ -96,7 +96,7 @@ def load_mars() -> pd.DataFrame:
         "difficulty",
         "nb_views",
         "watch_percentage",
-        config.TARGET_COL,
+        config.RATING_COL,
         config.TIME_COL,
     ]
 
@@ -125,7 +125,7 @@ def load_itm() -> pd.DataFrame:
         columns={
             "UserID": config.USER_COL,
             "Item": config.ITEM_COL,
-            "Rating": config.TARGET_COL,
+            "Rating": config.RATING_COL,
         }
     )
 
@@ -140,7 +140,7 @@ def load_itm() -> pd.DataFrame:
         "Ease",
         " Age",
         "Married",
-        config.TARGET_COL,
+        config.RATING_COL,
     ]
 
     result_df = merged_df[features]
@@ -156,7 +156,7 @@ def load_elearning_student() -> pd.DataFrame:
         columns={
             "UserID": config.USER_COL,
             "CourseName": config.ITEM_COL,
-            "UserSatisfaction": config.TARGET_COL,
+            "UserSatisfaction": config.RATING_COL,
         },
     )
 

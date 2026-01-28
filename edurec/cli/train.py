@@ -74,7 +74,7 @@ def train(
         bool, typer.Option("--save_model", "-S", help="Save model")
     ] = False,
     save_data: Annotated[
-        bool, typer.Option("--save_data", "-D", help="Save data")
+        bool, typer.Option("--save_data", "-P", help="Save data")
     ] = config.SAVE_DATA,
     models_folder: Annotated[
         str,

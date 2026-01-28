@@ -88,7 +88,7 @@ class ElearningDataModule(L.LightningDataModule):
         return train_df, val_df, test_df
 
     def _process_data(self) -> None:
-        global_preprocessing(self.df)
+        global_preprocessing(self.df, self.threshold)
 
         train_df, val_df, test_df = self._split()
 
@@ -171,12 +171,12 @@ class ElearningDataModule(L.LightningDataModule):
 
     @property
     def threshold(self) -> float:
-        return float(self.df[config.TARGET_COL].mean())
+        return float(self.df[config.RATING_COL].mean())
 
     @property
     def min_rating(self) -> float:
-        return float(self.df[config.TARGET_COL].min())
+        return float(self.df[config.RATING_COL].min())
 
     @property
     def max_rating(self) -> float:
-        return float(self.df[config.TARGET_COL].max())
+        return float(self.df[config.RATING_COL].max())
