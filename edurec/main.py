@@ -1,11 +1,17 @@
-from typing import Annotated
-import typer
+import warnings
 from enum import Enum
+from typing import Annotated
+
+import typer
 
 from . import config
-from .cli import train_app, eval_app
+from .cli import eval_app, train_app
+
 # from .commands.predict import app as predict_app
 
+
+# Ignore pandas future warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 app = typer.Typer(
     rich_markup_mode=None,

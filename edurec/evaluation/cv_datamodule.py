@@ -24,12 +24,13 @@ class CvElearningDataModule(L.LightningDataModule):
         self.random_state = random_state
         self.train_idx = train_idx
         self.val_idx = val_idx
+
         self.id_cols = [config.USER_COL, config.ITEM_COL]
 
         self._process_data()
 
     def _process_data(self) -> None:
-        global_preprocessing(self.df)
+        global_preprocessing(self.df, threshold=self.threshold)
 
         train_df = self.df.iloc[self.train_idx].reset_index(drop=True)
         val_df = self.df.iloc[self.val_idx].reset_index(drop=True)

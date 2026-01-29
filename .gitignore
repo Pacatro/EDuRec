@@ -19,6 +19,7 @@ mlflow.db
 TFM/
 wandb/
 log*/ 
+sota_cv_data/
 
 
 # Other exetensions

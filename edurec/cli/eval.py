@@ -5,8 +5,8 @@ import pandas as pd
 import typer
 
 from .. import config
-from ..datasets import DatasetName
-from ..evaluation import CVType, cross_validate
+from ..datasets import DatasetName, load_data
+from ..evaluation import CVType, cross_validate, sota_cross_validate
 from ..evaluation.stats import friedman_test
 from ..training.model import EDuRecV1
 
@@ -17,6 +17,14 @@ app = typer.Typer(no_args_is_help=True)
     help="Evaluates the performance of the proposed model in the top-k recommendations"
 )
 def eval(
+    eval_sota: Annotated[
+        bool,
+        typer.Option(
+            "--eval-sota",
+            "-S",
+            help="Also evaluate the performance of the SOTA models.",
+        ),
+    ] = False,
     dataset: Annotated[
         DatasetName,
         typer.Option("--dataset", "-d", help="Dataset to use"),
@@ -24,15 +32,9 @@ def eval(
     batch_size: Annotated[
         int, typer.Option("--batch-size", "-b", help="Batch size for training.")
     ] = config.BATCH_SIZE,
-    min_topk: Annotated[
-        int, typer.Option("--min-topk", "-k", help="Minimum top-k value.")
-    ] = 10,
-    max_topk: Annotated[
-        int, typer.Option("--max-topk", "-K", help="Maximum top-k value.")
-    ] = 20,
-    topk_step: Annotated[
-        int, typer.Option("--topk-step", "-s", help="Top-k step.")
-    ] = 5,
+    top_k: Annotated[
+        int, typer.Option("--top-k", "-k", help="Top-k value")
+    ] = config.TOP_K,
     epochs: Annotated[
         int, typer.Option("--epochs", "-e", help="Number of epochs for training.")
     ] = config.EPOCHS,
@@ -58,30 +60,42 @@ def eval(
         str, typer.Option("--results-folder", help="Folder to save results.")
     ] = config.RESULTS_FOLDER,
 ):
-    model_class = EDuRecV1
+    models_classes = ["BPR"] if eval_sota else [EDuRecV1]
+    df = load_data(dataset)
 
     results_path = Path(results_folder)
     results_path.mkdir(parents=True, exist_ok=True)
 
-    for top_k in range(min_topk, max_topk + 1, topk_step):
+    for model_class in models_classes:
+        model_name = (
+            model_class.__name__ if not isinstance(model_class, str) else model_class
+        )
         if config.state["verbose"]:
             print(
-                f"[EVAL] Model: {model_class.__name__} | Dataset: {dataset.value} | top-{top_k} | CV type: {cv_type.value}"
+                f"[EVAL] Model: {model_name} | Dataset: {dataset.value} | top-{top_k} | CV type: {cv_type.value}"
             )
 
-        model_run_name = f"{model_class.__name__}_{cv_type.value}_k={n_splits}_{dataset.value}_top-{top_k}"
+        model_run_name = (
+            f"{model_name}_{cv_type.value}_k={n_splits}_{dataset.value}_top-{top_k}"
+        )
 
-        avg_metrics = cross_validate(
-            dataset_name=dataset,
-            model_class=model_class,
-            n_splits=n_splits,
-            epochs=epochs,
-            cv_type=cv_type,
-            batch_size=batch_size,
-            top_k=top_k,
-            patience=patience,
-            delta=delta,
-            verbose=config.state["verbose"],
+        params = {
+            "df": df,
+            "model_class": model_class,
+            "n_splits": n_splits,
+            "epochs": epochs,
+            "cv_type": cv_type,
+            "batch_size": batch_size,
+            "top_k": top_k,
+            "patience": patience,
+            "delta": delta,
+            "verbose": config.state["verbose"],
+        }
+
+        avg_metrics = (
+            cross_validate(**params)
+            if not isinstance(model_class, str)
+            else sota_cross_validate(**params)
         )
 
         results_path /= f"{model_run_name}.csv"

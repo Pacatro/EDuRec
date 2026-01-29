@@ -16,9 +16,9 @@ class Preprocessor:
         self.id_cols: list[str] = id_cols
         self.categorical_cols: list[str] = categorical_cols
         self.id_cols = [config.USER_COL, config.ITEM_COL]
-        self.preprocessor: Pipeline | None = None
 
-    def _build_preprocessor(self) -> Pipeline:
+    @property
+    def pipeline(self) -> Pipeline:
         transformers = []
 
         if self.numeric_cols:
@@ -81,17 +81,18 @@ class Preprocessor:
         val_df: pd.DataFrame,
         test_df: pd.DataFrame | None,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame | None]:
+        # TODO: Set val_df as possible None instead of test_df
         self.train_df = train_df.copy()
         self.val_df = val_df.copy()
         self.test_df = test_df.copy() if test_df is not None else None
+        pipeline = self.pipeline
 
-        self.preprocessor = self._build_preprocessor()
         feats = np.array(self.numeric_cols + self.categorical_cols, dtype=np.str_)
 
-        self.preprocessor.fit(self.train_df[feats])
+        pipeline.fit(self.train_df[feats])
 
-        train_features = self.preprocessor.transform(self.train_df[feats])
-        val_features = self.preprocessor.transform(self.val_df[feats])
+        train_features = pipeline.transform(self.train_df[feats])
+        val_features = pipeline.transform(self.val_df[feats])
         # La salida es num + cat (en ese orden) y 1:1 columnas
         train_processed = pd.DataFrame(
             train_features, columns=feats, index=self.train_df.index
@@ -104,7 +105,7 @@ class Preprocessor:
         self.val_df = self._merge_features(self.val_df, val_processed)
 
         if self.test_df is not None:
-            test_features = self.preprocessor.transform(self.test_df[feats])
+            test_features = pipeline.transform(self.test_df[feats])
 
             test_processed = pd.DataFrame(
                 test_features,
