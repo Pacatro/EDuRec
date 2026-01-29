@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from edurec import config
-from edurec.datasets import ElearningDataset, Preprocessor
+from edurec.datasets import ElearningDataset, DataProcessor
 
 
 def test_elearning_dataset_getitem():
@@ -60,7 +60,7 @@ def test_data_preprocessing():
         }
     )
 
-    preprocessor = Preprocessor(["a"], ["b"], [config.USER_COL, config.ITEM_COL])
+    preprocessor = DataProcessor(["a"], ["b"], [config.USER_COL, config.ITEM_COL])
 
     train_processed, val_processed, test_processed = preprocessor.fit_transform(
         train_df=train_df,

@@ -1,11 +1,11 @@
 from .datamodule import ElearningDataModule, ElearningDataset
 from .loaders import DatasetName, load_data
-from .preprocessor import Preprocessor
+from .data_processor import DataProcessor
 
 __all__ = [
     "ElearningDataModule",
     "ElearningDataset",
     "DatasetName",
     "load_data",
-    "Preprocessor",
+    "DataProcessor",
 ]

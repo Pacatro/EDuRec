@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from edurec.datasets.utils import get_column_types, global_preprocessing
 
 from .. import config
-from ..datasets import ElearningDataset, Preprocessor
+from ..datasets import ElearningDataset, DataProcessor
 
 
 class CvElearningDataModule(L.LightningDataModule):
@@ -39,7 +39,7 @@ class CvElearningDataModule(L.LightningDataModule):
             train_df, self.id_cols
         )
 
-        preprocessor = Preprocessor(
+        preprocessor = DataProcessor(
             self.numeric_cols, list(self.categorical_lengths.keys()), self.id_cols
         )
 

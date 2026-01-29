@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from .. import config
 from .loaders import DatasetName, load_data
-from .preprocessor import Preprocessor
+from .data_processor import DataProcessor
 from .utils import get_column_types, global_preprocessing
 
 
@@ -96,7 +96,7 @@ class ElearningDataModule(L.LightningDataModule):
             train_df, self.id_cols
         )
 
-        self.preprocessor = Preprocessor(
+        self.preprocessor = DataProcessor(
             self.numeric_cols,
             list(self.categorical_lengths.keys()),
             self.id_cols,

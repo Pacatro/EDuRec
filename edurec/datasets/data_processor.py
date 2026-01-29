@@ -8,7 +8,7 @@ from sklearn.preprocessing import FunctionTransformer, MinMaxScaler, OrdinalEnco
 from .. import config
 
 
-class Preprocessor:
+class DataProcessor:
     def __init__(
         self, numeric_cols: list[str], categorical_cols: list[str], id_cols: list[str]
     ):

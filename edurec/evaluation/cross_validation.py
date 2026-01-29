@@ -12,9 +12,9 @@ from recbole.utils import get_model, get_trainer, init_seed
 from sklearn.model_selection import KFold, LeaveOneOut
 from torch import nn
 
-from edurec.datasets.preprocessor import Preprocessor
 
 from .. import config
+from ..datasets import DataProcessor
 from ..datasets.utils import get_column_types, global_preprocessing
 from ..training.engine import RecSys
 from ..training.model import EDuRecConfig
@@ -159,7 +159,7 @@ def sota_cross_validate(
         train_df = df.iloc[train_idx].copy()
         test_df = df.iloc[test_idx].copy()
 
-        preprocessor = Preprocessor(
+        preprocessor = DataProcessor(
             numeric_cols=numeric_cols,
             categorical_cols=categorical_cols,
             id_cols=id_cols,
