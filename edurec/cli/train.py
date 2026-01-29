@@ -64,8 +64,8 @@ def train(
         int, typer.Option("--top_k", "-k", help="Top-k value")
     ] = config.TOP_K,
     neg_samples: Annotated[
-        int, typer.Option("--neg_samples", "-n", help="Negative samples")
-    ] = config.NEG_SAMPLES,
+        bool, typer.Option("--neg_samples", "-n", help="Negative samples")
+    ] = False,
     # balance: Annotated[
     #     bool, typer.Option("--balance", "-B", help="Balance dataset")
     # ] = config.BALANCE,

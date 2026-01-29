@@ -15,7 +15,9 @@ USER_COL: str = "user_id"
 TIME_COL: str = "timestamp"
 RATING_COL: str = "rating"
 RELEVANT_COL: str = "relevant"
-NEG_SAMPLES: int = 50
+TRAIN_NEG_SAMPLES: int = 4
+VAL_NEG_SAMPLES: int = 99
+TEST_NEG_SAMPLES: int = 99
 
 # Preprocessing
 SELECTED_K: int = 10

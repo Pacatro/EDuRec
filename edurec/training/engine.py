@@ -89,7 +89,7 @@ class RecSys(L.LightningModule):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
         self.model = model
-        self.loss_fn = loss_fn or BPRLoss()
+        self.loss_fn = loss_fn or nn.MSELoss()
         self.threshold = threshold
         self.lr = lr
         self.weight_decay = weight_decay
@@ -118,25 +118,9 @@ class RecSys(L.LightningModule):
         ranking_metrics: MetricCollection | None = None,
     ):
         preds: torch.Tensor = self.model(batch)
-
         ratings = batch[config.RATING_COL].float().view(-1)
 
-        # For BPR Loss, we need positive and negative samples
-        if isinstance(self.loss_fn, BPRLoss):
-            # Split predictions into positive and negative based on ratings
-            pos_mask = ratings > 0
-            neg_mask = ratings <= 0
-
-            if pos_mask.sum() > 0 and neg_mask.sum() > 0:
-                pos_scores = preds[pos_mask]
-                neg_scores = preds[neg_mask]
-                loss = self.loss_fn(pos_scores, neg_scores)
-            else:
-                # Fallback to MSE if we don't have both positive and negative samples
-                loss = nn.functional.mse_loss(preds, ratings)
-        else:
-            loss = self.loss_fn(preds, ratings)
-
+        loss = self.loss_fn(preds, ratings)
         mae = mean_absolute_error(preds, ratings)
         rmse = loss**0.5
 
@@ -168,19 +152,15 @@ class RecSys(L.LightningModule):
             ranking_metrics=self.test_ranking_metrics,
         )
 
-    def on_validation_epoch_start(self) -> None:
-        self.val_ranking_metrics.reset()
-
     def on_validation_epoch_end(self) -> None:
         self.log_dict(self.val_ranking_metrics.compute())
-
-    def on_test_epoch_start(self) -> None:
-        self.test_ranking_metrics.reset()
+        self.val_ranking_metrics.reset()
 
     def on_test_epoch_end(self) -> None:
         self.log_dict(self.test_ranking_metrics.compute())
+        self.test_ranking_metrics.reset()
 
-    def predict_step(self, batch: dict[str, torch.Tensor]) -> dict[str, int | float]:
+    def predict_step(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         return self(batch)
 
     def configure_optimizers(self) -> OptimizerLRScheduler:

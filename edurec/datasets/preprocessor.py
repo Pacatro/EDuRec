@@ -75,15 +75,80 @@ class Preprocessor:
             ]
         )
 
+    def _generate_neg_samples(
+        self, df: pd.DataFrame, neg_samples: int, min_rating: float
+    ) -> pd.DataFrame:
+        new_data = []
+        user_item_set = (
+            df.groupby(config.USER_COL)[config.ITEM_COL].apply(set).to_dict()
+        )
+
+        # TODO: We shoud have a way to differenciate between ITEM features and USER features
+        # for now, we assome that all other features are ITEM features
+        item_features_map = (
+            df.drop_duplicates(config.ITEM_COL)
+            .set_index(config.ITEM_COL)
+            .to_dict(orient="index")
+        )
+
+        all_items = df[config.ITEM_COL].unique()
+        columns = df.columns.tolist()
+
+        user_idx = columns.index(config.USER_COL)
+        item_idx = columns.index(config.ITEM_COL)
+        rating_idx = columns.index(config.RATING_COL)
+
+        for row in df.itertuples(index=False):
+            row_list = list(row)
+            new_data.append(row_list)
+
+            user_id = row_list[user_idx]
+            negatives_found = 0
+
+            while negatives_found < neg_samples:
+                neg_id = np.random.choice(all_items)
+
+                if neg_id not in user_item_set[user_id]:
+                    neg_row = row_list.copy()
+
+                    neg_row[item_idx] = neg_id
+                    neg_row[rating_idx] = min_rating
+
+                    if neg_id in item_features_map:
+                        item_attrs = item_features_map[neg_id]
+                        for col_name, col_value in item_attrs.items():
+                            if col_name in columns:
+                                neg_row[columns.index(str(col_name))] = col_value
+
+                    new_data.append(neg_row)
+                    negatives_found += 1
+
+        return pd.DataFrame(new_data, columns=columns)
+
     def fit_transform(
         self,
         train_df: pd.DataFrame,
         val_df: pd.DataFrame,
         test_df: pd.DataFrame | None,
+        min_rating: float,
+        neg_samples: bool = False,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame | None]:
-        self.train_df = train_df.copy()
-        self.val_df = val_df.copy()
-        self.test_df = test_df.copy() if test_df is not None else None
+        if neg_samples:
+            self.train_df = self._generate_neg_samples(
+                train_df, config.TRAIN_NEG_SAMPLES, min_rating
+            )
+            self.val_df = self._generate_neg_samples(
+                val_df, config.VAL_NEG_SAMPLES, min_rating
+            )
+            self.test_df = (
+                self._generate_neg_samples(test_df, config.TEST_NEG_SAMPLES, min_rating)
+                if test_df is not None
+                else None
+            )
+        else:
+            self.train_df = train_df.copy()
+            self.val_df = val_df.copy()
+            self.test_df = test_df.copy() if test_df is not None else None
 
         self.preprocessor = self._build_preprocessor()
         feats = np.array(self.numeric_cols + self.categorical_cols, dtype=np.str_)
