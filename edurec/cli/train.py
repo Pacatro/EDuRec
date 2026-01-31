@@ -37,6 +37,9 @@ def train(
     top_k: Annotated[
         int, typer.Option("--top_k", "-k", help="Top-k value")
     ] = config.TOP_K,
+    monitor: Annotated[
+        str, typer.Option("--monitor", "-m", help="Monitor metric")
+    ] = config.MONITOR,
     use_logger: Annotated[
         bool, typer.Option("--use_logger", "-L", help="Use MLFlow logger")
     ] = False,
@@ -78,12 +81,14 @@ def train(
         print(f"[TRAIN] Using logger: {use_logger}")
         print(f"[TRAIN] Min rating: {dm.min_rating}")
         print(f"[TRAIN] Max rating: {dm.max_rating}")
+        print(f"[TRAIN] Monitoring: {monitor}")
 
     recsys = RecSys(
         model=model,
         top_k=top_k,
         threshold=dm.threshold,
         lr=lr,
+        monitor=monitor,
         # SmoothL1Loss parece mas interasante que MSE
         # loss_fn=torch.nn.SmoothL1Loss(),
     )
@@ -92,7 +97,7 @@ def train(
     torch.compile(recsys)
 
     early_stop_model = EarlyStopping(
-        monitor="val/MSE",
+        monitor=monitor,
         patience=config.PATIENCE,
         mode="min",
         min_delta=config.DELTA,
@@ -100,7 +105,7 @@ def train(
     )
 
     checkpoint_model = ModelCheckpoint(
-        monitor="val/MSE",
+        monitor=monitor,
         mode="min",
         save_top_k=1,
         filename="best_model",

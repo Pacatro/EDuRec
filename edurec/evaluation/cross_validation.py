@@ -35,6 +35,7 @@ def cross_validate(
     batch_size: int = config.BATCH_SIZE,
     patience: int = config.PATIENCE,
     delta: float = config.DELTA,
+    monitor: str = config.MONITOR,
     verbose: bool = config.state["verbose"],
 ) -> pd.DataFrame:
     cv = (
@@ -62,7 +63,9 @@ def cross_validate(
 
         model = model_class(model_config)
 
-        recsys = RecSys(model=model, top_k=top_k, threshold=dm.threshold, lr=lr)
+        recsys = RecSys(
+            model=model, top_k=top_k, threshold=dm.threshold, lr=lr, monitor=monitor
+        )
 
         earlystop = EarlyStopping(
             monitor="val/MSE",

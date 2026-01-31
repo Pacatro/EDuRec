@@ -36,6 +36,7 @@ NUM_WORKERS: int = 2
 VAL_SIZE: float = 0.1
 TEST_SIZE: float = 0.4
 SAVE_DATA: bool = False
+MONITOR: str = "val/MSE"
 
 # Eval
 SEEDS: list[int] = [0, 1, 42]

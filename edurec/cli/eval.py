@@ -52,6 +52,10 @@ def eval(
             help="Minimum change to qualify as an improvement for early stopping.",
         ),
     ] = config.DELTA,
+    monitor: Annotated[
+        str,
+        typer.Option("--monitor", "-m", help="Metric to monitor for early stopping."),
+    ] = config.MONITOR,
     cv_type: Annotated[
         CVType,
         typer.Option("--cv-type", help="Cross-validation type."),
@@ -99,6 +103,7 @@ def eval(
             "top_k": top_k,
             "patience": patience,
             "delta": delta,
+            "monitor": monitor,
             "verbose": config.state["verbose"],
         }
 

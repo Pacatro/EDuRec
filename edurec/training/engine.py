@@ -54,6 +54,7 @@ class RecSys(L.LightningModule):
         weight_decay: float = 1e-6,
         top_k: int = 10,
         loss_fn: nn.Module | None = None,
+        monitor: str = "val/MSE",
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
@@ -62,6 +63,7 @@ class RecSys(L.LightningModule):
         self.threshold = threshold
         self.lr = lr
         self.weight_decay = weight_decay
+        self.monitor = monitor
 
         ranking_metrics = MetricCollection(
             RetrievalPrecision(top_k=top_k, adaptive_k=True),
@@ -145,5 +147,5 @@ class RecSys(L.LightningModule):
         )
         return {
             "optimizer": optimizer,
-            "lr_scheduler": {"scheduler": scheduler, "monitor": "val/MSE"},
+            "lr_scheduler": {"scheduler": scheduler, "monitor": self.monitor},
         }
