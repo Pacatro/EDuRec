@@ -60,7 +60,17 @@ def eval(
         str, typer.Option("--results-folder", help="Folder to save results.")
     ] = config.RESULTS_FOLDER,
 ):
-    models_classes = ["BPR"] if eval_sota else [EDuRecV1]
+    models_classes = (
+        [
+            # "BPR",
+            "DeepFM",
+            # EDuRecV1,
+            # "NeuMF",
+            # "xDeepFM",
+        ]
+        if eval_sota
+        else [EDuRecV1]
+    )
     df = load_data(dataset)
 
     results_path = Path(results_folder)
@@ -98,11 +108,11 @@ def eval(
             else sota_cross_validate(**params)
         )
 
-        results_path /= f"{model_run_name}.csv"
-        avg_metrics.to_csv(results_path)
+        model_results_path = results_path / f"{model_run_name}.csv"
+        avg_metrics.to_csv(model_results_path)
 
         if config.state["verbose"]:
-            print(f"Resultados guardados en {results_path}")
+            print(f"Resultados guardados en {model_results_path}")
 
 
 @app.command("stats", help="Performs statistical tests to compare model performances.")

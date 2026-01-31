@@ -39,7 +39,7 @@ def main(
     random_state: Annotated[
         int | None,
         typer.Option("--random-state", "-r", help="Random state"),
-    ] = None,
+    ] = 42,
     verbose: Annotated[
         bool,
         typer.Option("--verbose", "-v", help="Verbose mode"),
@@ -50,7 +50,7 @@ def main(
     config.state["device"] = device.value
 
     if verbose:
-        print(f"[CONFIG] Device: {device}")
+        print(f"[CONFIG] Device: {device.value}")
         print(f"[CONFIG] Random state: {random_state}")
 
 

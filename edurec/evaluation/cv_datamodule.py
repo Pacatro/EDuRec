@@ -77,6 +77,10 @@ class CvElearningDataModule(L.LightningDataModule):
         return self.numeric_cols
 
     @property
+    def categorical_features(self) -> list[str]:
+        return list(self.categorical_lengths.keys())
+
+    @property
     def cat_cardinalities(self) -> dict[str, int]:
         return {k: v + 2 for k, v in self.categorical_lengths.items()}
 

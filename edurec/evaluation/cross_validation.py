@@ -12,9 +12,7 @@ from recbole.utils import get_model, get_trainer, init_seed
 from sklearn.model_selection import KFold, LeaveOneOut
 from torch import nn
 
-
 from .. import config
-from ..datasets import DataProcessor
 from ..datasets.utils import get_column_types, global_preprocessing
 from ..training.engine import RecSys
 from ..training.model import EDuRecConfig
@@ -112,6 +110,46 @@ def cross_validate(
     return pd.DataFrame({"mean": avg_metrics, "std": std_metrics})
 
 
+def _calc_fbeta_score(precision: float, recall: float, beta: float) -> float:
+    return (1 + beta**2) * precision * recall / ((beta**2 * precision) + recall)
+
+
+def _create_inter_dataset(
+    train_processed: pd.DataFrame,
+    test_processed: pd.DataFrame,
+    numeric_cols: list[str],
+    categorical_cols: list[str],
+    fold_path: Path,
+) -> list[str]:
+    rename_map = {}
+    for c in numeric_cols:
+        rename_map[c] = f"{c}:float"
+    for c in categorical_cols:
+        rename_map[c] = f"{c}:token"
+
+    rename_map[config.USER_COL] = f"{config.USER_COL}:token"
+    rename_map[config.ITEM_COL] = f"{config.ITEM_COL}:token"
+    rename_map[config.TIME_COL] = f"{config.TIME_COL}:float"
+    rename_map[config.RATING_COL] = f"{config.RATING_COL}:float"
+    rename_map[config.RELEVANT_COL] = f"{config.RELEVANT_COL}:float"
+
+    train_rec = train_processed.rename(columns=rename_map)
+    test_rec = test_processed.rename(columns=rename_map)
+
+    processed_cols = test_processed.columns.tolist()
+
+    if fold_path.exists():
+        shutil.rmtree(fold_path)
+
+    fold_path.mkdir(parents=True)
+
+    full_df = pd.concat([train_rec, test_rec], ignore_index=True)
+    full_df.columns = [c.strip() for c in full_df.columns]
+    full_df.to_csv(fold_path / f"{fold_path.name}.inter", sep="\t", index=False)
+
+    return processed_cols
+
+
 def sota_cross_validate(
     df: pd.DataFrame,
     model_class: str,
@@ -156,47 +194,22 @@ def sota_cross_validate(
     for fold, (train_idx, test_idx) in enumerate(cv.split(df), start=1):
         print(f"Fold {fold}/{n_folds}")
 
-        train_df = df.iloc[train_idx].copy()
-        test_df = df.iloc[test_idx].copy()
-
-        preprocessor = DataProcessor(
-            numeric_cols=numeric_cols,
-            categorical_cols=categorical_cols,
-            id_cols=id_cols,
+        dm = CvElearningDataModule(
+            df=df, batch_size=batch_size, train_idx=train_idx, val_idx=test_idx
         )
-
-        train_processed, test_processed, _ = preprocessor.fit_transform(
-            train_df=train_df, val_df=test_df, test_df=None
-        )
-
-        rename_map = {}
-        for c in numeric_cols:
-            rename_map[c] = f"{c}:float"
-        for c in categorical_cols:
-            rename_map[c] = f"{c}:token"
-
-        rename_map[config.USER_COL] = f"{config.USER_COL}:token"
-        rename_map[config.ITEM_COL] = f"{config.ITEM_COL}:token"
-        rename_map[config.TIME_COL] = f"{config.TIME_COL}:float"
-        rename_map[config.RATING_COL] = f"{config.RATING_COL}:float"
-        rename_map[config.RELEVANT_COL] = f"{config.RELEVANT_COL}:float"
-
-        train_rec = train_processed.rename(columns=rename_map)
-        test_rec = test_processed.rename(columns=rename_map)
-
-        processed_cols = test_processed.columns.tolist()
 
         fold_dataset_name = f"fold_{fold}"
         fold_path = data_path / fold_dataset_name
 
-        if fold_path.exists():
-            shutil.rmtree(fold_path)
+        processed_cols = _create_inter_dataset(
+            train_processed=dm.train_df,
+            test_processed=dm.val_df,
+            numeric_cols=numeric_cols,
+            categorical_cols=categorical_cols,
+            fold_path=fold_path,
+        )
 
-        fold_path.mkdir(parents=True)
-
-        full_df = pd.concat([train_rec, test_rec], ignore_index=True)
-        full_df.columns = [c.strip() for c in full_df.columns]
-        full_df.to_csv(fold_path / f"{fold_dataset_name}.inter", sep="\t", index=False)
+        print(f"Processed cols: {processed_cols}")
 
         parameter_dict = {
             "dataset": fold_dataset_name,
@@ -206,7 +219,7 @@ def sota_cross_validate(
             "epochs": epochs,
             "stopping_step": patience,
             "train_batch_size": batch_size,
-            "metrics": ["Recall", "MRR", "NDCG", "Hit"],
+            "metrics": ["Precision", "Recall", "NDCG", "Hit", "MAP", "MRR"],
             "topk": [top_k],
             "valid_metric": f"NDCG@{top_k}",
             "eval_args": {
@@ -242,18 +255,22 @@ def sota_cross_validate(
             config_obj, model_obj
         )
 
-        trainer.fit(train_data, test_data, saved=True, show_progress=verbose)
+        trainer.fit(train_data, None, saved=True, show_progress=verbose)
 
         fold_result = trainer.evaluate(
             test_data, load_best_model=True, show_progress=verbose
         )
 
+        fold_result[f"f1@{top_k}"] = _calc_fbeta_score(
+            fold_result[f"precision@{top_k}"],
+            fold_result[f"recall@{top_k}"],
+            beta=1.0,
+        )
+
         all_fold_results.append(fold_result)
 
-        # Limpieza de checkpoints para ahorrar espacio
-        checkpoint_dir = config_obj["checkpoint_dir"]
-        assert checkpoint_dir is not None
-        shutil.rmtree(checkpoint_dir, ignore_errors=True)
+        # Cleanup folds to save space
+        shutil.rmtree(fold_path, ignore_errors=True)
 
     all_metrics = pd.DataFrame(all_fold_results)
     avg_metrics = all_metrics.mean()

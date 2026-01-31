@@ -61,7 +61,7 @@ class EDuRec(nn.Module):
         for h in config.hidden_dims:
             layers += [
                 nn.Linear(mlp_input, h),
-                nn.LayerNorm(h),
+                nn.BatchNorm1d(h),
                 nn.ReLU(inplace=True),
                 nn.Dropout(config.dropout),
             ]
