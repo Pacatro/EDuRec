@@ -9,16 +9,25 @@ wheels/
 # Virtual environments
 .venv
 
+# Environment variables
+.env
+
 # Model training metadata
 lightning_logs/
 mlruns/
+mlflow.db
+TFM/
+wandb/
+log*/ 
+sota_cv_data/
 
 
 # Other exetensions
 *.json
 
 # Models files
-saved_models/
+models/
+saved/
 *.pt
 
 # Predict file
@@ -26,3 +35,4 @@ saved_models/
 
 # Data
 raw_data/
+

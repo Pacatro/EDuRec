@@ -1,7 +1,10 @@
 from enum import Enum
-from typing import Callable
-import pandas as pd
 from functools import wraps
+from typing import Callable
+
+import pandas as pd
+
+from .. import config
 
 type ExportFn = Callable[[], pd.DataFrame]
 
@@ -9,6 +12,7 @@ type ExportFn = Callable[[], pd.DataFrame]
 class DatasetName(str, Enum):
     MARS = "mars"
     ITM = "itm"
+    ELEARNING_STUDENT = "elearning"
 
 
 dataset_loaders: dict[DatasetName, ExportFn] = {}
@@ -56,33 +60,44 @@ def load_mars() -> pd.DataFrame:
     Returns:
         pd.DataFrame: The MARS dataset.
     """
-    explicit_df_en = pd.read_csv("./data/mars_dataset/explicit_ratings_en.csv")
-    explicit_df_fr = pd.read_csv("./data/mars_dataset/explicit_ratings_fr.csv")
+    explicit_df_en = pd.read_csv(
+        f"{config.DATA_FOLDER}/raw/mars/explicit_ratings_en.csv"
+    )
+    explicit_df_fr = pd.read_csv(
+        f"{config.DATA_FOLDER}/raw/mars/explicit_ratings_fr.csv"
+    )
 
-    items_en = pd.read_csv("./data/mars_dataset/items_en.csv")
-    items_fr = pd.read_csv("./data/mars_dataset/items_fr.csv")
+    items_en = pd.read_csv(f"{config.DATA_FOLDER}/raw/mars/items_en.csv")
+    items_fr = pd.read_csv(f"{config.DATA_FOLDER}/raw/mars/items_fr.csv")
 
     df_explicit = pd.concat([explicit_df_en, explicit_df_fr], ignore_index=True)
     df_items = pd.concat([items_en, items_fr], ignore_index=True)
 
-    df_explicit["created_at"] = pd.to_datetime(df_explicit["created_at"])
     df_items = df_items.drop(columns=["created_at"])
 
-    df = pd.merge(df_explicit, df_items, on="item_id", how="inner")
+    df = pd.merge(df_explicit, df_items, on=config.ITEM_COL, how="inner")
 
     df.rename(
-        columns={"Difficulty": "difficulty", "type": "item_type"},
+        columns={
+            "user_id": config.USER_COL,
+            "item_id": config.ITEM_COL,
+            "rating": config.RATING_COL,
+            "Difficulty": "difficulty",
+            "type": "item_type",
+            "created_at": config.TIME_COL,
+        },
         inplace=True,
     )
 
     features = [
-        "user_id",
-        "item_id",
+        config.USER_COL,
+        config.ITEM_COL,
         "item_type",
         "difficulty",
         "nb_views",
         "watch_percentage",
-        "rating",
+        config.RATING_COL,
+        config.TIME_COL,
     ]
 
     result_df = df[features]
@@ -100,19 +115,23 @@ def load_itm() -> pd.DataFrame:
     Returns:
         pd.DataFrame: The ITM dataset.
     """
-    ratings_df = pd.read_csv("./data/itm_dataset/ratings.csv")
-    items_df = pd.read_csv("./data/itm_dataset/items.csv")
-    users_df = pd.read_csv("./data/itm_dataset/users.csv")
+    ratings_df = pd.read_csv(f"{config.DATA_FOLDER}/raw/itm/ratings.csv")
+    items_df = pd.read_csv(f"{config.DATA_FOLDER}/raw/itm/items.csv")
+    users_df = pd.read_csv(f"{config.DATA_FOLDER}/raw/itm/users.csv")
 
     merged_df = pd.merge(left=items_df, right=ratings_df, how="inner", on="Item")
     merged_df = pd.merge(left=merged_df, right=users_df, how="inner", on="UserID")
     merged_df = merged_df.rename(
-        columns={"UserID": "user_id", "Item": "item_id", "Rating": "rating"}
+        columns={
+            "UserID": config.USER_COL,
+            "Item": config.ITEM_COL,
+            "Rating": config.RATING_COL,
+        }
     )
 
     features = [
-        "user_id",
-        "item_id",
+        config.USER_COL,
+        config.ITEM_COL,
         "Title",
         "Semester",
         "Class",
@@ -121,7 +140,7 @@ def load_itm() -> pd.DataFrame:
         "Ease",
         " Age",
         "Married",
-        "rating",
+        config.RATING_COL,
     ]
 
     result_df = merged_df[features]
@@ -129,8 +148,30 @@ def load_itm() -> pd.DataFrame:
     return result_df
 
 
+@register_dataset(DatasetName.ELEARNING_STUDENT)
+def load_elearning_student() -> pd.DataFrame:
+    df = pd.read_csv(f"{config.DATA_FOLDER}/raw/elearning/elearning_dataset.csv")
+
+    df = df.rename(
+        columns={
+            "UserID": config.USER_COL,
+            "CourseName": config.ITEM_COL,
+            "UserSatisfaction": config.RATING_COL,
+        },
+    )
+
+    excluded_cols = ["SignUpDate", "LastActiveDate", "FeedbackComments"]
+
+    features = [col for col in df.columns if col not in excluded_cols]
+
+    result_df = df[features]
+    assert isinstance(result_df, pd.DataFrame)
+    return result_df
+
+
 def load_data(dataset_name: DatasetName) -> pd.DataFrame:
-    """Load the specified dataset.
+    """
+    Load the specified dataset. If data was processed before, laod the data from disk.
 
     Args:
         dataset_name (DatasetName): The name of the dataset to load.

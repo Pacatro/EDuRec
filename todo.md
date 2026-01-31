@@ -2,6 +2,14 @@
 
 List of TODOs for the project.
 
+## Code
+
+- [x] Separete prerpocessing logic from data management logic
+- [x] Reorganize code
+- [ ] Include new models
+- [ ] Improve evaluations
+- [ ] Improve stadistics tests
+
 ## Datasets
 
 Posible datasets to use for the project:
@@ -13,17 +21,26 @@ Posible datasets to use for the project:
 
 ## Deep Learning models to implement for comparison
 
-See more interesting models [here](https://www.d2l.ai/chapter_recommender-systems/index.html).
-
-- [x] [MF](https://www.d2l.ai/chapter_recommender-systems/mf.html#model-implementation)
-- [x] [NeuralMF](https://www.d2l.ai/chapter_recommender-systems/neumf.html#the-neumf-model)
-- [ ] [Massive Open Online Courses (MOOCs) Recommendation Modeling using Deep Learning](https://www.researchgate.net/publication/338946585_Massive_Open_Online_Courses_MOOCs_Recommendation_Modeling_using_Deep_Learning) --> Classification, very similar to the old proposed
-- [ ] [Research on Online Learning Resource Recommendation Method Based on Wide & Deep and Elmo Model](https://www.researchgate.net/publication/338425005_Research_on_Online_Learning_Resource_Recommendation_Method_Based_on_Wide_Deep_and_Elmo_Model)
-- [ ] [CBCNN](https://dl.acm.org/doi/10.1007/s00530-017-0539-8)
-- [ ] [AutoRec](https://www.d2l.ai/chapter_recommender-systems/autorec.html#model)
+See [`recbole`](https://recbole.io/index.html) for implementations.
 
 ## Ideas for improvements to the actual model
 
-- [Transformed based recommender system](https://www.nature.com/articles/s41598-025-08931-1)
+- Mejor cálculo de métricas.
 
-## Actual improvements
+  A la hora de calcular las métricas (Precision@K, Recall@K, etc), necesitamos añadir al dataset interacciones negativas (interacciones de usuarios e ítems que no aparezcan en el dataset).
+
+- Usar BPRLoss en lugar de MSELoss.
+
+  Si añadimos interacciones negativas, el BPRLoss puede llegar a dar mejores resultados.
+
+- Evitar sparsity:
+
+  Cuando no existen muchas interacciones entre los usuarios y los ítems en el dataset, el modelo debe ser capaz de prevenir este problema.
+
+  En la primera versión del modelo, el MLP recibía las intreacciones de los usuarios y las caracteristicas de los ítems, haciendo que aquellos usuarios que no tuvieran interacciones no sean considerados.
+
+  Una posible solución sería que el MLP reciba los embeddings de usuarios e ítem, junto con las interacciones, caracteristicas numéricas y categorícas.
+
+- Usar LayerNorm en lugar de BatchNorm: Para datsets con mucho sparsity, puede ser más ideal
+
+- [Transformed based recommender system](https://www.nature.com/articles/s41598-025-08931-1)

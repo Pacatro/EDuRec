@@ -1,12 +1,17 @@
-from pathlib import Path
+import warnings
+from enum import Enum
 from typing import Annotated
+
 import typer
 
-from .core import config
-from .commands.train import app as train_app
-from .commands.eval import app as eval_app
-from .commands.predict import app as predict_app
+from . import config
+from .cli import eval_app, train_app
 
+# from .commands.predict import app as predict_app
+
+
+# Ignore pandas future warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 app = typer.Typer(
     rich_markup_mode=None,
@@ -16,24 +21,37 @@ app = typer.Typer(
 
 app.add_typer(train_app)
 app.add_typer(eval_app)
-app.add_typer(predict_app)
+# app.add_typer(predict_app)
+
+
+class Device(str, Enum):
+    AUTO = "auto"
+    CPU = "cpu"
+    CUDA = "cuda"
 
 
 @app.callback()
 def main(
+    device: Annotated[
+        Device,
+        typer.Option("--device", "-d", help="Device to use"),
+    ] = Device.AUTO,
+    random_state: Annotated[
+        int | None,
+        typer.Option("--random-state", "-r", help="Random state"),
+    ] = 42,
     verbose: Annotated[
         bool,
         typer.Option("--verbose", "-v", help="Verbose mode"),
     ] = False,
 ):
     config.state["verbose"] = verbose
+    config.state["random_state"] = random_state
+    config.state["device"] = device.value
 
-    results_folder = Path(config.RESULTS_FOLDER)
-
-    folders = [results_folder, results_folder / "stats"]
-
-    for folder in folders:
-        folder.mkdir(parents=True, exist_ok=True)
+    if verbose:
+        print(f"[CONFIG] Device: {device.value}")
+        print(f"[CONFIG] Random state: {random_state}")
 
 
 if __name__ == "__main__":
