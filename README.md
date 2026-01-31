@@ -99,7 +99,7 @@ uv run edurec eval [OPTIONS]
 Evaluates the EDuRec model (and optionally SOTA models) using cross-validation.
 
 ```bash
-uv run edurec eval eval [OPTIONS]
+uv run edurec eval [OPTIONS]
 ```
 
 **Options:**
@@ -123,36 +123,36 @@ uv run edurec eval eval [OPTIONS]
 Run a 5-fold cross-validation on the `itm` dataset:
 
 ```bash
-uv run edurec eval eval --dataset itm --n_splits 5
+uv run edurec eval --dataset itm --n_splits 5
 ```
 
 Evaluate with SOTA comparison:
 
 ```bash
-uv run edurec eval eval --dataset mars --eval-sota --epochs 50
+uv run edurec eval --dataset mars --eval-sota --epochs 50
 ```
 
-#### stats subcommand
-
-Performs Friedman and Nemenyi statistical tests to compare model performances.
-
-```bash
-uv run edurec eval stats [OPTIONS]
-```
-
-**Options:**
-
-| Option        | Description | Default |
-| ------------- | ----------- | ------- |
-| `--top_k, -k` | Top-k value | 10      |
-
-**Example:**
-
-Run statistical tests for top-10 recommendations:
-
-```bash
-uv run edurec eval stats --top_k 10
-```
+<!-- #### stats subcommand -->
+<!---->
+<!-- Performs Friedman and Nemenyi statistical tests to compare model performances. -->
+<!---->
+<!-- ```bash -->
+<!-- uv run edurec stats [OPTIONS] -->
+<!-- ``` -->
+<!---->
+<!-- **Options:** -->
+<!---->
+<!-- | Option        | Description | Default | -->
+<!-- | ------------- | ----------- | ------- | -->
+<!-- | `--top_k, -k` | Top-k value | 10      | -->
+<!---->
+<!-- **Example:** -->
+<!---->
+<!-- Run statistical tests for top-10 recommendations: -->
+<!---->
+<!-- ```bash -->
+<!-- uv run edurec eval stats --top_k 10 -->
+<!-- ``` -->
 
 ## Project Structure
 
