@@ -68,7 +68,7 @@ def cross_validate(
         )
 
         earlystop = EarlyStopping(
-            monitor="val/MSE",
+            monitor=monitor,
             patience=patience,
             mode="min",
             min_delta=delta,
@@ -76,7 +76,7 @@ def cross_validate(
         )
 
         ckpt = ModelCheckpoint(
-            monitor="val/MSE",
+            monitor=monitor,
             mode="min",
             save_top_k=1,
             filename=f"fold{fold}_best_model",
