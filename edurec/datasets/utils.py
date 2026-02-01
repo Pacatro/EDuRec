@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import torch
 from sklearn.preprocessing import LabelEncoder
 
 from .. import config
@@ -43,49 +44,13 @@ def get_column_types(
     return numeric_cols, categorical_lengths
 
 
-def generate_neg_samples(df: pd.DataFrame, neg_samples: int) -> pd.DataFrame:
-    print("Generating negative samples...")
-    new_data = []
-    user_item_set = df.groupby(config.USER_COL)[config.ITEM_COL].apply(set).to_dict()
-
-    item_features_map = (
-        df.drop_duplicates(config.ITEM_COL)
-        .set_index(config.ITEM_COL)
-        .to_dict(orient="index")
-    )
-
-    all_items = df[config.ITEM_COL].unique()
-    columns = df.columns.tolist()
-
-    user_idx = columns.index(config.USER_COL)
-    item_idx = columns.index(config.ITEM_COL)
-    rating_idx = columns.index(config.RATING_COL)
-    rel_idx = columns.index(config.RELEVANT_COL)
-
-    for row in df.itertuples(index=False):
-        row_list = list(row)
-        new_data.append(row_list)
-
-        user_id = row_list[user_idx]
-        negatives_found = 0
-
-        while negatives_found < neg_samples:
-            neg_id = np.random.choice(all_items)
-
-            if neg_id not in user_item_set[user_id]:
-                neg_row = row_list.copy()
-
-                neg_row[item_idx] = neg_id
-                neg_row[rating_idx] = 0.0
-                neg_row[rel_idx] = False
-
-                if neg_id in item_features_map:
-                    item_attrs = item_features_map[neg_id]
-                    for col_name, col_value in item_attrs.items():
-                        if col_name in columns:
-                            neg_row[columns.index(str(col_name))] = col_value
-
-                new_data.append(neg_row)
-                negatives_found += 1
-
-    return pd.DataFrame(new_data, columns=columns)
+def collate_fn(batch: list[list[dict]]) -> dict[str, torch.Tensor]:
+    flattened_batch = [item for sublist in batch for item in sublist]
+    result = {}
+    for key in flattened_batch[0].keys():
+        tensors = [d[key] for d in flattened_batch]
+        if tensors[0].dtype == torch.float32:
+            result[key] = torch.stack(tensors).float()
+        else:
+            result[key] = torch.stack(tensors).long()
+    return result

@@ -11,10 +11,9 @@ from ..datasets import (
     DataProcessor,
     DatasetName,
     ElearningDataset,
-    collate_fn,
     load_data,
 )
-from ..datasets.utils import get_column_types, global_preprocessing
+from ..datasets.utils import get_column_types, global_preprocessing, collate_fn
 
 
 def calculate_sampling_weights(
