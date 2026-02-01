@@ -48,6 +48,9 @@ class EDuRecMTL(nn.Module):
             }
         )
 
+        # Cross-attention user-item interactions
+        self.ui_interactions = CrossAttentionInteraction(config.emb_dim)
+
         # Common MLP
         n_cat = len(self.cat_embeddings)
         n_num = len(config.numeric_features)
@@ -58,7 +61,7 @@ class EDuRecMTL(nn.Module):
         for h in config.hidden_dims:
             shared_layers += [
                 nn.Linear(mlp_input, h),
-                nn.BatchNorm1d(h),
+                nn.LayerNorm(h),
                 nn.ReLU(inplace=True),
                 nn.Dropout(config.dropout),
             ]
@@ -84,7 +87,7 @@ class EDuRecMTL(nn.Module):
         # Shared embeddings
         u_emb = self.user_embedding(u)
         i_emb = self.item_embedding(i)
-        ui_i = u_emb * i_emb  # User-Item interactions
+        ui_i = self.ui_interactions(u_emb, i_emb)
 
         cat_vecs = [emb(batch[key].long()) for key, emb in self.cat_embeddings.items()]
         cat_embs = (
@@ -115,6 +118,25 @@ class EDuRecMTL(nn.Module):
             "rating": rating_out,
             "relevance": relevance_out,
         }
+
+
+class CrossAttentionInteraction(nn.Module):
+    def __init__(self, embed_dim: int, num_heads: int = 4):
+        super().__init__()
+        self.attn = nn.MultiheadAttention(
+            embed_dim=embed_dim, num_heads=num_heads, batch_first=True
+        )
+        self.norm = nn.LayerNorm(embed_dim)
+
+    def forward(self, u_emb: torch.Tensor, i_emb: torch.Tensor) -> torch.Tensor:
+        # Expand dim (batch, emb_dim) to (batch, 1, emb_dim)
+        q = u_emb.unsqueeze(1)
+        k = i_emb.unsqueeze(1)
+        v = i_emb.unsqueeze(1)
+
+        attn_out, _ = self.attn(q, k, v)  # (batch, 1, emb_dim)
+        out = self.norm(attn_out.squeeze(1) + u_emb)  # (batch, emb_dim)
+        return out
 
 
 class EDuRecV1(nn.Module):

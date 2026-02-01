@@ -19,30 +19,27 @@ RELEVANT_COL: str = "relevant"
 # Preprocessing
 SELECTED_K: int = 10
 BALANCE: bool = False
-N_NEG_VAL: int = 100
-N_NEG_TEST: int = 100
 
 # Model
-EMB_DIM: int = 128
-DROPOUT: float = 0.5
-HIDDEN_DIMS: list[int] = [256, 128, 64, 32, 16]
+EMB_DIM: int = 256
+DROPOUT: float = 0.2
+HIDDEN_DIMS: list[int] = [256, 256, 128]
 
 # Training
-LR: float = 0.01
+LR: float = 0.001
 BATCH_SIZE: int = 128
 EPOCHS: int = 100
-PATIENCE: int = 5
+PATIENCE: int = 3
 DELTA: float = 0.001
 TOP_K: int = 10
 NUM_WORKERS: int = 2
 VAL_SIZE: float = 0.1
 TEST_SIZE: float = 0.4
+N_NEG_TRAIN: int = 4
+N_NEG_VAL: int = 100
+N_NEG_TEST: int = 100
+MONITOR: str = "val/Loss"
 SAVE_DATA: bool = False
-MONITOR: str = "val/MTLoss"
-# If alpha is 0.5, both tasks have the same importance
-# If alpha is 0.0, only relevance task is considered
-# If alpha is 1.0, only rating task is considered
-ALPHA: float = 0.5
 
 # Eval
 SEEDS: list[int] = [0, 1, 42]

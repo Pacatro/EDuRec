@@ -3,6 +3,8 @@ from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
+
 from edurec.training.model import EDuRecConfig
 
 
@@ -12,6 +14,7 @@ def save_model(
     best_model_path: str,
     models_folder: str,
     dataset_name: str,
+    metrics: dict[str, float],
 ) -> None:
     """Save the best model to the specified folder."""
     out_model = f"{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -20,6 +23,7 @@ def save_model(
 
     model_file_path = saving_models_folder / f"{out_model}.pt"
     model_config_path = saving_models_folder / f"{out_model}.json"
+    model_metrics_path = saving_models_folder / f"{out_model}_metrics.csv"
     Path(best_model_path).rename(model_file_path)
 
     model_config_path.write_text(
@@ -27,7 +31,10 @@ def save_model(
         encoding="utf-8",
     )
 
-    print(f"Model saved in: {model_file_path}")
+    metrics_df = pd.DataFrame.from_dict(metrics, orient="index")
+    metrics_df.to_csv(model_metrics_path, index=True)
+
+    print(f"Model metadata saved in: {saving_models_folder}")
 
 
 def load_model(

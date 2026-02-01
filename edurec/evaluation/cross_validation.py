@@ -68,7 +68,6 @@ def cross_validate(
             top_k=top_k,
             lr=lr,
             monitor=monitor,
-            rating_loss_fn=nn.SmoothL1Loss(),
         )
 
         earlystop = EarlyStopping(
