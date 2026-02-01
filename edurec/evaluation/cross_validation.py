@@ -63,7 +63,13 @@ def cross_validate(
 
         model = model_class(model_config)
 
-        recsys = RecSys(model=model, top_k=top_k, lr=lr, monitor=monitor)
+        recsys = RecSys(
+            model=model,
+            top_k=top_k,
+            lr=lr,
+            monitor=monitor,
+            rating_loss_fn=nn.SmoothL1Loss(),
+        )
 
         earlystop = EarlyStopping(
             monitor=monitor,
