@@ -1,103 +1,19 @@
 from pathlib import Path
-from typing import Any
 
 import lightning as L
-import numpy as np
 import pandas as pd
-import torch
 from sklearn.model_selection import train_test_split
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 
 from .. import config
-from .data_processor import DataProcessor
-from .loaders import DatasetName, load_data
-from .utils import get_column_types, global_preprocessing
-
-
-class ElearningDataset(Dataset):
-    def __init__(
-        self,
-        df: pd.DataFrame,
-        n_negatives: int = 0,
-        min_rating: float = 0.0,
-        item_catalog: pd.DataFrame | None = None,
-        user_history: dict[Any, Any] | None = None,
-        all_item_ids: np.ndarray | None = None,
-        id_cols: list[str] | None = None,
-        numeric_cols: list[str] | None = None,
-    ) -> None:
-        self.df = df.copy()
-        self.n_negatives = n_negatives
-        self.item_catalog = item_catalog
-        self.user_history = user_history
-        self.all_item_ids = all_item_ids
-        self.columns = df.columns.tolist()
-        self.id_cols = id_cols or []
-        self.numeric_cols = numeric_cols or []
-        self.min_rating = min_rating
-
-    def __len__(self) -> int:
-        return len(self.df)
-
-    def __getitem__(self, idx: int) -> list[dict[str, torch.Tensor]]:
-        pos_row = self.df.iloc[idx].to_dict()
-        user_id = pos_row[config.USER_COL]
-        results = [self._to_tensor_dict(pos_row)]
-
-        if self.n_negatives > 0 and self.user_history is not None:
-            seen = self.user_history.get(user_id, set())
-
-            for _ in range(self.n_negatives):
-                while True:
-                    assert self.all_item_ids is not None
-                    neg_id = np.random.choice(self.all_item_ids)
-                    if neg_id not in seen:
-                        break
-
-                neg_row = pos_row.copy()
-                neg_row[config.ITEM_COL] = neg_id
-                neg_row[config.RELEVANT_COL] = False
-                neg_row[config.RATING_COL] = self.min_rating
-
-                if self.item_catalog is not None:
-                    neg_row.update(self.item_catalog.loc[neg_id].to_dict())
-
-                results.append(self._to_tensor_dict(neg_row))
-
-        return results
-
-    def _to_tensor_dict(self, row: dict) -> dict[str, torch.Tensor]:
-        result = {}
-        for k, v in row.items():
-            v = self._ensure_scalar(v)
-            if k in self.id_cols:
-                result[k] = torch.tensor(v, dtype=torch.long)
-            elif k in (config.RELEVANT_COL,):
-                result[k] = torch.tensor(v, dtype=torch.bool)
-            elif k in self.numeric_cols or k in (config.RATING_COL,):
-                result[k] = torch.tensor(v, dtype=torch.float32)
-            else:
-                result[k] = torch.tensor(v)
-        return result
-
-    def _ensure_scalar(self, v: torch.Tensor) -> Any:
-        if hasattr(v, "item"):
-            return v.item()
-        elif hasattr(v, "tolist"):
-            return v.tolist()
-        return v
-
-
-def collate_fn(batch: list[list[dict]]) -> dict[str, torch.Tensor]:
-    flattened_batch = [item for sublist in batch for item in sublist]
-    result = {}
-    for key in flattened_batch[0].keys():
-        tensors = [d[key] for d in flattened_batch]
-        if tensors[0].dtype == torch.float32:
-            result[key] = torch.stack(tensors).float()
-        else:
-            result[key] = torch.stack(tensors).long()
-    return result
+from ..datasets import (
+    DataProcessor,
+    DatasetName,
+    ElearningDataset,
+    collate_fn,
+    load_data,
+)
+from ..datasets.utils import get_column_types, global_preprocessing
 
 
 class ElearningDataModule(L.LightningDataModule):

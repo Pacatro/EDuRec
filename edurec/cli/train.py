@@ -7,7 +7,8 @@ from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 
 from .. import config
-from ..datasets import DatasetName, ElearningDataModule
+from ..datasets import DatasetName
+from ..training.datamodule import ElearningDataModule
 from ..training.engine import RecSys
 from ..training.io import save_model
 from ..training.model import EDuRecConfig, EDuRecMTL

@@ -94,10 +94,7 @@ def cross_validate(
         trainer.fit(recsys, datamodule=dm)
 
         recsys = RecSys.load_from_checkpoint(
-            ckpt.best_model_path,
-            model=model,
-            top_k=top_k,
-            threshold=dm.threshold,
+            ckpt.best_model_path, model=model, top_k=top_k, monitor=monitor
         )
 
         metrics = trainer.validate(recsys, datamodule=dm)[0]

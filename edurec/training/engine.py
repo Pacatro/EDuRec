@@ -73,7 +73,7 @@ class RecSys(L.LightningModule):
             {
                 f"Precision@{top_k}": RetrievalPrecision(top_k=top_k, adaptive_k=True),
                 f"Recall@{top_k}": RetrievalRecall(top_k=top_k),
-                f"F@{top_k}": RetrievalFBetaScore(
+                f"F1@{top_k}": RetrievalFBetaScore(
                     top_k=top_k, beta=1.0, adaptive_k=True
                 ),
                 f"NDCG@{top_k}": RetrievalNormalizedDCG(top_k=top_k),

@@ -169,6 +169,7 @@ def load_elearning_student() -> pd.DataFrame:
     return result_df
 
 
+# TODO: Return df and some other info metadata
 def load_data(dataset_name: DatasetName) -> pd.DataFrame:
     """
     Load the specified dataset. If data was processed before, laod the data from disk.
