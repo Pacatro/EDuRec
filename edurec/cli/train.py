@@ -10,7 +10,7 @@ from .. import config
 from ..datasets import DatasetName, ElearningDataModule
 from ..training.engine import RecSys
 from ..training.io import save_model
-from ..training.model import EDuRecConfig, EDuRec
+from ..training.model import EDuRecConfig, EDuRecMTL
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -28,6 +28,9 @@ def train(
     batch_size: Annotated[
         int, typer.Option("--batch_size", "-b", help="Batch size")
     ] = config.BATCH_SIZE,
+    alpha: Annotated[
+        float, typer.Option("--alpha", "-a", help="Alpha value")
+    ] = config.ALPHA,
     val_size: Annotated[
         float, typer.Option("--val_size", "-v", help="Validation size")
     ] = config.VAL_SIZE,
@@ -73,7 +76,7 @@ def train(
         cat_cardinalities=dm.cat_cardinalities,
     )
 
-    model = EDuRec(model_config)
+    model = EDuRecMTL(model_config)
 
     if config.state["verbose"]:
         print(f"[TRAIN] Dataset {dataset.value} sparsity: {dm.sparsity}")
@@ -83,14 +86,14 @@ def train(
         print(f"[TRAIN] Max rating: {dm.max_rating}")
         print(f"[TRAIN] Monitoring: {monitor}")
 
+    # SmoothL1Loss parece mas interasante que MSE
     recsys = RecSys(
         model=model,
         top_k=top_k,
-        threshold=dm.threshold,
         lr=lr,
         monitor=monitor,
-        # SmoothL1Loss parece mas interasante que MSE
-        # loss_fn=torch.nn.SmoothL1Loss(),
+        alpha=alpha,
+        rating_loss_fn=torch.nn.SmoothL1Loss(),
     )
 
     # Compile model for better performance

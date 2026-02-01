@@ -63,9 +63,7 @@ def cross_validate(
 
         model = model_class(model_config)
 
-        recsys = RecSys(
-            model=model, top_k=top_k, threshold=dm.threshold, lr=lr, monitor=monitor
-        )
+        recsys = RecSys(model=model, top_k=top_k, lr=lr, monitor=monitor)
 
         earlystop = EarlyStopping(
             monitor=monitor,
@@ -187,8 +185,7 @@ def sota_cross_validate(
     numeric_cols, categorical_lengths = get_column_types(df, id_cols)
     categorical_cols = list(categorical_lengths.keys())
 
-    threshold = float(df[config.RATING_COL].median())
-    global_preprocessing(df, threshold=threshold)
+    global_preprocessing(df)
 
     all_fold_results = []
 

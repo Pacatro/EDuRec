@@ -66,8 +66,8 @@ def eval(
 ):
     models_classes = (
         [
-            # "BPR",
-            "DeepFM",
+            "BPR",
+            # "DeepFM",
             # EDuRecV1,
             # "NeuMF",
             # "xDeepFM",

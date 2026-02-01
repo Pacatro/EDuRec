@@ -30,7 +30,7 @@ class CvElearningDataModule(L.LightningDataModule):
         self._process_data()
 
     def _process_data(self) -> None:
-        global_preprocessing(self.df, threshold=self.threshold)
+        global_preprocessing(self.df)
 
         train_df = self.df.iloc[self.train_idx].reset_index(drop=True)
         val_df = self.df.iloc[self.val_idx].reset_index(drop=True)

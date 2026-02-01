@@ -3,7 +3,6 @@ import torch
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from torch import nn
 from torchmetrics import Metric, MetricCollection
-from torchmetrics.functional import mean_absolute_error
 from torchmetrics.retrieval import (
     # RetrievalAUROC,
     RetrievalHitRate,
@@ -49,31 +48,40 @@ class RecSys(L.LightningModule):
     def __init__(
         self,
         model: nn.Module,
-        threshold: float = 8.0,
         lr: float = 1e-3,
         weight_decay: float = 1e-6,
         top_k: int = 10,
-        loss_fn: nn.Module | None = None,
-        monitor: str = "val/MSE",
+        alpha: float = 0.5,
+        monitor: str = config.MONITOR,
+        rating_loss_fn: nn.Module | None = None,
+        relevance_loss_fn: nn.Module | None = None,
     ):
         super().__init__()
-        self.save_hyperparameters(ignore=["model"])
+        self.save_hyperparameters(
+            ignore=["model", "relevance_loss_fn", "rating_loss_fn"]
+        )
         self.model = model
-        self.loss_fn = loss_fn or nn.MSELoss()
-        self.threshold = threshold
         self.lr = lr
         self.weight_decay = weight_decay
         self.monitor = monitor
+        self.alpha = alpha
+
+        self.rating_loss_fn = rating_loss_fn or nn.MSELoss()
+        self.relevance_loss_fn = relevance_loss_fn or nn.BCELoss()
 
         ranking_metrics = MetricCollection(
-            RetrievalPrecision(top_k=top_k, adaptive_k=True),
-            RetrievalRecall(top_k=top_k),
-            RetrievalFBetaScore(top_k=top_k, beta=1.0, adaptive_k=True),
-            RetrievalNormalizedDCG(top_k=top_k),
-            RetrievalHitRate(top_k=top_k),
-            RetrievalMAP(top_k=top_k),
-            RetrievalMRR(top_k=top_k),
-            # RetrievalAUROC(top_k=top_k),
+            {
+                f"Precision@{top_k}": RetrievalPrecision(top_k=top_k, adaptive_k=True),
+                f"Recall@{top_k}": RetrievalRecall(top_k=top_k),
+                f"F@{top_k}": RetrievalFBetaScore(
+                    top_k=top_k, beta=1.0, adaptive_k=True
+                ),
+                f"NDCG@{top_k}": RetrievalNormalizedDCG(top_k=top_k),
+                f"HitRate@{top_k}": RetrievalHitRate(top_k=top_k),
+                f"MAP@{top_k}": RetrievalMAP(top_k=top_k),
+                f"MRR@{top_k}": RetrievalMRR(top_k=top_k),
+                # f"AUROC@{top_k}": RetrievalAUROC(top_k=top_k),
+            }
         )
 
         self.val_ranking_metrics = ranking_metrics.clone(prefix="val/")
@@ -88,21 +96,36 @@ class RecSys(L.LightningModule):
         prefix: str,
         ranking_metrics: MetricCollection | None = None,
     ):
-        preds: torch.Tensor = self.model(batch)
+        preds = self.model(batch)
 
-        ratings = batch[config.RATING_COL].float().view(-1)
-        loss = self.loss_fn(preds, ratings)
-        mae = mean_absolute_error(preds, ratings)
-        rmse = loss**0.5
+        pred_ratings = preds["rating"].flatten()
+        pred_relevance = preds["relevance"].flatten()
 
-        if ranking_metrics is not None and prefix in ["val", "test"]:
-            user_ids = batch[config.USER_COL].long().view(-1)
-            target = batch[config.RELEVANT_COL].int().view(-1)
-            ranking_metrics.update(preds.detach(), target, indexes=user_ids)
+        true_ratings = batch[config.RATING_COL].float().flatten()
+        true_relevance = batch[config.RELEVANT_COL].float().flatten()
 
-        self.log(f"{prefix}/MSE", loss, prog_bar=False)
-        self.log(f"{prefix}/RMSE", rmse, prog_bar=True)
-        self.log(f"{prefix}/MAE", mae, prog_bar=False)
+        loss_rating = self.rating_loss_fn(pred_ratings, true_ratings)
+        loss_relevance = self.relevance_loss_fn(pred_relevance, true_relevance)
+        loss = (self.alpha * loss_rating) + ((1 - self.alpha) * loss_relevance)
+
+        self.log(f"{prefix}/MTLoss", loss, prog_bar=True)
+        self.log(
+            f"{prefix}/{self.rating_loss_fn.__class__.__name__}",
+            loss_rating,
+            prog_bar=False,
+            on_epoch=True,
+        )
+        self.log(
+            f"{prefix}/{self.relevance_loss_fn.__class__.__name__}",
+            loss_relevance,
+            prog_bar=True,
+            on_epoch=True,
+        )
+
+        if ranking_metrics is not None:
+            user_ids = batch[config.USER_COL].long().flatten()
+            target = batch[config.RELEVANT_COL].bool().flatten()
+            ranking_metrics.update(pred_relevance.detach(), target, indexes=user_ids)
 
         return loss
 
