@@ -1,7 +1,8 @@
+from typing import Any, Protocol
+
 import lightning.pytorch as L
 import torch
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
-from torch import nn
 from torchmetrics import Metric, MetricCollection
 from torchmetrics.retrieval import (
     RetrievalAUROC,
@@ -14,6 +15,25 @@ from torchmetrics.retrieval import (
 )
 
 from .. import config
+
+
+class ModelProto(Protocol):
+    def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]: ...
+
+    def compute_loss(
+        self,
+        preds: dict[str, torch.Tensor],
+        batch: dict[str, torch.Tensor],
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor] | None]: ...
+
+    def compute_ranking_metrics(
+        self,
+        preds: dict[str, torch.Tensor],
+        batch: dict[str, torch.Tensor],
+        ranking_metrics: MetricCollection,
+    ) -> None: ...
 
 
 class RetrievalFBetaScore(Metric):
@@ -47,14 +67,12 @@ class RetrievalFBetaScore(Metric):
 class RecSys(L.LightningModule):
     def __init__(
         self,
-        model: nn.Module,
+        model: ModelProto,
         lr: float = 1e-3,
         weight_decay: float = 1e-6,
         top_k: int = 10,
         alpha: float = 0.5,
         monitor: str = config.MONITOR,
-        rating_loss_fn: nn.Module | None = None,
-        relevance_loss_fn: nn.Module | None = None,
     ):
         super().__init__()
         self.save_hyperparameters(
@@ -65,9 +83,6 @@ class RecSys(L.LightningModule):
         self.weight_decay = weight_decay
         self.monitor = monitor
         self.alpha = alpha
-
-        self.rating_loss_fn = rating_loss_fn or nn.MSELoss()
-        self.relevance_loss_fn = relevance_loss_fn or nn.BCELoss()
 
         ranking_metrics = MetricCollection(
             {
@@ -87,28 +102,8 @@ class RecSys(L.LightningModule):
         self.val_ranking_metrics = ranking_metrics.clone(prefix="val/")
         self.test_ranking_metrics = ranking_metrics.clone(prefix="test/")
 
-        # This parameters are used to compute the variance of the loss (Uncertainty Weighting)
-        self.log_var_rating = nn.Parameter(torch.zeros(1))
-        self.log_var_relevance = nn.Parameter(torch.zeros(1))
-
-    def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
-        return self.model(batch)
-
-    def _calc_loss(
-        self, preds: dict[str, torch.Tensor], batch: dict[str, torch.Tensor]
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        pred_ratings = preds["rating"].flatten()
-        pred_relevance = preds["relevance"].flatten()
-        true_ratings = batch[config.RATING_COL].float().view_as(pred_ratings)
-        true_relevance = batch[config.RELEVANT_COL].float().view_as(pred_relevance)
-
-        # Base loss
-        loss_rating = self.rating_loss_fn(pred_ratings, true_ratings)
-        loss_relevance = self.relevance_loss_fn(pred_relevance, true_relevance)
-
-        loss = (self.alpha * loss_rating) + ((1 - self.alpha) * loss_relevance)
-
-        return loss, loss_rating, loss_relevance
+    def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        return self.model.forward(batch)
 
     def _step(
         self,
@@ -116,18 +111,17 @@ class RecSys(L.LightningModule):
         prefix: str,
         ranking_metrics: MetricCollection | None = None,
     ):
-        preds = self.model(batch)
-        loss, loss_rating, loss_relevance = self._calc_loss(preds, batch)
+        preds = self.model.forward(batch)
+        loss, logs = self.model.compute_loss(preds, batch, self.alpha)
 
         self.log(f"{prefix}/Loss", loss, prog_bar=True)
-        self.log(f"{prefix}/LossRating", loss_rating, on_epoch=True)
-        self.log(f"{prefix}/LossRelevance", loss_relevance, on_epoch=True)
+
+        if logs is not None:
+            for k, v in logs.items():
+                self.log(f"{prefix}/{k}", v, on_epoch=True)
 
         if ranking_metrics is not None:
-            user_ids = batch[config.USER_COL].long().flatten()
-            target = batch[config.RELEVANT_COL].bool().flatten()
-            ranking_preds = preds["relevance"].detach()
-            ranking_metrics.update(ranking_preds, target, indexes=user_ids)
+            self.model.compute_ranking_metrics(preds, batch, ranking_metrics)
 
         return loss
 

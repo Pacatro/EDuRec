@@ -1,7 +1,10 @@
 from dataclasses import dataclass, field
+from typing import Any
 
 import torch
+import torch.nn.functional as F
 from torch import nn
+from torchmetrics import MetricCollection
 
 from .. import config
 
@@ -119,6 +122,40 @@ class EDuRecMTL(nn.Module):
             "relevance": relevance_out,
         }
 
+    def compute_loss(
+        self,
+        preds: dict[str, torch.Tensor],
+        batch: dict[str, torch.Tensor],
+        alpha: float,
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor] | None]:
+        pred_ratings = preds["rating"].flatten()
+        pred_relevance = preds["relevance"].flatten()
+        true_ratings = batch[config.RATING_COL].float().view_as(pred_ratings)
+        true_relevance = batch[config.RELEVANT_COL].float().view_as(pred_relevance)
+
+        loss_rating = F.mse_loss(pred_ratings, true_ratings)
+        loss_relevance = F.binary_cross_entropy(pred_relevance, true_relevance)
+
+        loss = (alpha * loss_rating) + ((1 - alpha) * loss_relevance)
+
+        logs = {
+            "LossRating": loss_rating,
+            "LossRelevance": loss_relevance,
+        }
+
+        return loss, logs
+
+    def compute_ranking_metrics(
+        self,
+        preds: dict[str, torch.Tensor],
+        batch: dict[str, torch.Tensor],
+        ranking_metrics: MetricCollection,
+    ) -> None:
+        user_ids = batch[config.USER_COL].long().flatten()
+        target = batch[config.RELEVANT_COL].bool().flatten()
+        ranking_preds = preds["relevance"].detach()
+        ranking_metrics.update(ranking_preds, target, indexes=user_ids)
+
 
 class CrossAttentionInteraction(nn.Module):
     def __init__(self, embed_dim: int, num_heads: int = 4):
@@ -201,7 +238,7 @@ class EDuRecV1(nn.Module):
         # Hyperparameters
         self.numeric_features = config.numeric_features
 
-    def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+    def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         u = batch["user_id"].long()
         i = batch["item_id"].long()
 
@@ -231,4 +268,26 @@ class EDuRecV1(nn.Module):
 
         out = self.mlp(x).squeeze(1) + u_b + i_b
 
-        return out
+        return {"rating": out}
+
+    def compute_loss(
+        self,
+        preds: dict[str, torch.Tensor],
+        batch: dict[str, torch.Tensor],
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor] | None]:
+        _ = args, kwargs
+        loss = F.mse_loss(preds["rating"], batch[config.RATING_COL])
+        return loss, None
+
+    def compute_ranking_metrics(
+        self,
+        preds: dict[str, torch.Tensor],
+        batch: dict[str, torch.Tensor],
+        ranking_metrics: MetricCollection,
+    ) -> None:
+        user_ids = batch[config.USER_COL].long().flatten()
+        target = batch[config.RELEVANT_COL].bool().flatten()
+        ranking_preds = preds["rating"].detach()
+        ranking_metrics.update(ranking_preds, target, indexes=user_ids)
