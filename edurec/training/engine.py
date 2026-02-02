@@ -17,6 +17,7 @@ from torchmetrics.retrieval import (
 from .. import config
 
 
+# WARNING: This is a temporary solution until we find a better arquitecture for the model
 class ModelProto(Protocol):
     def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]: ...
 
