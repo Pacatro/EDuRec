@@ -25,22 +25,14 @@ See [`recbole`](https://recbole.io/index.html) for implementations.
 
 ## Ideas for improvements to the actual model
 
-- Mejor cálculo de métricas.
+Some ideas for improvements to the model:
 
-  A la hora de calcular las métricas (Precision@K, Recall@K, etc), necesitamos añadir al dataset interacciones negativas (interacciones de usuarios e ítems que no aparezcan en el dataset).
+### Change approach
 
-- Usar BPRLoss en lugar de MSELoss.
+Instead of only predicts the ratings, use Multi-Task Learning to predict other interesting features (relevant and rating).
 
-  Si añadimos interacciones negativas, el BPRLoss puede llegar a dar mejores resultados.
+### Change the way to compute the threshold
 
-- Evitar sparsity:
-
-  Cuando no existen muchas interacciones entre los usuarios y los ítems en el dataset, el modelo debe ser capaz de prevenir este problema.
-
-  En la primera versión del modelo, el MLP recibía las intreacciones de los usuarios y las caracteristicas de los ítems, haciendo que aquellos usuarios que no tuvieran interacciones no sean considerados.
-
-  Una posible solución sería que el MLP reciba los embeddings de usuarios e ítem, junto con las interacciones, caracteristicas numéricas y categorícas.
-
-- Usar LayerNorm en lugar de BatchNorm: Para datsets con mucho sparsity, puede ser más ideal
+El umbral utilizado para determinar si un item es relevante o no se calculará usando la media de los ratings de ese usuario, en lugar de la media de todo el dataset.
 
 - [Transformed based recommender system](https://www.nature.com/articles/s41598-025-08931-1)

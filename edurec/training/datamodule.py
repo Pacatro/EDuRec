@@ -1,28 +1,28 @@
 from pathlib import Path
-from typing import cast
 
 import lightning as L
+import numpy as np
 import pandas as pd
-import torch
 from sklearn.model_selection import train_test_split
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 
 from .. import config
-from .loaders import DatasetName, load_data
-from .data_processor import DataProcessor
-from .utils import get_column_types, global_preprocessing
+from ..datasets import (
+    DataProcessor,
+    DatasetName,
+    ElearningDataset,
+    load_data,
+)
+from ..datasets.utils import get_column_types, global_preprocessing, collate_fn
 
 
-class ElearningDataset(Dataset):
-    def __init__(self, df: pd.DataFrame) -> None:
-        self.df = df.copy().map(lambda x: torch.tensor(x))
-        self.columns = df.columns
-
-    def __len__(self) -> int:
-        return len(self.df)
-
-    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
-        return cast(dict[str, torch.Tensor], self.df.iloc[idx].to_dict())
+def calculate_sampling_weights(
+    df: pd.DataFrame, all_item_ids: np.ndarray, smoothing: float = 0.75
+) -> np.ndarray:
+    item_counts = df[config.ITEM_COL].value_counts()
+    counts = np.array([item_counts.get(iid, 1) for iid in all_item_ids])
+    weighted_counts = counts**smoothing
+    return weighted_counts / weighted_counts.sum()
 
 
 class ElearningDataModule(L.LightningDataModule):
@@ -32,6 +32,9 @@ class ElearningDataModule(L.LightningDataModule):
         batch_size: int,
         test_size: float,
         val_size: float,
+        n_neg_train: int = config.N_NEG_TRAIN,
+        n_neg_val: int = config.N_NEG_VAL,
+        n_neg_test: int = config.N_NEG_TEST,
         save_data: bool = False,
         random_state: int | None = None,
     ) -> None:
@@ -42,6 +45,9 @@ class ElearningDataModule(L.LightningDataModule):
         self.val_size = val_size
         self.random_state = random_state
         self.save_data = save_data
+        self.n_neg_train = n_neg_train
+        self.n_neg_val = n_neg_val
+        self.n_neg_test = n_neg_test
 
         self.id_cols = [config.USER_COL, config.ITEM_COL]
         self.numeric_cols: list[str] = []
@@ -53,6 +59,17 @@ class ElearningDataModule(L.LightningDataModule):
 
         self.df = load_data(dataset)
         self._process_data()
+
+        self.user_history = (
+            self.df.groupby(config.USER_COL)[config.ITEM_COL].apply(set).to_dict()
+        )
+        self.all_item_ids = self.df[config.ITEM_COL].unique()
+        label_cols = [config.RATING_COL, config.RELEVANT_COL, config.USER_COL]
+        self.item_catalog = (
+            self.df.drop_duplicates(config.ITEM_COL)
+            .set_index(config.ITEM_COL)
+            .drop(columns=label_cols, errors="ignore")
+        )
 
     def _split(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         if config.TIME_COL in self.df.columns:
@@ -88,7 +105,7 @@ class ElearningDataModule(L.LightningDataModule):
         return train_df, val_df, test_df
 
     def _process_data(self) -> None:
-        global_preprocessing(self.df, self.threshold)
+        global_preprocessing(self.df)
 
         train_df, val_df, test_df = self._split()
 
@@ -124,21 +141,62 @@ class ElearningDataModule(L.LightningDataModule):
     def setup(self, stage: str | None = None) -> None:
         match stage:
             case "fit":
-                self.train_ds = ElearningDataset(self.train_df)
-                self.val_ds = ElearningDataset(self.val_df)
-            case "test":
-                self.test_ds = (
-                    ElearningDataset(self.test_df) if self.test_df is not None else None
+                self.train_ds = ElearningDataset(
+                    self.train_df,
+                    n_negatives=self.n_neg_train,
+                    min_rating=self.min_rating,
+                    item_catalog=self.item_catalog,
+                    user_history=self.user_history,
+                    all_item_ids=self.all_item_ids,
+                    id_cols=self.id_cols,
+                    numeric_cols=self.numeric_cols,
+                    sampling_weights=calculate_sampling_weights(
+                        self.train_df, self.all_item_ids
+                    ),
                 )
+                self.val_ds = ElearningDataset(
+                    self.val_df,
+                    n_negatives=self.n_neg_val,
+                    min_rating=self.min_rating,
+                    item_catalog=self.item_catalog,
+                    user_history=self.user_history,
+                    all_item_ids=self.all_item_ids,
+                    id_cols=self.id_cols,
+                    numeric_cols=self.numeric_cols,
+                    sampling_weights=calculate_sampling_weights(
+                        self.val_df, self.all_item_ids
+                    ),
+                )
+            case "test":
+                if self.test_df is not None:
+                    self.test_ds = ElearningDataset(
+                        self.test_df,
+                        n_negatives=self.n_neg_test,
+                        min_rating=self.min_rating,
+                        item_catalog=self.item_catalog,
+                        user_history=self.user_history,
+                        all_item_ids=self.all_item_ids,
+                        id_cols=self.id_cols,
+                        numeric_cols=self.numeric_cols,
+                        sampling_weights=calculate_sampling_weights(
+                            self.test_df, self.all_item_ids
+                        ),
+                    )
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
-            self.train_ds, batch_size=self.batch_size, num_workers=config.NUM_WORKERS
+            self.train_ds,
+            batch_size=self.batch_size,
+            num_workers=config.NUM_WORKERS,
+            collate_fn=collate_fn,
         )
 
     def val_dataloader(self) -> DataLoader:
         return DataLoader(
-            self.val_ds, batch_size=self.batch_size, num_workers=config.NUM_WORKERS
+            self.val_ds,
+            batch_size=self.batch_size,
+            num_workers=config.NUM_WORKERS,
+            collate_fn=collate_fn,
         )
 
     def test_dataloader(self) -> DataLoader | None:
@@ -146,7 +204,10 @@ class ElearningDataModule(L.LightningDataModule):
             return None
 
         return DataLoader(
-            self.test_ds, batch_size=self.batch_size, num_workers=config.NUM_WORKERS
+            self.test_ds,
+            batch_size=self.batch_size,
+            num_workers=config.NUM_WORKERS,
+            collate_fn=collate_fn,
         )
 
     @property
@@ -168,10 +229,6 @@ class ElearningDataModule(L.LightningDataModule):
     @property
     def sparsity(self) -> float:
         return 1 - len(self.df) / (self.num_users * self.num_items)
-
-    @property
-    def threshold(self) -> float:
-        return float(self.df[config.RATING_COL].mean())
 
     @property
     def min_rating(self) -> float:

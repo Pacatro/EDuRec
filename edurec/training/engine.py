@@ -3,9 +3,8 @@ import torch
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from torch import nn
 from torchmetrics import Metric, MetricCollection
-from torchmetrics.functional import mean_absolute_error
 from torchmetrics.retrieval import (
-    # RetrievalAUROC,
+    RetrievalAUROC,
     RetrievalHitRate,
     RetrievalMAP,
     RetrievalMRR,
@@ -19,7 +18,7 @@ from .. import config
 
 class RetrievalFBetaScore(Metric):
     def __init__(
-        self, top_k: int = 10, beta: float = 1.0, adaptive_k: bool = True, **kwargs
+        self, top_k: int = 10, beta: float = 1.0, adaptive_k: bool = False, **kwargs
     ):
         super().__init__(**kwargs)
         self.beta = beta
@@ -49,38 +48,67 @@ class RecSys(L.LightningModule):
     def __init__(
         self,
         model: nn.Module,
-        threshold: float = 8.0,
         lr: float = 1e-3,
         weight_decay: float = 1e-6,
         top_k: int = 10,
-        loss_fn: nn.Module | None = None,
-        monitor: str = "val/MSE",
+        alpha: float = 0.5,
+        monitor: str = config.MONITOR,
+        rating_loss_fn: nn.Module | None = None,
+        relevance_loss_fn: nn.Module | None = None,
     ):
         super().__init__()
-        self.save_hyperparameters(ignore=["model"])
+        self.save_hyperparameters(
+            ignore=["model", "relevance_loss_fn", "rating_loss_fn"]
+        )
         self.model = model
-        self.loss_fn = loss_fn or nn.MSELoss()
-        self.threshold = threshold
         self.lr = lr
         self.weight_decay = weight_decay
         self.monitor = monitor
+        self.alpha = alpha
+
+        self.rating_loss_fn = rating_loss_fn or nn.MSELoss()
+        self.relevance_loss_fn = relevance_loss_fn or nn.BCELoss()
 
         ranking_metrics = MetricCollection(
-            RetrievalPrecision(top_k=top_k, adaptive_k=True),
-            RetrievalRecall(top_k=top_k),
-            RetrievalFBetaScore(top_k=top_k, beta=1.0, adaptive_k=True),
-            RetrievalNormalizedDCG(top_k=top_k),
-            RetrievalHitRate(top_k=top_k),
-            RetrievalMAP(top_k=top_k),
-            RetrievalMRR(top_k=top_k),
-            # RetrievalAUROC(top_k=top_k),
+            {
+                f"Precision@{top_k}": RetrievalPrecision(top_k=top_k, adaptive_k=True),
+                f"Recall@{top_k}": RetrievalRecall(top_k=top_k),
+                f"F1@{top_k}": RetrievalFBetaScore(
+                    top_k=top_k, beta=1.0, adaptive_k=True
+                ),
+                f"NDCG@{top_k}": RetrievalNormalizedDCG(top_k=top_k),
+                f"HitRate@{top_k}": RetrievalHitRate(top_k=top_k),
+                f"MAP@{top_k}": RetrievalMAP(top_k=top_k),
+                f"MRR@{top_k}": RetrievalMRR(top_k=top_k),
+                f"AUROC@{top_k}": RetrievalAUROC(top_k=top_k),
+            }
         )
 
         self.val_ranking_metrics = ranking_metrics.clone(prefix="val/")
         self.test_ranking_metrics = ranking_metrics.clone(prefix="test/")
 
+        # This parameters are used to compute the variance of the loss (Uncertainty Weighting)
+        self.log_var_rating = nn.Parameter(torch.zeros(1))
+        self.log_var_relevance = nn.Parameter(torch.zeros(1))
+
     def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         return self.model(batch)
+
+    def _calc_loss(
+        self, preds: dict[str, torch.Tensor], batch: dict[str, torch.Tensor]
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        pred_ratings = preds["rating"].flatten()
+        pred_relevance = preds["relevance"].flatten()
+        true_ratings = batch[config.RATING_COL].float().view_as(pred_ratings)
+        true_relevance = batch[config.RELEVANT_COL].float().view_as(pred_relevance)
+
+        # Base loss
+        loss_rating = self.rating_loss_fn(pred_ratings, true_ratings)
+        loss_relevance = self.relevance_loss_fn(pred_relevance, true_relevance)
+
+        loss = (self.alpha * loss_rating) + ((1 - self.alpha) * loss_relevance)
+
+        return loss, loss_rating, loss_relevance
 
     def _step(
         self,
@@ -88,21 +116,18 @@ class RecSys(L.LightningModule):
         prefix: str,
         ranking_metrics: MetricCollection | None = None,
     ):
-        preds: torch.Tensor = self.model(batch)
+        preds = self.model(batch)
+        loss, loss_rating, loss_relevance = self._calc_loss(preds, batch)
 
-        ratings = batch[config.RATING_COL].float().view(-1)
-        loss = self.loss_fn(preds, ratings)
-        mae = mean_absolute_error(preds, ratings)
-        rmse = loss**0.5
+        self.log(f"{prefix}/Loss", loss, prog_bar=True)
+        self.log(f"{prefix}/LossRating", loss_rating, on_epoch=True)
+        self.log(f"{prefix}/LossRelevance", loss_relevance, on_epoch=True)
 
-        if ranking_metrics is not None and prefix in ["val", "test"]:
-            user_ids = batch[config.USER_COL].long().view(-1)
-            target = batch[config.RELEVANT_COL].int().view(-1)
-            ranking_metrics.update(preds.detach(), target, indexes=user_ids)
-
-        self.log(f"{prefix}/MSE", loss, prog_bar=False)
-        self.log(f"{prefix}/RMSE", rmse, prog_bar=True)
-        self.log(f"{prefix}/MAE", mae, prog_bar=False)
+        if ranking_metrics is not None:
+            user_ids = batch[config.USER_COL].long().flatten()
+            target = batch[config.RELEVANT_COL].bool().flatten()
+            ranking_preds = preds["relevance"].detach()
+            ranking_metrics.update(ranking_preds, target, indexes=user_ids)
 
         return loss
 

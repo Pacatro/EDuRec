@@ -8,7 +8,7 @@ from .. import config
 from ..datasets import DatasetName, load_data
 from ..evaluation import CVType, cross_validate, sota_cross_validate
 from ..evaluation.stats import friedman_test
-from ..training.model import EDuRecV1
+from ..training.model import EDuRecMTL
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -66,14 +66,14 @@ def eval(
 ):
     models_classes = (
         [
-            # "BPR",
-            "DeepFM",
+            "BPR",
+            # "DeepFM",
             # EDuRecV1,
             # "NeuMF",
             # "xDeepFM",
         ]
         if eval_sota
-        else [EDuRecV1]
+        else [EDuRecMTL]
     )
     df = load_data(dataset)
 

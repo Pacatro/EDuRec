@@ -30,22 +30,17 @@ class EDuRecConfig:
     dropout: float = config.DROPOUT
 
 
-class EDuRec(nn.Module):
+class EDuRecMTL(nn.Module):
     def __init__(self, config: EDuRecConfig):
         super().__init__()
-
         self.config = config
 
-        # CF embeddings
+        # Shared Bottom
         self.user_embedding = nn.Embedding(config.n_users, config.emb_dim)
         self.item_embedding = nn.Embedding(config.n_items, config.emb_dim)
 
-        # User-Item biases
-        self.user_bias = nn.Embedding(config.n_users, 1)
-        self.item_bias = nn.Embedding(config.n_items, 1)
-
-        # Content Categories embeddings (CB)
         cat_emb_dim = config.emb_dim // 2
+
         self.cat_embeddings = nn.ModuleDict(
             {
                 key: nn.Embedding(card, cat_emb_dim)
@@ -53,34 +48,46 @@ class EDuRec(nn.Module):
             }
         )
 
-        # MLP
+        # Cross-attention user-item interactions
+        self.ui_interactions = CrossAttentionInteraction(config.emb_dim)
+
+        # Common MLP
         n_cat = len(self.cat_embeddings)
         n_num = len(config.numeric_features)
         mlp_input = (config.emb_dim * 3) + n_cat * cat_emb_dim + n_num
-        layers = []
+
+        shared_layers = []
+
         for h in config.hidden_dims:
-            layers += [
+            shared_layers += [
                 nn.Linear(mlp_input, h),
-                nn.BatchNorm1d(h),
+                nn.LayerNorm(h),
                 nn.ReLU(inplace=True),
                 nn.Dropout(config.dropout),
             ]
             mlp_input = h
 
-        layers.append(nn.Linear(mlp_input, 1))
-        self.mlp = nn.Sequential(*layers)
+        self.shared_mlp = nn.Sequential(*shared_layers)
 
-        # Hyperparameters
-        self.numeric_features = config.numeric_features
+        # Rating Head
+        self.rating_head = nn.Linear(config.hidden_dims[-1], 1)
+        self.user_bias = nn.Embedding(config.n_users, 1)
+        self.item_bias = nn.Embedding(config.n_items, 1)
 
-    def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+        # Relevance Head
+        self.relevance_head = nn.Sequential(
+            nn.Linear(config.hidden_dims[-1], 1),
+            nn.Sigmoid(),
+        )
+
+    def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         u = batch["user_id"].long()
         i = batch["item_id"].long()
 
+        # Shared embeddings
         u_emb = self.user_embedding(u)
         i_emb = self.item_embedding(i)
-
-        ui_i = u_emb * i_emb  # User-Item interactions
+        ui_i = self.ui_interactions(u_emb, i_emb)
 
         cat_vecs = [emb(batch[key].long()) for key, emb in self.cat_embeddings.items()]
         cat_embs = (
@@ -89,20 +96,46 @@ class EDuRec(nn.Module):
             else torch.zeros(u.size(0), 0, device=u_emb.device)
         )
 
-        num_vecs = [batch[n].unsqueeze(1).float() for n in self.numeric_features]
+        num_vecs = [batch[n].unsqueeze(1).float() for n in self.config.numeric_features]
         num_embs = (
             torch.cat(num_vecs, dim=1)
             if num_vecs
             else torch.zeros(u.size(0), 0, device=u_emb.device)
         )
 
+        x = torch.cat([u_emb, i_emb, ui_i, cat_embs, num_embs], dim=1)
+        shared_out = self.shared_mlp(x)
+
+        # Rating prediction
         u_b = self.user_bias(u).squeeze(1)
         i_b = self.item_bias(i).squeeze(1)
+        rating_out = self.rating_head(shared_out).squeeze(1) + u_b + i_b
 
-        x = torch.cat([u_emb, i_emb, ui_i, cat_embs, num_embs], dim=1)
+        # Relevance prediction
+        relevance_out = self.relevance_head(shared_out).squeeze(1)
 
-        out = self.mlp(x).squeeze(1) + u_b + i_b
+        return {
+            "rating": rating_out,
+            "relevance": relevance_out,
+        }
 
+
+class CrossAttentionInteraction(nn.Module):
+    def __init__(self, embed_dim: int, num_heads: int = 4):
+        super().__init__()
+        self.attn = nn.MultiheadAttention(
+            embed_dim=embed_dim, num_heads=num_heads, batch_first=True
+        )
+        self.norm = nn.LayerNorm(embed_dim)
+
+    def forward(self, u_emb: torch.Tensor, i_emb: torch.Tensor) -> torch.Tensor:
+        # Expand dim (batch, emb_dim) to (batch, 1, emb_dim)
+        q = u_emb.unsqueeze(1)
+        k = i_emb.unsqueeze(1)
+        v = i_emb.unsqueeze(1)
+
+        attn_out, _ = self.attn(q, k, v)  # (batch, 1, emb_dim)
+        out = self.norm(attn_out.squeeze(1) + u_emb)  # (batch, emb_dim)
         return out
 
 

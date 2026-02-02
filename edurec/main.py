@@ -3,15 +3,16 @@ from enum import Enum
 from typing import Annotated
 
 import typer
+import torch
 
 from . import config
 from .cli import eval_app, train_app
 
-# from .commands.predict import app as predict_app
-
-
 # Ignore pandas future warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
+
+# Set a default seed for reproducibility
+torch.manual_seed(config.state["random_state"])
 
 app = typer.Typer(
     rich_markup_mode=None,
@@ -35,15 +36,15 @@ def main(
     device: Annotated[
         Device,
         typer.Option("--device", "-d", help="Device to use"),
-    ] = Device.AUTO,
+    ] = Device(config.state["device"]),
     random_state: Annotated[
         int | None,
         typer.Option("--random-state", "-r", help="Random state"),
-    ] = 42,
+    ] = config.state["random_state"],
     verbose: Annotated[
         bool,
         typer.Option("--verbose", "-v", help="Verbose mode"),
-    ] = False,
+    ] = config.state["verbose"],
 ):
     config.state["verbose"] = verbose
     config.state["random_state"] = random_state

@@ -64,7 +64,10 @@ def cross_validate(
         model = model_class(model_config)
 
         recsys = RecSys(
-            model=model, top_k=top_k, threshold=dm.threshold, lr=lr, monitor=monitor
+            model=model,
+            top_k=top_k,
+            lr=lr,
+            monitor=monitor,
         )
 
         earlystop = EarlyStopping(
@@ -96,10 +99,7 @@ def cross_validate(
         trainer.fit(recsys, datamodule=dm)
 
         recsys = RecSys.load_from_checkpoint(
-            ckpt.best_model_path,
-            model=model,
-            top_k=top_k,
-            threshold=dm.threshold,
+            ckpt.best_model_path, model=model, top_k=top_k, monitor=monitor
         )
 
         metrics = trainer.validate(recsys, datamodule=dm)[0]
@@ -187,8 +187,7 @@ def sota_cross_validate(
     numeric_cols, categorical_lengths = get_column_types(df, id_cols)
     categorical_cols = list(categorical_lengths.keys())
 
-    threshold = float(df[config.RATING_COL].median())
-    global_preprocessing(df, threshold=threshold)
+    global_preprocessing(df)
 
     all_fold_results = []
 

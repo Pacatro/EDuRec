@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, cast
 
 import lightning as L
 import torch
@@ -7,10 +7,11 @@ from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 
 from .. import config
-from ..datasets import DatasetName, ElearningDataModule
+from ..datasets import DatasetName
+from ..training.datamodule import ElearningDataModule
 from ..training.engine import RecSys
 from ..training.io import save_model
-from ..training.model import EDuRecConfig, EDuRec
+from ..training.model import EDuRecConfig, EDuRecMTL
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -28,6 +29,9 @@ def train(
     batch_size: Annotated[
         int, typer.Option("--batch_size", "-b", help="Batch size")
     ] = config.BATCH_SIZE,
+    patience: Annotated[
+        int, typer.Option("--patience", "-p", help="Patience")
+    ] = config.PATIENCE,
     val_size: Annotated[
         float, typer.Option("--val_size", "-v", help="Validation size")
     ] = config.VAL_SIZE,
@@ -73,7 +77,7 @@ def train(
         cat_cardinalities=dm.cat_cardinalities,
     )
 
-    model = EDuRec(model_config)
+    model = EDuRecMTL(model_config)
 
     if config.state["verbose"]:
         print(f"[TRAIN] Dataset {dataset.value} sparsity: {dm.sparsity}")
@@ -83,22 +87,14 @@ def train(
         print(f"[TRAIN] Max rating: {dm.max_rating}")
         print(f"[TRAIN] Monitoring: {monitor}")
 
-    recsys = RecSys(
-        model=model,
-        top_k=top_k,
-        threshold=dm.threshold,
-        lr=lr,
-        monitor=monitor,
-        # SmoothL1Loss parece mas interasante que MSE
-        # loss_fn=torch.nn.SmoothL1Loss(),
-    )
+    recsys = RecSys(model=model, top_k=top_k, lr=lr, monitor=monitor)
 
     # Compile model for better performance
     torch.compile(recsys)
 
     early_stop_model = EarlyStopping(
         monitor=monitor,
-        patience=config.PATIENCE,
+        patience=patience,
         mode="min",
         min_delta=config.DELTA,
         verbose=True,
@@ -136,7 +132,7 @@ def train(
         print("Debug mode enabled. Skipping evaluation.")
         return
 
-    trainer.test(model=recsys, datamodule=dm)
+    metrics = trainer.test(model=recsys, datamodule=dm)[0]
 
     # Save best model path
     if save:
@@ -146,4 +142,5 @@ def train(
             checkpoint_model.best_model_path,
             models_folder,
             dataset.value,
+            cast(dict[str, float], metrics),
         )
