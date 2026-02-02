@@ -38,8 +38,12 @@ TEST_SIZE: float = 0.4
 N_NEG_TRAIN: int = 4
 N_NEG_VAL: int = 100
 N_NEG_TEST: int = 100
-MONITOR: str = "val/Loss"
 SAVE_DATA: bool = False
+MONITOR: str = "val/Loss"
+# If alpha is 0.5, both tasks have the same importance
+# If alpha is 0.0, only relevance task is considered
+# If alpha is 1.0, only rating task is considered
+ALPHA: float = 0.5
 
 # Eval
 SEEDS: list[int] = [0, 1, 42]
