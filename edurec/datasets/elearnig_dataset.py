@@ -19,7 +19,6 @@ class ElearningDataset(Dataset):
         all_item_ids: np.ndarray | None = None,
         id_cols: list[str] | None = None,
         numeric_cols: list[str] | None = None,
-        sampling_weights: np.ndarray | None = None,
     ) -> None:
         self.df = df.copy()
         self.n_negatives = n_negatives
@@ -30,7 +29,6 @@ class ElearningDataset(Dataset):
         self.id_cols = id_cols or []
         self.numeric_cols = numeric_cols or []
         self.min_rating = min_rating
-        self.sampling_weights = sampling_weights
 
     def __len__(self) -> int:
         return len(self.df)
@@ -82,7 +80,6 @@ class ElearningDataset(Dataset):
             ids = np.random.choice(
                 self.all_item_ids,
                 size=self.n_negatives * 2,
-                p=self.sampling_weights,
             )
             for nid in ids:
                 if nid not in seen and nid not in neg_candidates:

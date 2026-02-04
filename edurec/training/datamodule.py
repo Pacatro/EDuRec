@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import lightning as L
-import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
@@ -14,15 +13,6 @@ from ..datasets import (
     load_data,
 )
 from ..datasets.utils import get_column_types, global_preprocessing, collate_fn
-
-
-def calculate_sampling_weights(
-    df: pd.DataFrame, all_item_ids: np.ndarray, smoothing: float = 0.75
-) -> np.ndarray:
-    item_counts = df[config.ITEM_COL].value_counts()
-    counts = np.array([item_counts.get(iid, 1) for iid in all_item_ids])
-    weighted_counts = counts**smoothing
-    return weighted_counts / weighted_counts.sum()
 
 
 class ElearningDataModule(L.LightningDataModule):
@@ -150,9 +140,6 @@ class ElearningDataModule(L.LightningDataModule):
                     all_item_ids=self.all_item_ids,
                     id_cols=self.id_cols,
                     numeric_cols=self.numeric_cols,
-                    sampling_weights=calculate_sampling_weights(
-                        self.train_df, self.all_item_ids
-                    ),
                 )
                 self.val_ds = ElearningDataset(
                     self.val_df,
@@ -163,9 +150,6 @@ class ElearningDataModule(L.LightningDataModule):
                     all_item_ids=self.all_item_ids,
                     id_cols=self.id_cols,
                     numeric_cols=self.numeric_cols,
-                    sampling_weights=calculate_sampling_weights(
-                        self.val_df, self.all_item_ids
-                    ),
                 )
             case "test":
                 if self.test_df is not None:
@@ -178,9 +162,6 @@ class ElearningDataModule(L.LightningDataModule):
                         all_item_ids=self.all_item_ids,
                         id_cols=self.id_cols,
                         numeric_cols=self.numeric_cols,
-                        sampling_weights=calculate_sampling_weights(
-                            self.test_df, self.all_item_ids
-                        ),
                     )
 
     def train_dataloader(self) -> DataLoader:
@@ -225,6 +206,10 @@ class ElearningDataModule(L.LightningDataModule):
     @property
     def cat_cardinalities(self) -> dict[str, int]:
         return {k: v + 2 for k, v in self.categorical_lengths.items()}
+
+    @property
+    def categorical_features(self) -> list[str]:
+        return list(self.categorical_lengths.keys())
 
     @property
     def sparsity(self) -> float:
