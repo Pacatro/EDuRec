@@ -1,6 +1,7 @@
 from typing import Annotated, cast
 
 import lightning as L
+import pandas as pd
 import torch
 import typer
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
@@ -76,41 +77,42 @@ def train(
         numeric_features=dm.numeric_features,
         cat_cardinalities=dm.cat_cardinalities,
     )
-
-    model = EDuRecMTL(model_config)
-
     if config.state["verbose"]:
         print(f"[TRAIN] Dataset {dataset.value} sparsity: {dm.sparsity}")
-        print(f"[TRAIN] Training model: {model.__class__.__name__}")
         print(f"[TRAIN] Using logger: {use_logger}")
         print(f"[TRAIN] Min rating: {dm.min_rating}")
         print(f"[TRAIN] Max rating: {dm.max_rating}")
         print(f"[TRAIN] Monitoring: {monitor}")
 
-    recsys = RecSys(model=model, top_k=top_k, lr=lr, monitor=monitor)
+    model = EDuRecMTL(model_config)
+    model_name = model.__class__.__name__
+    print(f"\n[TRAIN] Starting training for: {model_name}")
 
-    # Compile model for better performance
-    torch.compile(recsys)
+    recsys = RecSys(
+        model=model,
+        top_k=top_k,
+        lr=lr,
+        monitor=monitor,
+        weight_decay=config.WEIGHT_DECAY,
+    )
 
+    if not debug:
+        torch.compile(recsys)
+
+    # Callbacks y Loggers
     early_stop_model = EarlyStopping(
         monitor=monitor,
         patience=patience,
-        mode="min",
+        mode="max",
         min_delta=config.DELTA,
         verbose=True,
     )
-
     checkpoint_model = ModelCheckpoint(
-        monitor=monitor,
-        mode="min",
-        save_top_k=1,
-        filename="best_model",
+        monitor=monitor, mode="min", save_top_k=1, filename=f"best_{model_name}"
     )
 
     train_logger = (
-        WandbLogger(
-            project=config.EXPERIMENT_NAME, name=f"train_{model.__class__.__name__}"
-        )
+        WandbLogger(project=config.EXPERIMENT_NAME, name=f"train_{model_name}")
         if use_logger and not debug
         else None
     )
@@ -123,24 +125,28 @@ def train(
         log_every_n_steps=10,
         callbacks=[early_stop_model, checkpoint_model],
         fast_dev_run=debug,
-        enable_model_summary=config.state["verbose"],
     )
 
     trainer.fit(recsys, datamodule=dm)
 
     if debug:
-        print("Debug mode enabled. Skipping evaluation.")
+        print("[TRAIN] Debug mode: Skipping evaluation")
         return
 
-    metrics = trainer.test(model=recsys, datamodule=dm)[0]
+    # Evaluación
+    test_results = trainer.test(model=recsys, datamodule=dm)
+    if test_results:
+        # Crear DF de una fila y añadir a la lista
+        res_df = pd.DataFrame([test_results[0]])
+        res_df.index = [model_name]
 
-    # Save best model path
+    # Guardar modelo
     if save:
         save_model(
-            model.__class__.__name__,
+            model_name,
             model_config,
             checkpoint_model.best_model_path,
             models_folder,
             dataset.value,
-            cast(dict[str, float], metrics),
+            cast(dict[str, float], test_results[0]),
         )

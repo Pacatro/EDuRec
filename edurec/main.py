@@ -6,7 +6,7 @@ import typer
 import torch
 
 from . import config
-from .cli import eval_app, train_app
+from .cli import eval_app, train_app, train_comp_app
 
 # Ignore pandas future warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -22,6 +22,7 @@ app = typer.Typer(
 
 app.add_typer(train_app)
 app.add_typer(eval_app)
+app.add_typer(train_comp_app)
 # app.add_typer(predict_app)
 
 
