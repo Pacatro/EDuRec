@@ -33,6 +33,25 @@ class EDuRecConfig:
     dropout: float = config.DROPOUT
 
 
+class CrossAttentionInteraction(nn.Module):
+    def __init__(self, embed_dim: int, num_heads: int = 4):
+        super().__init__()
+        self.attn = nn.MultiheadAttention(
+            embed_dim=embed_dim, num_heads=num_heads, batch_first=True
+        )
+        self.norm = nn.LayerNorm(embed_dim)
+
+    def forward(self, u_emb: torch.Tensor, i_emb: torch.Tensor) -> torch.Tensor:
+        # Expand dim (batch, emb_dim) to (batch, 1, emb_dim)
+        q = u_emb.unsqueeze(1)
+        k = i_emb.unsqueeze(1)
+        v = i_emb.unsqueeze(1)
+
+        attn_out, _ = self.attn(q, k, v)  # (batch, 1, emb_dim)
+        out = self.norm(attn_out.squeeze(1) + u_emb)  # (batch, emb_dim)
+        return out
+
+
 class EDuRecMTL(nn.Module):
     def __init__(self, config: EDuRecConfig):
         super().__init__()
@@ -154,25 +173,6 @@ class EDuRecMTL(nn.Module):
         target = batch[config.RELEVANT_COL].bool().flatten()
         ranking_preds = preds["relevance"].detach()
         ranking_metrics.update(ranking_preds, target, indexes=user_ids)
-
-
-class CrossAttentionInteraction(nn.Module):
-    def __init__(self, embed_dim: int, num_heads: int = 4):
-        super().__init__()
-        self.attn = nn.MultiheadAttention(
-            embed_dim=embed_dim, num_heads=num_heads, batch_first=True
-        )
-        self.norm = nn.LayerNorm(embed_dim)
-
-    def forward(self, u_emb: torch.Tensor, i_emb: torch.Tensor) -> torch.Tensor:
-        # Expand dim (batch, emb_dim) to (batch, 1, emb_dim)
-        q = u_emb.unsqueeze(1)
-        k = i_emb.unsqueeze(1)
-        v = i_emb.unsqueeze(1)
-
-        attn_out, _ = self.attn(q, k, v)  # (batch, 1, emb_dim)
-        out = self.norm(attn_out.squeeze(1) + u_emb)  # (batch, emb_dim)
-        return out
 
 
 class EDuRecV1(nn.Module):

@@ -13,7 +13,7 @@ from sklearn.model_selection import KFold, LeaveOneOut
 from torch import nn
 
 from .. import config
-from ..datasets.utils import get_column_types, global_preprocessing
+from ..datasets.data_processor import get_column_types, global_preprocessing
 from ..training.engine import ModelProto, RecSys
 from ..training.model import EDuRecConfig
 from .cv_datamodule import CvElearningDataModule

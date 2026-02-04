@@ -19,6 +19,8 @@ from .. import config
 
 # WARNING: This is a temporary solution until we find a better arquitecture for the model
 class ModelProto(Protocol):
+    def __call__(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]: ...
+
     def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]: ...
 
     def compute_loss(
@@ -69,16 +71,14 @@ class RecSys(L.LightningModule):
     def __init__(
         self,
         model: ModelProto,
-        lr: float = 1e-3,
-        weight_decay: float = 1e-6,
-        top_k: int = 10,
-        alpha: float = 0.5,
+        lr: float = config.LR,
+        weight_decay: float = config.WEIGHT_DECAY,
+        top_k: int = config.TOP_K,
+        alpha: float = config.ALPHA,
         monitor: str = config.MONITOR,
     ):
         super().__init__()
-        self.save_hyperparameters(
-            ignore=["model", "relevance_loss_fn", "rating_loss_fn"]
-        )
+        self.save_hyperparameters(ignore=["model"])
         self.model = model
         self.lr = lr
         self.weight_decay = weight_decay
@@ -90,14 +90,14 @@ class RecSys(L.LightningModule):
             {
                 f"Precision@{top_k}": RetrievalPrecision(top_k=top_k, adaptive_k=True),
                 f"Recall@{top_k}": RetrievalRecall(top_k=top_k),
-                # f"F1@{top_k}": RetrievalFBetaScore(
-                #     top_k=top_k, beta=1.0, adaptive_k=True
-                # ),
                 f"Ndcg@{top_k}": RetrievalNormalizedDCG(top_k=top_k),
                 f"Hit@{top_k}": RetrievalHitRate(top_k=top_k),
                 f"Map@{top_k}": RetrievalMAP(top_k=top_k),
                 f"Mrr@{top_k}": RetrievalMRR(top_k=top_k),
                 f"AUROC@{top_k}": RetrievalAUROC(top_k=top_k),
+                f"F1@{top_k}": RetrievalFBetaScore(
+                    top_k=top_k, beta=1.0, adaptive_k=True
+                ),
             }
         )
 
@@ -105,7 +105,7 @@ class RecSys(L.LightningModule):
         self.test_ranking_metrics = ranking_metrics.clone(prefix="test/")
 
     def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        return self.model.forward(batch)
+        return self.model(batch)
 
     def _step(
         self,
@@ -113,7 +113,7 @@ class RecSys(L.LightningModule):
         prefix: str,
         ranking_metrics: MetricCollection | None = None,
     ):
-        preds = self.model.forward(batch)
+        preds = self.model(batch)
         loss, logs = self.model.compute_loss(preds, batch, self.alpha)
 
         self.log(f"{prefix}/Loss", loss, prog_bar=True)

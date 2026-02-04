@@ -3,10 +3,9 @@ import numpy as np
 import pandas as pd
 from torch.utils.data import DataLoader
 
-from edurec.datasets.utils import get_column_types, global_preprocessing
-
 from .. import config
 from ..datasets import DataProcessor, ElearningDataset
+from ..datasets.data_processor import get_column_types, global_preprocessing
 from ..datasets.utils import collate_fn
 
 

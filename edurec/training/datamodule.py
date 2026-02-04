@@ -12,7 +12,8 @@ from ..datasets import (
     ElearningDataset,
     load_data,
 )
-from ..datasets.utils import get_column_types, global_preprocessing, collate_fn
+from ..datasets.data_processor import get_column_types, global_preprocessing
+from ..datasets.utils import collate_fn
 
 
 class ElearningDataModule(L.LightningDataModule):

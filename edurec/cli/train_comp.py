@@ -28,14 +28,12 @@ def _create_inter_dataset(
     categorical_cols: list[str],
     dataset_name: str,
 ) -> tuple[list[str], Path, list[float]]:
-    # 1. Definir rutas según tu estructura: config.DATA_FOLDER/inters/dataset_name/
     base_path = Path("inters") / dataset_name
 
     if base_path.exists():
         shutil.rmtree(base_path)
     base_path.mkdir(parents=True)
 
-    # 2. Mapeo de nombres de columnas para RecBole
     rename_map = {c: f"{c}:float" for c in numeric_cols}
     rename_map.update({c: f"{c}:token" for c in categorical_cols})
 
@@ -49,7 +47,6 @@ def _create_inter_dataset(
         }
     )
 
-    # 3. Guardar archivos individuales (opcional, para tu registro)
     train_rec = train_processed.rename(columns=rename_map)
     val_rec = val_processed.rename(columns=rename_map)
     test_rec = test_processed.rename(columns=rename_map)
@@ -58,12 +55,9 @@ def _create_inter_dataset(
     val_rec.to_csv(base_path / "val.inter", sep="\t", index=False)
     test_rec.to_csv(base_path / "test.inter", sep="\t", index=False)
 
-    # 4. Crear el archivo unificado que RecBole requiere
-    # Importante: El archivo debe llamarse igual que la carpeta
     full_df = pd.concat([train_rec, val_rec, test_rec], ignore_index=True)
     full_df.to_csv(base_path / f"{dataset_name}.inter", sep="\t", index=False)
 
-    # Calcular ratios para que RecBole mantenga tu división original
     total = len(full_df)
     ratios = [len(train_rec) / total, len(val_rec) / total, len(test_rec) / total]
 
@@ -268,10 +262,8 @@ def train_comp(
         if debug:
             continue
 
-        # Evaluación
         test_results = trainer.test(model=recsys, datamodule=dm)
         if test_results:
-            # Crear DF de una fila y añadir a la lista
             res_df = pd.DataFrame([test_results[0]])
             res_df.index = [model_name]
             edurec_results_list.append(res_df)
