@@ -1,7 +1,7 @@
 import shutil
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import lightning as L
 import pandas as pd
@@ -14,7 +14,7 @@ from torch import nn
 
 from .. import config
 from ..datasets.utils import get_column_types, global_preprocessing
-from ..training.engine import RecSys
+from ..training.engine import ModelProto, RecSys
 from ..training.model import EDuRecConfig
 from .cv_datamodule import CvElearningDataModule
 
@@ -61,7 +61,7 @@ def cross_validate(
             numeric_features=dm.numeric_features,
         )
 
-        model = model_class(model_config)
+        model = cast(ModelProto, model_class(model_config))
 
         recsys = RecSys(
             model=model,
