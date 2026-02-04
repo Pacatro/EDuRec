@@ -78,10 +78,7 @@ class EDuRecMTL(nn.Module):
         self.item_bias = nn.Embedding(config.n_items, 1)
 
         # Relevance Head
-        self.relevance_head = nn.Sequential(
-            nn.Linear(config.hidden_dims[-1], 1),
-            nn.Sigmoid(),
-        )
+        self.relevance_head = nn.Linear(config.hidden_dims[-1], 1)
 
     def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         u = batch["user_id"].long()
@@ -129,12 +126,14 @@ class EDuRecMTL(nn.Module):
         alpha: float,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor] | None]:
         pred_ratings = preds["rating"].flatten()
-        pred_relevance = preds["relevance"].flatten()
+        logits_relevance = preds["relevance"].flatten()
         true_ratings = batch[config.RATING_COL].float().view_as(pred_ratings)
-        true_relevance = batch[config.RELEVANT_COL].float().view_as(pred_relevance)
+        true_relevance = batch[config.RELEVANT_COL].float().view_as(logits_relevance)
 
         loss_rating = F.mse_loss(pred_ratings, true_ratings)
-        loss_relevance = F.binary_cross_entropy(pred_relevance, true_relevance)
+        loss_relevance = F.binary_cross_entropy_with_logits(
+            logits_relevance, true_relevance
+        )
 
         loss = (alpha * loss_rating) + ((1 - alpha) * loss_relevance)
 
@@ -287,7 +286,7 @@ class EDuRecV1(nn.Module):
         batch: dict[str, torch.Tensor],
         ranking_metrics: MetricCollection,
     ) -> None:
-        user_ids = batch[config.USER_COL].long().flatten()
-        target = batch[config.RELEVANT_COL].bool().flatten()
+        user_ids = batch[config.USER_COL].long()
+        target = batch[config.RELEVANT_COL].long()
         ranking_preds = preds["rating"].detach()
         ranking_metrics.update(ranking_preds, target, indexes=user_ids)

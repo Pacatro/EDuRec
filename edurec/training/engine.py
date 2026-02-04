@@ -84,18 +84,19 @@ class RecSys(L.LightningModule):
         self.weight_decay = weight_decay
         self.monitor = monitor
         self.alpha = alpha
+        self.top_k = top_k
 
         ranking_metrics = MetricCollection(
             {
                 f"Precision@{top_k}": RetrievalPrecision(top_k=top_k, adaptive_k=True),
                 f"Recall@{top_k}": RetrievalRecall(top_k=top_k),
-                f"F1@{top_k}": RetrievalFBetaScore(
-                    top_k=top_k, beta=1.0, adaptive_k=True
-                ),
-                f"NDCG@{top_k}": RetrievalNormalizedDCG(top_k=top_k),
-                f"HitRate@{top_k}": RetrievalHitRate(top_k=top_k),
-                f"MAP@{top_k}": RetrievalMAP(top_k=top_k),
-                f"MRR@{top_k}": RetrievalMRR(top_k=top_k),
+                # f"F1@{top_k}": RetrievalFBetaScore(
+                #     top_k=top_k, beta=1.0, adaptive_k=True
+                # ),
+                f"Ndcg@{top_k}": RetrievalNormalizedDCG(top_k=top_k),
+                f"Hit@{top_k}": RetrievalHitRate(top_k=top_k),
+                f"Map@{top_k}": RetrievalMAP(top_k=top_k),
+                f"Mrr@{top_k}": RetrievalMRR(top_k=top_k),
                 f"AUROC@{top_k}": RetrievalAUROC(top_k=top_k),
             }
         )
@@ -163,7 +164,10 @@ class RecSys(L.LightningModule):
             self.parameters(), lr=self.lr, weight_decay=self.weight_decay
         )
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.5, patience=3
+            optimizer,
+            mode="min" if "Loss" in self.monitor else "max",
+            factor=0.5,
+            patience=3,
         )
         return {
             "optimizer": optimizer,

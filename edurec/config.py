@@ -29,6 +29,7 @@ HIDDEN_DIMS: list[int] = [256, 256, 128]
 LR: float = 0.001
 BATCH_SIZE: int = 128
 EPOCHS: int = 100
+WEIGHT_DECAY: float = 1e-6
 PATIENCE: int = 3
 DELTA: float = 0.001
 TOP_K: int = 10
@@ -39,7 +40,7 @@ N_NEG_TRAIN: int = 4
 N_NEG_VAL: int = 100
 N_NEG_TEST: int = 100
 SAVE_DATA: bool = False
-MONITOR: str = "val/Loss"
+MONITOR: str = f"val/Ndcg@{TOP_K}"
 # If alpha is 0.5, both tasks have the same importance
 # If alpha is 0.0, only relevance task is considered
 # If alpha is 1.0, only rating task is considered
