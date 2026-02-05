@@ -87,7 +87,7 @@ def train_sota(
         dm.val_df,
         dm.test_df,
         numeric_cols=dm.numeric_features,
-        categorical_cols=dm.categorical_features,
+        categorical_cols=dm.cat_cols,
         dataset_name=dataset_name,
     )
     results = {}

@@ -13,7 +13,7 @@ from sklearn.model_selection import KFold, LeaveOneOut
 from torch import nn
 
 from .. import config
-from ..datasets.data_processor import get_column_types, global_preprocessing
+from ..datasets.data_processor import get_column_types
 from ..training.engine import ModelProto, RecSys
 from ..training.model import EDuRecConfig
 from .cv_datamodule import CvElearningDataModule
@@ -183,11 +183,9 @@ def sota_cross_validate(
     test_size = 1 / n_folds
     train_size = 1 - test_size
 
-    id_cols = [config.USER_COL, config.ITEM_COL]
-    numeric_cols, categorical_lengths = get_column_types(df, id_cols)
+    # TODO: Fix the CV for sota models
+    numeric_cols, categorical_lengths, list_cols, text_cols = get_column_types(df)
     categorical_cols = list(categorical_lengths.keys())
-
-    global_preprocessing(df)
 
     all_fold_results = []
 

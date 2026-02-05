@@ -77,6 +77,7 @@ def train(
         numeric_features=dm.numeric_features,
         cat_cardinalities=dm.cat_cardinalities,
     )
+
     if config.state["verbose"]:
         print(f"[TRAIN] Dataset {dataset.value} sparsity: {dm.sparsity}")
         print(f"[TRAIN] Using logger: {use_logger}")
@@ -86,7 +87,6 @@ def train(
 
     model = EDuRecMTL(model_config)
     model_name = model.__class__.__name__
-    print(f"\n[TRAIN] Starting training for: {model_name}")
 
     recsys = RecSys(
         model=model,
@@ -133,14 +133,11 @@ def train(
         print("[TRAIN] Debug mode: Skipping evaluation")
         return
 
-    # Evaluación
     test_results = trainer.test(model=recsys, datamodule=dm)
     if test_results:
-        # Crear DF de una fila y añadir a la lista
         res_df = pd.DataFrame([test_results[0]])
         res_df.index = [model_name]
 
-    # Guardar modelo
     if save:
         save_model(
             model_name,

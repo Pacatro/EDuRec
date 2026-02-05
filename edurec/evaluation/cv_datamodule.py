@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 
 from .. import config
 from ..datasets import DataProcessor, ElearningDataset
-from ..datasets.data_processor import get_column_types, global_preprocessing
+from ..datasets.data_processor import get_column_types
 from ..datasets.utils import collate_fn
 
 
@@ -28,6 +28,7 @@ class CvElearningDataModule(L.LightningDataModule):
         self.n_neg = n_neg
 
         self.id_cols = [config.USER_COL, config.ITEM_COL]
+        self.id_lengths: dict[str, int] = {}
 
         self._process_data()
 
@@ -43,17 +44,25 @@ class CvElearningDataModule(L.LightningDataModule):
         )
 
     def _process_data(self) -> None:
-        global_preprocessing(self.df)
+        self.has_time = config.TIME_COL in self.df.columns
 
         train_df = self.df.iloc[self.train_idx].reset_index(drop=True)
         val_df = self.df.iloc[self.val_idx].reset_index(drop=True)
 
-        self.numeric_cols, self.categorical_lengths = get_column_types(
-            train_df, self.id_cols
-        )
+        (
+            self.numeric_cols,
+            self.categorical_lengths,
+            self.list_cols,
+            self.text_cols,
+        ) = get_column_types(train_df)
 
         preprocessor = DataProcessor(
-            self.numeric_cols, list(self.categorical_lengths.keys()), self.id_cols
+            self.numeric_cols,
+            self.cat_cols,
+            self.list_cols,
+            self.text_cols,
+            self.id_cols,
+            self.has_time,
         )
 
         self.train_df, self.val_df, _ = preprocessor.fit_transform(
@@ -107,7 +116,7 @@ class CvElearningDataModule(L.LightningDataModule):
         return self.numeric_cols
 
     @property
-    def categorical_features(self) -> list[str]:
+    def cat_cols(self) -> list[str]:
         return list(self.categorical_lengths.keys())
 
     @property

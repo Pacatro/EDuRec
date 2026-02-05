@@ -17,8 +17,11 @@ RATING_COL: str = "rating"
 RELEVANT_COL: str = "relevant"
 
 # Preprocessing
-SELECTED_K: int = 10
-BALANCE: bool = False
+PADDING_VAL: int = 0
+INIT_TOKEN: str = "<|init|>"
+END_TOKEN: str = "<|end|>"
+EMPTY_TOKEN: str = "<|empty|>"
+
 
 # Model
 EMB_DIM: int = 256

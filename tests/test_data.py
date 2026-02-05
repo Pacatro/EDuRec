@@ -60,7 +60,13 @@ def test_data_preprocessing():
         }
     )
 
-    preprocessor = DataProcessor(["a"], ["b"], [config.USER_COL, config.ITEM_COL])
+    preprocessor = DataProcessor(
+        numeric_cols=["a"],
+        categorical_cols=["b"],
+        text_cols=[],
+        list_cols=[],
+        id_cols=[config.USER_COL, config.ITEM_COL],
+    )
 
     train_processed, val_processed, test_processed = preprocessor.fit_transform(
         train_df=train_df,

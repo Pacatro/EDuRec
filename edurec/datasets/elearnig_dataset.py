@@ -26,7 +26,7 @@ class ElearningDataset(Dataset):
         self.user_history = user_history
         self.all_item_ids = all_item_ids
         self.columns = df.columns.tolist()
-        self.id_cols = id_cols or []
+        self.id_cols = id_cols or [config.USER_COL, config.ITEM_COL]
         self.numeric_cols = numeric_cols or []
         self.min_rating = min_rating
 

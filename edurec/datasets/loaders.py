@@ -18,6 +18,23 @@ class DatasetName(str, Enum):
 dataset_loaders: dict[DatasetName, ExportFn] = {}
 
 
+def clean_and_process_df(df: pd.DataFrame) -> None:
+    if config.RELEVANT_COL not in df.columns:
+        # An item is relevant if its rating is greater or equal than the threshold
+        # The threshold is the mean of the ratings of the user
+        mean_user_ratings = df.groupby(config.USER_COL)[config.RATING_COL].transform(
+            "mean"
+        )
+        df[config.RELEVANT_COL] = df[config.RATING_COL] >= mean_user_ratings
+
+    df.columns = (
+        df.columns.str.lower()
+        .str.strip()
+        .str.replace(" ", "_")
+        .str.replace(r"[^\w]", "", regex=True)
+    )
+
+
 def register_dataset(ds_name: DatasetName) -> Callable[[ExportFn], ExportFn]:
     """Decorator for registering a dataset loader.
 
@@ -89,20 +106,11 @@ def load_mars() -> pd.DataFrame:
         inplace=True,
     )
 
-    features = [
-        config.USER_COL,
-        config.ITEM_COL,
-        "item_type",
-        "difficulty",
-        "nb_views",
-        "watch_percentage",
-        config.RATING_COL,
-        config.TIME_COL,
-    ]
+    df = df.drop(columns=["Job", "Software", "Theme"])
 
-    result_df = df[features]
-    assert isinstance(result_df, pd.DataFrame)
-    return result_df
+    clean_and_process_df(df)
+
+    return df
 
 
 @register_dataset(DatasetName.ITM)
@@ -120,8 +128,8 @@ def load_itm() -> pd.DataFrame:
     users_df = pd.read_csv(f"{config.DATA_FOLDER}/raw/itm/users.csv")
 
     merged_df = pd.merge(left=items_df, right=ratings_df, how="inner", on="Item")
-    merged_df = pd.merge(left=merged_df, right=users_df, how="inner", on="UserID")
-    merged_df = merged_df.rename(
+    df = pd.merge(left=merged_df, right=users_df, how="inner", on="UserID")
+    df = df.rename(
         columns={
             "UserID": config.USER_COL,
             "Item": config.ITEM_COL,
@@ -129,23 +137,9 @@ def load_itm() -> pd.DataFrame:
         }
     )
 
-    features = [
-        config.USER_COL,
-        config.ITEM_COL,
-        "Title",
-        "Semester",
-        "Class",
-        "App",
-        "Lockdown",
-        "Ease",
-        " Age",
-        "Married",
-        config.RATING_COL,
-    ]
+    clean_and_process_df(df)
 
-    result_df = merged_df[features]
-    assert isinstance(result_df, pd.DataFrame)
-    return result_df
+    return df
 
 
 @register_dataset(DatasetName.ELEARNING_STUDENT)
@@ -160,13 +154,9 @@ def load_elearning_student() -> pd.DataFrame:
         },
     )
 
-    excluded_cols = ["SignUpDate", "LastActiveDate", "FeedbackComments"]
+    clean_and_process_df(df)
 
-    features = [col for col in df.columns if col not in excluded_cols]
-
-    result_df = df[features]
-    assert isinstance(result_df, pd.DataFrame)
-    return result_df
+    return df
 
 
 # TODO: Return df and some other info metadata

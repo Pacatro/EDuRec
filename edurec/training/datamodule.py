@@ -12,7 +12,7 @@ from ..datasets import (
     ElearningDataset,
     load_data,
 )
-from ..datasets.data_processor import get_column_types, global_preprocessing
+from ..datasets.data_processor import get_column_types
 from ..datasets.utils import collate_fn
 
 
@@ -40,9 +40,12 @@ class ElearningDataModule(L.LightningDataModule):
         self.n_neg_val = n_neg_val
         self.n_neg_test = n_neg_test
 
-        self.id_cols = [config.USER_COL, config.ITEM_COL]
         self.numeric_cols: list[str] = []
         self.categorical_lengths: dict[str, int] = {}
+        self.text_cols: list[str] = []
+        self.id_cols: list[str] = [config.USER_COL, config.ITEM_COL]
+        self.id_lengths: dict[str, int] = {}
+        self.has_time = False
 
         self.processed_path = (
             Path(config.DATA_FOLDER) / "preprocessed" / f"{self.dataset_name.value}.csv"
@@ -78,6 +81,7 @@ class ElearningDataModule(L.LightningDataModule):
                 random_state=self.random_state,
             )
         else:
+            self.has_time = False
             train_val_df, test_df = train_test_split(
                 self.df,
                 test_size=self.test_size,
@@ -96,18 +100,22 @@ class ElearningDataModule(L.LightningDataModule):
         return train_df, val_df, test_df
 
     def _process_data(self) -> None:
-        global_preprocessing(self.df)
-
         train_df, val_df, test_df = self._split()
 
-        self.numeric_cols, self.categorical_lengths = get_column_types(
-            train_df, self.id_cols
-        )
+        (
+            self.numeric_cols,
+            self.categorical_lengths,
+            self.list_cols,
+            self.text_cols,
+        ) = get_column_types(train_df)
 
         self.preprocessor = DataProcessor(
             self.numeric_cols,
-            list(self.categorical_lengths.keys()),
+            self.cat_cols,
+            self.list_cols,
+            self.text_cols,
             self.id_cols,
+            self.has_time,
         )
 
         self.train_df, self.val_df, self.test_df = self.preprocessor.fit_transform(
@@ -139,7 +147,6 @@ class ElearningDataModule(L.LightningDataModule):
                     item_catalog=self.item_catalog,
                     user_history=self.user_history,
                     all_item_ids=self.all_item_ids,
-                    id_cols=self.id_cols,
                     numeric_cols=self.numeric_cols,
                 )
                 self.val_ds = ElearningDataset(
@@ -149,7 +156,6 @@ class ElearningDataModule(L.LightningDataModule):
                     item_catalog=self.item_catalog,
                     user_history=self.user_history,
                     all_item_ids=self.all_item_ids,
-                    id_cols=self.id_cols,
                     numeric_cols=self.numeric_cols,
                 )
             case "test":
@@ -161,7 +167,6 @@ class ElearningDataModule(L.LightningDataModule):
                         item_catalog=self.item_catalog,
                         user_history=self.user_history,
                         all_item_ids=self.all_item_ids,
-                        id_cols=self.id_cols,
                         numeric_cols=self.numeric_cols,
                     )
 
@@ -209,7 +214,7 @@ class ElearningDataModule(L.LightningDataModule):
         return {k: v + 2 for k, v in self.categorical_lengths.items()}
 
     @property
-    def categorical_features(self) -> list[str]:
+    def cat_cols(self) -> list[str]:
         return list(self.categorical_lengths.keys())
 
     @property
