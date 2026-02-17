@@ -9,10 +9,10 @@ from lightning.pytorch.loggers import WandbLogger
 
 from .. import config
 from ..datasets import DatasetName
-from ..training.datamodule import ElearningDataModule
-from ..training.engine import RecSys
-from ..training.io import save_model
-from ..training.model import EDuRecConfig, EDuRecMTL
+from ..recsys.datamodule import ElearningDataModule
+from ..recsys.engine import RecSys
+from ..recsys.io import save_model
+from ..recsys.model import EDuRecConfig, EDuRecMTL
 
 app = typer.Typer(no_args_is_help=True)
 

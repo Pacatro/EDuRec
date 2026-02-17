@@ -2,7 +2,6 @@ from typing import Self
 
 import numpy as np
 import pandas as pd
-import tiktoken
 from sklearn import set_config
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer
@@ -54,37 +53,6 @@ def get_column_types(
             categorical_lenghts[col] = df[col].nunique()
 
     return numeric_cols, categorical_lenghts, list_cols, text_cols
-
-
-class TokenizerTransformer(BaseEstimator, TransformerMixin):
-    def __init__(self, model_name="cl100k_base", max_length=128):
-        self.model_name = model_name
-        self.max_length = max_length
-        self._enc = tiktoken.get_encoding(self.model_name)
-
-    def fit(self, X, y=None) -> Self:
-        _ = X, y
-        return self
-
-    def transform(self, X: pd.DataFrame | np.ndarray) -> pd.DataFrame:
-        X_df = pd.DataFrame(X)
-
-        def tokenize_and_pad(text: str):
-            text = f"{config.INIT_TOKEN} {text} {config.END_TOKEN}"
-            tokens = self._enc.encode(
-                text,
-                allowed_special={
-                    config.INIT_TOKEN,
-                    config.END_TOKEN,
-                    config.EMPTY_TOKEN,
-                },
-            )
-            tokens = tokens[: self.max_length]
-            return tokens + [config.PADDING_VAL] * (self.max_length - len(tokens))
-
-        res = X_df.iloc[:, 0].fillna(config.EMPTY_TOKEN).apply(tokenize_and_pad)
-
-        return pd.DataFrame({X_df.columns[0]: res})
 
 
 class TimeFeaturesTransformer(BaseEstimator, TransformerMixin):
@@ -140,7 +108,6 @@ class DataProcessor:
         list_cols: list[str],
         id_cols: list[str],
         has_time: bool = False,
-        tokenizer: str = "cl100k_base",
         max_length: int = 128,
     ):
         self.categorical_cols = categorical_cols
@@ -149,7 +116,6 @@ class DataProcessor:
         self.list_cols = list_cols
         self.id_cols = id_cols
         self.has_time = has_time
-        self.tokenizer = tokenizer
         self.max_length = max_length
 
         self.pipeline = self._build_pipeline()
@@ -263,14 +229,7 @@ class DataProcessor:
             )
 
         if self.text_cols:
-            for col in self.text_cols:
-                transformers.append(
-                    (
-                        f"text_{col}",
-                        TokenizerTransformer(self.tokenizer, self.max_length),
-                        [col],
-                    )
-                )
+            pass
 
         transformers.append(("rating_raw", "passthrough", [config.RATING_COL]))
         transformers.append(("relevant_raw", "passthrough", [config.RELEVANT_COL]))
@@ -285,11 +244,11 @@ class DataProcessor:
         val_df: pd.DataFrame,
         test_df: pd.DataFrame | None,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame | None]:
-        # TODO: Remove this in the furure, the idea is to usae all features
+        # TODO: Remove this in the furure, the idea is to use all features
         feats = (
             self.numeric_cols
             + self.categorical_cols
-            + self.text_cols
+            # + self.text_cols
             + self.id_cols
             + [config.RATING_COL, config.RELEVANT_COL]
         )

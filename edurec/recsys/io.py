@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from edurec.training.model import EDuRecConfig
+from .model import EDuRecConfig
 
 
 def save_model(

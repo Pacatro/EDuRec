@@ -14,8 +14,8 @@ from torch import nn
 
 from .. import config
 from ..datasets.data_processor import get_column_types
-from ..training.engine import ModelProto, RecSys
-from ..training.model import EDuRecConfig
+from ..recsys.engine import ModelProto, RecSys
+from ..recsys.model import EDuRecConfig
 from .cv_datamodule import CvElearningDataModule
 
 

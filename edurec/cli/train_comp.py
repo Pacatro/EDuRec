@@ -13,11 +13,14 @@ from recbole.utils import get_model
 
 from .. import config
 from ..datasets import DatasetName
-from ..training.datamodule import ElearningDataModule
-from ..training.engine import RecSys
-from ..training.model import EDuRecConfig, EDuRecMTL, EDuRecV1
+from ..recsys.datamodule import ElearningDataModule
+from ..recsys.engine import RecSys
+from ..recsys.model import EDuRecConfig, EDuRecMTL
 
 app = typer.Typer(no_args_is_help=True)
+
+SOTA_MODELS = ["BPR", "NeuMF", "DeepFM", "WideDeep", "GRU4Rec", "BERT4Rec"]
+PROPOSED_MODELS = [EDuRecMTL]
 
 
 def _create_inter_dataset(
@@ -199,7 +202,7 @@ def train_comp(
         random_state=config.state["random_state"],
     )
     sota_df = train_sota(
-        models=["BPR", "NeuMF", "DeepFM", "WideDeep", "GRU4Rec", "BERT4Rec"],
+        models=SOTA_MODELS,
         dm=dm,
         lr=lr,
         epochs=epochs,
@@ -221,7 +224,7 @@ def train_comp(
         print(f"[TRAIN] Monitoring: {monitor}")
 
     edurec_results_list = []
-    for model_class in [EDuRecMTL, EDuRecV1]:
+    for model_class in PROPOSED_MODELS:
         model = model_class(model_config)
         model_name = model.__class__.__name__
         print(f"\n[TRAIN] Starting training for: {model_name}")
