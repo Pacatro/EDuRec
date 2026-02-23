@@ -6,13 +6,14 @@ from torch.utils.data import DataLoader
 from .. import config
 from ..datasets import DataProcessor, ElearningDataset
 from ..datasets.data_processor import get_column_types
+from ..datasets.loaders import RawDataset
 from ..datasets.utils import collate_fn
 
 
 class CvElearningDataModule(L.LightningDataModule):
     def __init__(
         self,
-        df: pd.DataFrame,
+        df: pd.DataFrame | RawDataset,
         batch_size: int,
         train_idx: np.ndarray,
         val_idx: np.ndarray,
@@ -20,7 +21,14 @@ class CvElearningDataModule(L.LightningDataModule):
         random_state: int | None = None,
     ) -> None:
         super().__init__()
-        self.df = df.copy()
+        if isinstance(df, RawDataset):
+            self.df = DataProcessor.merge_raw_features(
+                interactions_df=df.interactions,
+                users_df=df.u_feats,
+                items_df=df.i_feats,
+            )
+        else:
+            self.df = df.copy()
         self.batch_size = batch_size
         self.random_state = random_state
         self.train_idx = train_idx
@@ -36,12 +44,7 @@ class CvElearningDataModule(L.LightningDataModule):
             self.df.groupby(config.USER_COL)[config.ITEM_COL].apply(set).to_dict()
         )
         self.all_item_ids = self.df[config.ITEM_COL].unique()
-        label_cols = [config.RATING_COL, config.RELEVANT_COL, config.USER_COL]
-        self.item_catalog = (
-            self.df.drop_duplicates(config.ITEM_COL)
-            .set_index(config.ITEM_COL)
-            .drop(columns=label_cols, errors="ignore")
-        )
+        self.item_catalog = self.item_features_df.set_index(config.ITEM_COL)
 
     def _process_data(self) -> None:
         self.has_time = config.TIME_COL in self.df.columns
@@ -59,8 +62,8 @@ class CvElearningDataModule(L.LightningDataModule):
         preprocessor = DataProcessor(
             self.numeric_cols,
             self.cat_cols,
-            self.list_cols,
             self.text_cols,
+            self.list_cols,
             self.id_cols,
             self.has_time,
         )
@@ -70,12 +73,22 @@ class CvElearningDataModule(L.LightningDataModule):
         )
 
         self.df = pd.concat([self.train_df, self.val_df], ignore_index=True)
+        self.user_features_df, self.item_features_df = (
+            preprocessor.split_entity_feature_frames(self.df)
+        )
+        self.user_feature_tensors, self.item_feature_tensors = (
+            preprocessor.build_entity_tensors(self.df)
+        )
 
     def setup(self, stage: str | None = None) -> None:
         if stage == "test":
             raise ValueError("Test data not available for this datamodule.")
 
-        self.train_ds = ElearningDataset(self.train_df)
+        self.train_ds = ElearningDataset(
+            self.train_df,
+            id_cols=self.id_cols,
+            numeric_cols=self.numeric_cols,
+        )
         self.val_ds = ElearningDataset(
             self.val_df,
             n_negatives=self.n_neg,

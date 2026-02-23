@@ -1,9 +1,11 @@
 import numpy as np
 import pandas as pd
 import pytest
+import torch
 
 from edurec import config
-from edurec.datasets import DataProcessor, load_data, DatasetName
+from edurec.datasets import DataProcessor, DatasetName, load_data
+from edurec.datasets.data_processor import get_column_types
 from edurec.datasets.loaders import RawDataset
 
 
@@ -88,70 +90,124 @@ def test_data_loaders_itm():
     )
 
 
-# def test_data_preprocessing():
-#     train_df = pd.DataFrame(
-#         {
-#             config.USER_COL: [123, 2324, 4343, 123, 2324],
-#             config.ITEM_COL: [145, 232, 343, 343, 145],
-#             "a": [1.0, 2.0, 3.0, 4.0, 5.0],
-#             "b": ["a", "b", "c", "a", "b"],
-#         }
-#     )
-#     val_df = pd.DataFrame(
-#         {
-#             config.USER_COL: [123, 4343],
-#             config.ITEM_COL: [145, 232],
-#             "a": [6.0, 7.0],
-#             "b": ["c", "a"],
-#         }
-#     )
-#     test_df = pd.DataFrame(
-#         {
-#             config.USER_COL: [2324, 2324],
-#             config.ITEM_COL: [343, 145],
-#             "a": [8.0, 9.0],
-#             "b": ["b", "c"],
-#         }
-#     )
-#
-#     preprocessor = DataProcessor(
-#         numeric_cols=["a"],
-#         categorical_cols=["b"],
-#         text_cols=[],
-#         list_cols=[],
-#         id_cols=[config.USER_COL, config.ITEM_COL],
-#     )
-#
-#     train_processed, val_processed, test_processed = preprocessor.fit_transform(
-#         train_df=train_df,
-#         val_df=val_df,
-#         test_df=test_df,
-#     )
-#
-#     assert "a" in preprocessor.numeric_cols
-#     assert "b" in preprocessor.categorical_cols
-#
-#     assert preprocessor.numeric_cols == ["a"]
-#     assert preprocessor.categorical_cols == ["b"]
-#     assert preprocessor.id_cols == [config.USER_COL, config.ITEM_COL]
-#
-#     assert isinstance(train_processed, pd.DataFrame)
-#     assert isinstance(val_processed, pd.DataFrame)
-#     assert isinstance(test_processed, pd.DataFrame)
-#
-#     assert set(train_processed.columns) == set(train_df.columns)
-#     assert set(val_processed.columns) == set(val_df.columns)
-#     assert set(test_processed.columns) == set(test_df.columns)
-#
-#     assert train_processed["a"].dtype == np.float32
-#     assert train_processed["b"].dtype == np.int64
-#     assert train_processed[config.USER_COL].dtype == np.int64
-#     assert train_processed[config.ITEM_COL].dtype == np.int64
-#
-#     assert train_processed["a"].min() >= 0.0
-#     assert train_processed["a"].max() <= 1.0
+def test_data_processor_mars():
+    raw_dataset = load_data(DatasetName.MARS)
+    merged_df = DataProcessor.merge_raw_features(
+        interactions_df=raw_dataset.interactions,
+        users_df=raw_dataset.u_feats,
+        items_df=raw_dataset.i_feats,
+    )
+
+    assert "user_job" in merged_df.columns
+    assert "item_name" in merged_df.columns
+
+    train_df = merged_df.iloc[:300].reset_index(drop=True)
+    val_df = merged_df.iloc[300:360].reset_index(drop=True)
+    test_df = merged_df.iloc[360:420].reset_index(drop=True)
+
+    numeric_cols, categorical_lengths, list_cols, text_cols = get_column_types(train_df)
+
+    preprocessor = DataProcessor(
+        numeric_cols=numeric_cols,
+        categorical_cols=list(categorical_lengths.keys()),
+        text_cols=text_cols,
+        list_cols=list_cols,
+        id_cols=[config.USER_COL, config.ITEM_COL],
+        has_time=config.TIME_COL in train_df.columns,
+    )
+
+    train_processed, val_processed, test_processed = preprocessor.fit_transform(
+        train_df=train_df,
+        val_df=val_df,
+        test_df=test_df,
+    )
+
+    assert train_processed is not None
+    assert val_processed is not None
+    assert test_processed is not None
+    assert train_processed[config.RATING_COL].dtype == np.float32
+    assert train_processed[config.RELEVANT_COL].dtype == bool
+    assert config.USER_COL in train_processed.columns
+    assert config.ITEM_COL in train_processed.columns
+
+    full_processed = pd.concat(
+        [train_processed, val_processed, test_processed], ignore_index=True
+    )
+    user_df, item_df = preprocessor.split_entity_feature_frames(full_processed)
+    user_tensors, item_tensors = preprocessor.build_entity_tensors(full_processed)
+    print(item_df[item_df[config.ITEM_COL] == 0])
+    print(item_tensors[0])
+
+    assert user_df[config.USER_COL].is_unique
+    assert item_df[config.ITEM_COL].is_unique
+    assert user_tensors.dtype == torch.float32
+    assert item_tensors.dtype == torch.float32
+    assert user_tensors.ndim == 2
+    assert item_tensors.ndim == 2
+    assert user_tensors.shape[0] == len(user_df)
+    assert item_tensors.shape[0] == len(item_df)
+    assert user_tensors.shape[1] == (len(user_df.columns) - 1)
+    assert item_tensors.shape[1] == (len(item_df.columns) - 1)
+
+
+def test_data_processor_itm():
+    raw_dataset = load_data(DatasetName.ITM)
+    merged_df = DataProcessor.merge_raw_features(
+        interactions_df=raw_dataset.interactions,
+        users_df=raw_dataset.u_feats,
+        items_df=raw_dataset.i_feats,
+    )
+
+    assert "user_gender" in merged_df.columns
+    assert "item_title" in merged_df.columns
+
+    train_df = merged_df.iloc[:300].reset_index(drop=True)
+    val_df = merged_df.iloc[300:360].reset_index(drop=True)
+    test_df = merged_df.iloc[360:420].reset_index(drop=True)
+
+    numeric_cols, categorical_lengths, list_cols, text_cols = get_column_types(train_df)
+
+    preprocessor = DataProcessor(
+        numeric_cols=numeric_cols,
+        categorical_cols=list(categorical_lengths.keys()),
+        text_cols=text_cols,
+        list_cols=list_cols,
+        id_cols=[config.USER_COL, config.ITEM_COL],
+        has_time=config.TIME_COL in train_df.columns,
+    )
+
+    train_processed, val_processed, test_processed = preprocessor.fit_transform(
+        train_df=train_df,
+        val_df=val_df,
+        test_df=test_df,
+    )
+
+    assert train_processed is not None
+    assert val_processed is not None
+    assert test_processed is not None
+    assert train_processed[config.RATING_COL].dtype == np.float32
+    assert train_processed[config.RELEVANT_COL].dtype == bool
+    assert config.USER_COL in train_processed.columns
+    assert config.ITEM_COL in train_processed.columns
+
+    full_processed = pd.concat(
+        [train_processed, val_processed, test_processed], ignore_index=True
+    )
+    user_df, item_df = preprocessor.split_entity_feature_frames(full_processed)
+    user_tensors, item_tensors = preprocessor.build_entity_tensors(full_processed)
+
+    assert user_df[config.USER_COL].is_unique
+    assert item_df[config.ITEM_COL].is_unique
+    assert user_tensors.dtype == torch.float32
+    assert item_tensors.dtype == torch.float32
+    assert user_tensors.ndim == 2
+    assert item_tensors.ndim == 2
+    assert user_tensors.shape[0] == len(user_df)
+    assert item_tensors.shape[0] == len(item_df)
+    assert user_tensors.shape[1] == (len(user_df.columns) - 1)
+    assert item_tensors.shape[1] == (len(item_df.columns) - 1)
 
 
 if __name__ == "__main__":
-    test_data_loaders_itm()
+    test_data_processor_mars()
     pytest.main([__file__, "-v"])

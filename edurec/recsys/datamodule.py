@@ -13,6 +13,7 @@ from ..datasets import (
     load_data,
 )
 from ..datasets.data_processor import get_column_types
+from ..datasets.loaders import RawDataset
 from ..datasets.utils import collate_fn
 
 
@@ -51,19 +52,21 @@ class ElearningDataModule(L.LightningDataModule):
             Path(config.DATA_FOLDER) / "preprocessed" / f"{self.dataset_name.value}.csv"
         )
 
-        self.df = load_data(dataset)
+        raw_dataset = load_data(dataset)
+        assert isinstance(raw_dataset, RawDataset)
+        self.raw_dataset = raw_dataset
+        self.df = DataProcessor.merge_raw_features(
+            interactions_df=self.raw_dataset.interactions,
+            users_df=self.raw_dataset.u_feats,
+            items_df=self.raw_dataset.i_feats,
+        )
         self._process_data()
 
         self.user_history = (
             self.df.groupby(config.USER_COL)[config.ITEM_COL].apply(set).to_dict()
         )
         self.all_item_ids = self.df[config.ITEM_COL].unique()
-        label_cols = [config.RATING_COL, config.RELEVANT_COL, config.USER_COL]
-        self.item_catalog = (
-            self.df.drop_duplicates(config.ITEM_COL)
-            .set_index(config.ITEM_COL)
-            .drop(columns=label_cols, errors="ignore")
-        )
+        self.item_catalog = self.item_features_df.set_index(config.ITEM_COL)
 
     def _split(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         if config.TIME_COL in self.df.columns:
@@ -112,8 +115,8 @@ class ElearningDataModule(L.LightningDataModule):
         self.preprocessor = DataProcessor(
             self.numeric_cols,
             self.cat_cols,
-            self.list_cols,
             self.text_cols,
+            self.list_cols,
             self.id_cols,
             self.has_time,
         )
@@ -130,6 +133,12 @@ class ElearningDataModule(L.LightningDataModule):
         # TODO: Find a way to not concatenate the data
         self.df = pd.concat(
             [self.train_df, self.val_df, self.test_df], ignore_index=True
+        )
+        self.user_features_df, self.item_features_df = (
+            self.preprocessor.split_entity_feature_frames(self.df)
+        )
+        self.user_feature_tensors, self.item_feature_tensors = (
+            self.preprocessor.build_entity_tensors(self.df)
         )
 
         if self.save_data:

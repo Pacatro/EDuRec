@@ -2,6 +2,7 @@ from typing import Self
 
 import numpy as np
 import pandas as pd
+import torch
 from sklearn import set_config
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer
@@ -120,6 +121,35 @@ class DataProcessor:
         self.max_length = max_length
 
         self.pipeline = self._build_pipeline()
+
+    @staticmethod
+    def _prefix_feature_columns(
+        df: pd.DataFrame, id_col: str, prefix: str
+    ) -> pd.DataFrame:
+        rename_map = {
+            col: f"{prefix}{col}"
+            for col in df.columns
+            if col != id_col and not col.startswith(prefix)
+        }
+        return df.rename(columns=rename_map)
+
+    @classmethod
+    def merge_raw_features(
+        cls,
+        interactions_df: pd.DataFrame,
+        users_df: pd.DataFrame,
+        items_df: pd.DataFrame,
+    ) -> pd.DataFrame:
+        users_prefixed = cls._prefix_feature_columns(
+            users_df.copy(), config.USER_COL, "user_"
+        )
+        items_prefixed = cls._prefix_feature_columns(
+            items_df.copy(), config.ITEM_COL, "item_"
+        )
+
+        merged = interactions_df.merge(users_prefixed, on=config.USER_COL, how="left")
+        merged = merged.merge(items_prefixed, on=config.ITEM_COL, how="left")
+        return merged
 
     def _build_pipeline(self) -> Pipeline:
         transformers = []
@@ -267,6 +297,8 @@ class DataProcessor:
         for df_p in [train_processed, val_processed, test_processed]:
             if df_p is not None:
                 df_p.columns = [c.split("__")[-1] for c in df_p.columns]
+                df_p[config.RATING_COL] = df_p[config.RATING_COL].astype(np.float32)
+                df_p[config.RELEVANT_COL] = df_p[config.RELEVANT_COL].astype(bool)
 
         assert isinstance(train_processed, pd.DataFrame)
         assert isinstance(val_processed, pd.DataFrame)
@@ -274,3 +306,62 @@ class DataProcessor:
             assert isinstance(test_processed, pd.DataFrame)
 
         return train_processed, val_processed, test_processed
+
+    def split_entity_feature_frames(
+        self, processed_df: pd.DataFrame
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        user_feat_cols = [
+            c
+            for c in processed_df.columns
+            if c.startswith("user_") and c != config.USER_COL
+        ]
+        item_feat_cols = [
+            c
+            for c in processed_df.columns
+            if c.startswith("item_") and c != config.ITEM_COL
+        ]
+
+        user_df = (
+            processed_df[[config.USER_COL] + user_feat_cols]
+            .drop_duplicates(subset=[config.USER_COL])
+            .sort_values(config.USER_COL)
+            .reset_index(drop=True)
+        )
+        item_df = (
+            processed_df[[config.ITEM_COL] + item_feat_cols]
+            .drop_duplicates(subset=[config.ITEM_COL])
+            .sort_values(config.ITEM_COL)
+            .reset_index(drop=True)
+        )
+
+        return user_df, item_df
+
+    @staticmethod
+    def to_torch_feature_matrix(
+        df: pd.DataFrame,
+        id_col: str,
+        device: str | torch.device | None = None,
+    ) -> torch.Tensor:
+        feature_cols = [c for c in df.columns if c != id_col]
+        features_np = df[feature_cols].to_numpy(dtype=np.float32, copy=False)
+        feature_matrix = torch.as_tensor(features_np, dtype=torch.float32)
+
+        if device is not None:
+            feature_matrix = feature_matrix.to(device)
+
+        return feature_matrix
+
+    def build_entity_tensors(
+        self,
+        processed_df: pd.DataFrame,
+        device: str | torch.device | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        user_df, item_df = self.split_entity_feature_frames(processed_df)
+        return (
+            self.to_torch_feature_matrix(
+                user_df, id_col=config.USER_COL, device=device
+            ),
+            self.to_torch_feature_matrix(
+                item_df, id_col=config.ITEM_COL, device=device
+            ),
+        )
