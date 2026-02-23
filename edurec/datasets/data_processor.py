@@ -74,26 +74,27 @@ class TimeFeaturesTransformer(BaseEstimator, TransformerMixin):
         # timestamp in secods
         ts = (dt.astype(np.int64) // 10**9).astype("float64")
 
-        hour = dt.dt.hour.astype("float64")
-        dow = dt.dt.dayofweek.astype("float64")  # 0=lunes
-        month = dt.dt.month.astype("float64")
-
-        # Circular features
-        hour_sin = np.sin(2 * np.pi * (hour / 24.0))
-        hour_cos = np.cos(2 * np.pi * (hour / 24.0))
-        dow_sin = np.sin(2 * np.pi * (dow / 7.0))
-        dow_cos = np.cos(2 * np.pi * (dow / 7.0))
+        # TODO: Add time features in the future --> only on interactions?
+        # hour = dt.dt.hour.astype("float64")
+        # dow = dt.dt.dayofweek.astype("float64")  # 0=lunes
+        # month = dt.dt.month.astype("float64")
+        #
+        # # Circular features
+        # hour_sin = np.sin(2 * np.pi * (hour / 24.0))
+        # hour_cos = np.cos(2 * np.pi * (hour / 24.0))
+        # dow_sin = np.sin(2 * np.pi * (dow / 7.0))
+        # dow_cos = np.cos(2 * np.pi * (dow / 7.0))
 
         return pd.DataFrame(
             {
                 "time_ts": ts,
-                "time_hour": hour,
-                "time_dow": dow,
-                "time_month": month,
-                "time_hour_sin": hour_sin,
-                "time_hour_cos": hour_cos,
-                "time_dow_sin": dow_sin,
-                "time_dow_cos": dow_cos,
+                # "time_hour": hour,
+                # "time_dow": dow,
+                # "time_month": month,
+                # "time_hour_sin": hour_sin,
+                # "time_hour_cos": hour_cos,
+                # "time_dow_sin": dow_sin,
+                # "time_dow_cos": dow_cos,
             },
             index=X_df.index,
         )
