@@ -1,17 +1,17 @@
-from enum import Enum
+from dataclasses import dataclass
+from enum import StrEnum
 from functools import wraps
 from typing import Callable
-from dataclasses import dataclass
 
 import pandas as pd
 
 from .. import config
 
 
-class DatasetName(str, Enum):
+class DatasetName(StrEnum):
     MARS = "mars"
     ITM = "itm"
-    ELEARNING_STUDENT = "elearning"
+    DORIS = "doris"
 
 
 @dataclass
@@ -121,14 +121,7 @@ def load_mars() -> RawDataset:
 
     add_relevant_col(df_interactions)
 
-    return RawDataset(
-        interactions=df_interactions,
-        i_feats=df_items,
-        u_feats=df_users,
-        # n_users=len(df_users),
-        # n_items=len(df_items),
-        # n_interactions=len(df_interactions),
-    )
+    return RawDataset(interactions=df_interactions, i_feats=df_items, u_feats=df_users)
 
 
 @register_dataset(DatasetName.ITM)
@@ -162,31 +155,7 @@ def load_itm() -> RawDataset:
 
     add_relevant_col(ratings_df)
 
-    return RawDataset(
-        interactions=ratings_df,
-        i_feats=items_df,
-        u_feats=users_df,
-        # n_users=len(users_df),
-        # n_items=len(items_df),
-        # n_interactions=len(ratings_df),
-    )
-
-
-# @register_dataset(DatasetName.ELEARNING_STUDENT)
-# def load_elearning_student() -> pd.DataFrame:
-#     df = pd.read_csv(f"{config.DATA_FOLDER}/raw/elearning/elearning_dataset.csv")
-#
-#     df = df.rename(
-#         columns={
-#             "UserID": config.USER_COL,
-#             "CourseName": config.ITEM_COL,
-#             "UserSatisfaction": config.RATING_COL,
-#         },
-#     )
-#
-#     clean_and_process_df(df)
-#
-#     return df
+    return RawDataset(interactions=ratings_df, i_feats=items_df, u_feats=users_df)
 
 
 # TODO: Return df and some other info metadata
