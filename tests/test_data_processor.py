@@ -105,37 +105,38 @@ def test_data_processor():
     train_processed = processor.transform(users_train, items_train, interactions_train)
     val_processed = processor.transform(users_val, items_val, interactions_val)
     test_processed = processor.transform(users_test, items_test, interactions_test)
-    print(train_processed.X_items[0])
 
-    assert train_processed.X_users.shape[0] == len(users_train)
-    assert val_processed.X_users.shape[0] == len(users_val)
-    assert test_processed.X_users.shape[0] == len(users_test)
+    print(train_processed.interactions.head())
 
-    assert train_processed.X_items.shape[0] == len(items_train)
-    assert val_processed.X_items.shape[0] == len(items_val)
-    assert test_processed.X_items.shape[0] == len(items_test)
+    assert isinstance(train_processed.users, pd.DataFrame)
+    assert isinstance(train_processed.items, pd.DataFrame)
+    assert isinstance(train_processed.interactions, pd.DataFrame)
 
-    assert train_processed.X_interactions is not None
-    assert val_processed.X_interactions is not None
-    assert test_processed.X_interactions is not None
+    assert len(train_processed.users) == len(users_train)
+    assert len(val_processed.users) == len(users_val)
+    assert len(test_processed.users) == len(users_test)
 
-    assert train_processed.X_users.shape[1] == val_processed.X_users.shape[1]
-    assert train_processed.X_users.shape[1] == test_processed.X_users.shape[1]
-    assert train_processed.X_items.shape[1] == val_processed.X_items.shape[1]
-    assert train_processed.X_items.shape[1] == test_processed.X_items.shape[1]
-    assert (
-        train_processed.X_interactions.shape[1]
-        == val_processed.X_interactions.shape[1]
-        == test_processed.X_interactions.shape[1]
+    assert list(train_processed.users.columns) == list(val_processed.users.columns)
+    assert list(train_processed.items.columns) == list(test_processed.items.columns)
+
+    assert not train_processed.users.isna().any().any()
+    assert np.isfinite(train_processed.users.values).all()
+    assert np.isfinite(train_processed.items.values).all()
+    assert np.isfinite(train_processed.interactions.values).all()
+
+    pd.testing.assert_index_equal(train_processed.users.index, users_train.index)
+    pd.testing.assert_index_equal(
+        train_processed.interactions.index, interactions_train.index
     )
 
-    assert np.isfinite(train_processed.X_users).all()
-    assert np.isfinite(train_processed.X_items).all()
-    assert np.isfinite(train_processed.X_interactions).all()
+    assert -1 in val_processed.users.values
 
-    # Unknown categories in val/test should be handled by OrdinalEncoder with -1.
-    assert -1 in val_processed.X_users
-    assert -1 in val_processed.X_interactions
+    assert val_processed.interactions is not None
+    assert test_processed.interactions is not None
+    assert -1 in val_processed.interactions.values
+    assert -1 in test_processed.interactions.values
+
+    assert train_processed.items.shape[1] > 2
 
 
 if __name__ == "__main__":

@@ -54,7 +54,7 @@ class ElearningDataModule(L.LightningDataModule):
         self.users_feats = raw_dataset.u_feats
         self.items_feats = raw_dataset.i_feats
 
-        # self._process_data()
+        self._process_data()
 
         # Dataset stats
         self.num_users = len(self.users_feats)
