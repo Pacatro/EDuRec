@@ -3,6 +3,7 @@ from enum import StrEnum
 from functools import wraps
 from typing import Callable
 
+import numpy as np
 import pandas as pd
 
 from .. import config
@@ -14,11 +15,15 @@ class DatasetName(StrEnum):
     DORIS = "doris"
 
 
+type Schema = dict[str, dict[str, list[str]]]
+
+
 @dataclass
 class RawDataset:
     interactions: pd.DataFrame
     i_feats: pd.DataFrame
     u_feats: pd.DataFrame
+    schema: Schema
 
 
 type ExportFn = Callable[[], RawDataset]
@@ -27,13 +32,37 @@ dataset_loaders: dict[DatasetName, ExportFn] = {}
 
 
 def add_relevant_col(df: pd.DataFrame) -> None:
-    if config.RELEVANT_COL not in df.columns:
-        # An item is relevant if its rating is greater or equal than the threshold
-        # The threshold is the mean of the ratings of the user
-        mean_user_ratings = df.groupby(config.USER_COL)[config.RATING_COL].transform(
-            "mean"
-        )
-        df[config.RELEVANT_COL] = df[config.RATING_COL] >= mean_user_ratings
+    """
+    Add a boolean column to the dataframe indicating if an item is relevant.
+
+    Relevance is determined by comparing each interaction's rating against a
+    dynamic threshold:
+
+    1. For users with enough activity (>= config.MIN_INTERACTIONS), the
+       threshold is the user's mean rating.
+    2. For users with fewer interactions, the threshold defaults to the
+       global mean rating of the entire dataset.
+
+    Args:
+        df (pd.DataFrame): The interactions dataframe. It must contain the
+            columns defined in config.USER_COL and config.RATING_COL.
+    """
+    if config.RELEVANT_COL in df.columns:
+        return
+
+    global_thershold = df[config.RATING_COL].mean()
+    user_stats = df.groupby(config.USER_COL)[config.RATING_COL]
+
+    mean_user_ratings = user_stats.transform("mean")
+    count_user_raings = user_stats.transform("count")
+
+    thresholds = np.where(
+        count_user_raings < config.MIN_INTERACTIONS,
+        global_thershold,
+        mean_user_ratings,
+    )
+
+    df[config.RELEVANT_COL] = df[config.RATING_COL] >= thresholds
 
 
 def clean_df(df: pd.DataFrame) -> None:
@@ -121,7 +150,33 @@ def load_mars() -> RawDataset:
 
     add_relevant_col(df_interactions)
 
-    return RawDataset(interactions=df_interactions, i_feats=df_items, u_feats=df_users)
+    schema = {
+        "users": {
+            "bin": [],
+            "num": [],
+            "cat": ["job"],
+            "text": [],
+            "list": [],
+        },
+        "items": {
+            "bin": [],
+            "num": ["nb_views", "duration"],
+            "cat": ["language", "difficulty", "item_type"],
+            "text": ["name", "description"],
+            "list": ["job", "software", "theme"],
+        },
+        "inter": {
+            "bin": [],
+            "num": ["watch_percentage"],
+            "cat": [],
+            "text": [],
+            "list": [],
+        },
+    }
+
+    return RawDataset(
+        interactions=df_interactions, i_feats=df_items, u_feats=df_users, schema=schema
+    )
 
 
 @register_dataset(DatasetName.ITM)
@@ -149,13 +204,44 @@ def load_itm() -> RawDataset:
     items_df.rename(columns={"Item": config.ITEM_COL}, inplace=True)
     users_df.rename(columns={"UserID": config.USER_COL}, inplace=True)
 
+    items_df = items_df.drop(["URL"], axis=1)
+
     clean_df(ratings_df)
     clean_df(items_df)
     clean_df(users_df)
 
     add_relevant_col(ratings_df)
 
-    return RawDataset(interactions=ratings_df, i_feats=items_df, u_feats=users_df)
+    schema = {
+        "users": {
+            "bin": ["genre", "married"],
+            "num": [],
+            "cat": ["age"],
+            "text": [],
+            "list": [],
+        },
+        "items": {
+            "bin": [],
+            "num": [],
+            "cat": [],
+            "text": ["title", "description"],
+            "list": [],
+        },
+        "inter": {
+            "bin": [],
+            "num": ["app", "data", "ease"],
+            "cat": ["class", "semester", "lockdown"],
+            "text": [],
+            "list": [],
+        },
+    }
+
+    return RawDataset(
+        interactions=ratings_df,
+        i_feats=items_df,
+        u_feats=users_df,
+        schema=schema,
+    )
 
 
 # TODO: Return df and some other info metadata

@@ -15,6 +15,7 @@ USER_COL: str = "user_id"
 TIME_COL: str = "timestamp"
 RATING_COL: str = "rating"
 RELEVANT_COL: str = "relevant"
+MIN_INTERACTIONS: int = 3
 
 # Preprocessing
 PADDING_VAL: int = 0

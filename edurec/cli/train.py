@@ -71,7 +71,10 @@ def train(
         random_state=config.state["random_state"],
     )
 
-    print(dm.train_processed.interactions.head())
+    inter = dm.train_processed.interactions
+
+    print(inter)
+    print(dm.train_processed.items)
 
     # model_config = EDuRecConfig(
     #     n_users=dm.num_users,

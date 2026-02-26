@@ -99,7 +99,31 @@ def test_data_processor():
         }
     )
 
-    processor = DataProcessor()
+    schema = {
+        "users": {
+            "bin": [],
+            "num": ["age"],
+            "cat": ["job"],
+            "text": [],
+            "list": [],
+        },
+        "items": {
+            "bin": [],
+            "num": ["nb_views"],
+            "cat": ["language"],
+            "text": ["description"],
+            "list": [],
+        },
+        "inter": {
+            "bin": [],
+            "num": ["watch_percentage", config.RATING_COL],
+            "cat": ["semester"],
+            "text": [],
+            "list": [],
+        },
+    }
+
+    processor = DataProcessor(schema=schema)
     processor.fit(users_train, items_train, interactions_train)
 
     train_processed = processor.transform(users_train, items_train, interactions_train)

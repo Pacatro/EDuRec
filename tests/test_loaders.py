@@ -68,7 +68,7 @@ def test_data_loaders_itm():
         [config.USER_COL, "gender", "age", "married"]
     )
     assert set(raw_dataset.i_feats.columns) == set(
-        [config.ITEM_COL, "title", "url", "descriptions"]
+        [config.ITEM_COL, "title", "descriptions"]
     )
     assert set(raw_dataset.interactions.columns) == set(
         [
