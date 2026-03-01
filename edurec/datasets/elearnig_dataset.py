@@ -1,5 +1,3 @@
-from typing import Any, Hashable
-
 import numpy as np
 import pandas as pd
 import torch
@@ -11,89 +9,64 @@ from .. import config
 class ElearningDataset(Dataset):
     def __init__(
         self,
-        df: pd.DataFrame,
+        interactions: pd.DataFrame,
         n_negatives: int = 0,
-        min_rating: float = 0.0,
-        item_catalog: pd.DataFrame | None = None,
-        user_history: dict[Any, Any] | None = None,
-        all_item_ids: np.ndarray | None = None,
-        id_cols: list[str] | None = None,
-        numeric_cols: list[str] | None = None,
+        min_rating: float | None = None,
     ) -> None:
-        self.df = df.copy()
         self.n_negatives = n_negatives
-        self.item_catalog = item_catalog
-        self.user_history = user_history
-        self.all_item_ids = all_item_ids
-        self.columns = df.columns.tolist()
-        self.id_cols = id_cols or [config.USER_COL, config.ITEM_COL]
-        self.numeric_cols = numeric_cols or []
         self.min_rating = min_rating
 
-    def __len__(self) -> int:
-        return len(self.df)
+        self.user_ids = interactions[config.USER_COL].values
+        self.item_ids = interactions[config.ITEM_COL].values
+        self.targets = interactions[config.RELEVANT_COL].values
 
-    def __getitem__(self, idx: int) -> list[dict[str, torch.Tensor]]:
-        pos_row = self.df.iloc[idx].to_dict()
-        results = [self._to_tensor_dict(pos_row)]
-
-        if self.n_negatives > 0:
-            self._generate_neg_samples(pos_row, results)
-
-        return results
-
-    def _to_tensor_dict(self, row: dict) -> dict[str, torch.Tensor]:
-        result = {}
-        for k, v in row.items():
-            v = self._ensure_scalar(v)
-            if k in self.id_cols:
-                result[k] = torch.tensor(v, dtype=torch.long)
-            elif k in (config.RELEVANT_COL,):
-                result[k] = torch.tensor(v, dtype=torch.bool)
-            elif k in self.numeric_cols or k in (config.RATING_COL,):
-                result[k] = torch.tensor(v, dtype=torch.float32)
-            else:
-                result[k] = torch.tensor(v)
-        return result
-
-    def _ensure_scalar(self, v: torch.Tensor) -> Any:
-        if hasattr(v, "item"):
-            return v.item()
-        elif hasattr(v, "tolist"):
-            return v.tolist()
-        return v
-
-    def _generate_neg_samples(
-        self, row: dict[Hashable, Any], results: list[dict[str, torch.Tensor]]
-    ) -> None:
-        assert self.user_history is not None, (
-            "There must be a user history in order to generate negatives samples."
+        self.all_item_ids = np.unique(np.array(self.item_ids))
+        self.user_history = (
+            interactions[interactions[config.RELEVANT_COL] > 0]
+            .groupby(config.USER_COL)[config.ITEM_COL]
+            .apply(set)
+            .to_dict()
         )
 
-        user_id = row[config.USER_COL]
+    def __len__(self) -> int:
+        return len(self.user_ids)
 
-        seen = self.user_history.get(user_id, set())
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        user_idx = self.user_ids[idx]
+        item_idx = self.item_ids[idx]
+        target = self.targets[idx]
 
-        neg_candidates = []
-        while len(neg_candidates) < self.n_negatives:
-            assert self.all_item_ids is not None
-            ids = np.random.choice(
-                self.all_item_ids,
-                size=self.n_negatives * 2,
+        if self.n_negatives > 0:
+            neg_itms = self._sample_negatives(user_idx)
+
+            items = np.concatenate([[item_idx], neg_itms])
+            users = np.full(len(items), user_idx)
+            targets = np.concatenate(
+                [[target], np.zeros(self.n_negatives, dtype=np.float32)]
             )
-            for nid in ids:
-                if nid not in seen and nid not in neg_candidates:
-                    neg_candidates.append(nid)
-                if len(neg_candidates) >= self.n_negatives:
+
+            return (
+                torch.tensor(users, dtype=torch.long),
+                torch.tensor(items, dtype=torch.long),
+                torch.tensor(targets, dtype=torch.float32),
+            )
+
+        return (
+            torch.tensor(user_idx, dtype=torch.long),
+            torch.tensor(item_idx, dtype=torch.long),
+            torch.tensor(target, dtype=torch.float32),
+        )
+
+    def _sample_negatives(self, user_idx: int) -> np.ndarray:
+        seen = self.user_history.get(user_idx, set())
+        negatives = []
+
+        while len(negatives) < self.n_negatives:
+            samples = np.random.choice(self.all_item_ids, size=self.n_negatives * 2)
+            for s in samples:
+                if s not in seen and s not in negatives:
+                    negatives.append(s)
+                if len(negatives) == self.n_negatives:
                     break
 
-        for neg_id in neg_candidates:
-            neg_row = row.copy()
-            neg_row[config.ITEM_COL] = neg_id
-            neg_row[config.RELEVANT_COL] = False
-            neg_row[config.RATING_COL] = self.min_rating
-
-            if self.item_catalog is not None:
-                neg_row.update(self.item_catalog.loc[neg_id].to_dict())
-
-            results.append(self._to_tensor_dict(neg_row))
+        return np.array(negatives)

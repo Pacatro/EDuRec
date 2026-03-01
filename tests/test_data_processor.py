@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 
 from edurec import config
-from edurec.datasets.data_processor import DataProcessor
+from edurec.datasets import DataProcessor
 
 
 def test_data_processor():
@@ -130,15 +130,23 @@ def test_data_processor():
     val_processed = processor.transform(users_val, items_val, interactions_val)
     test_processed = processor.transform(users_test, items_test, interactions_test)
 
-    print(train_processed.interactions.head())
+    assert train_processed.users is not None
+    assert val_processed.users is not None
+    assert test_processed.users is not None
 
-    assert isinstance(train_processed.users, pd.DataFrame)
-    assert isinstance(train_processed.items, pd.DataFrame)
-    assert isinstance(train_processed.interactions, pd.DataFrame)
+    assert train_processed.interactions is not None
+    assert val_processed.interactions is not None
+    assert test_processed.interactions is not None
+
+    assert train_processed.items is not None
+    assert val_processed.items is not None
+    assert test_processed.items is not None
 
     assert len(train_processed.users) == len(users_train)
     assert len(val_processed.users) == len(users_val)
     assert len(test_processed.users) == len(users_test)
+
+    assert train_processed.items is not None
 
     assert list(train_processed.users.columns) == list(val_processed.users.columns)
     assert list(train_processed.items.columns) == list(test_processed.items.columns)
@@ -164,5 +172,4 @@ def test_data_processor():
 
 
 if __name__ == "__main__":
-    test_data_processor()
     pytest.main([__file__, "-v"])

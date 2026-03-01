@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Self
+from typing import Self
 
 import numpy as np
 import pandas as pd
@@ -8,7 +8,7 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.impute import SimpleImputer
-from sklearn.pipeline import FunctionTransformer, Pipeline
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import MinMaxScaler, OrdinalEncoder
 
 from edurec.datasets.loaders import Schema
@@ -18,42 +18,11 @@ from .. import config
 set_config(transform_output="pandas")
 
 
-# @staticmethod
-# def to_torch_feature_matrix(
-#     df: pd.DataFrame,
-#     id_col: str,
-#     device: str | torch.device | None = None,
-# ) -> torch.Tensor:
-#     feature_cols = [c for c in df.columns if c != id_col]
-#     features_np = df[feature_cols].to_numpy(dtype=np.float32, copy=False)
-#     feature_matrix = torch.as_tensor(features_np, dtype=torch.float32)
-#
-#     if device is not None:
-#         feature_matrix = feature_matrix.to(device)
-#
-#     return feature_matrix
-
-# def build_entity_tensors(
-#     self,
-#     processed_df: pd.DataFrame,
-#     device: str | torch.device | None = None,
-# ) -> tuple[torch.Tensor, torch.Tensor]:
-#     user_df, item_df = self.split_entity_feature_frames(processed_df)
-#     return (
-#         self.to_torch_feature_matrix(
-#             user_df, id_col=config.USER_COL, device=device
-#         ),
-#         self.to_torch_feature_matrix(
-#             item_df, id_col=config.ITEM_COL, device=device
-#         ),
-#     )
-
-
 @dataclass
 class ProcessedFeatures:
-    users: pd.DataFrame
-    items: pd.DataFrame
-    interactions: pd.DataFrame
+    users: pd.DataFrame | None
+    items: pd.DataFrame | None
+    interactions: pd.DataFrame | None
     preprocessors: dict[str, ColumnTransformer | None]
 
 
@@ -72,6 +41,13 @@ class DataProcessor:
         self.handle_unknown_ohe = handle_unknown_ohe
         self.ct_sparse_threshold = ct_sparse_threshold
 
+        self.user_encoder = OrdinalEncoder(
+            handle_unknown="use_encoded_value", unknown_value=-1
+        )
+        self.item_encoder = OrdinalEncoder(
+            handle_unknown="use_encoded_value", unknown_value=-1
+        )
+
         self.preprocessors: dict[str, ColumnTransformer | None] = {
             "users": None,
             "items": None,
@@ -84,6 +60,16 @@ class DataProcessor:
         items_train: pd.DataFrame,
         interactions_train: pd.DataFrame,
     ) -> Self:
+        all_user_ids = pd.concat(
+            [users_train[[config.USER_COL]], interactions_train[[config.USER_COL]]]
+        ).drop_duplicates()
+        self.user_encoder.fit(all_user_ids)
+
+        all_item_ids = pd.concat(
+            [items_train[[config.ITEM_COL]], interactions_train[[config.ITEM_COL]]]
+        ).drop_duplicates()
+        self.item_encoder.fit(all_item_ids)
+
         self._fit_ct_feats(users_train, "users")
         self._fit_ct_feats(items_train, "items")
         self._fit_ct_feats(interactions_train, "inter")
@@ -94,14 +80,15 @@ class DataProcessor:
         _, num_cols, cat_cols, text_cols, list_cols = _get_column_types(
             self.schema, prefix
         )
-        id_cols = [c for c in [config.USER_COL, config.ITEM_COL] if c in df.columns]
         time_col = config.TIME_COL if config.TIME_COL in df.columns else None
 
+        # FIXME: THIS IS ONLY FOR TESTING, REMOVE WHEN THE LIST AND TEXT COLS PROCESSING ARE IMPLEMENTED
+        df = df.drop(columns=list_cols + text_cols)
+
         preprocessor = self._build_ct(
-            id_cols=id_cols,
             num_cols=num_cols,
             cat_cols=cat_cols,
-            text_cols=text_cols,
+            text_cols=[],
             time_col=time_col,
         )
         preprocessor.fit(df)
@@ -109,8 +96,6 @@ class DataProcessor:
 
     def _build_ct(
         self,
-        id_cols: list[str],
-        # bin_cols: list[str],
         num_cols: list[str],
         cat_cols: list[str],
         text_cols: list[str],
@@ -140,7 +125,8 @@ class DataProcessor:
                     (
                         "encoder",
                         OrdinalEncoder(
-                            handle_unknown="use_encoded_value", unknown_value=-1
+                            handle_unknown="use_encoded_value",
+                            unknown_value=-1,
                         ),
                     ),
                 ]
@@ -171,20 +157,6 @@ class DataProcessor:
             )
             transformers.append(("time", time_pipe, [time_col]))
 
-        if id_cols:
-            ids_pipe = Pipeline(
-                [
-                    (
-                        "encoder",
-                        OrdinalEncoder(
-                            handle_unknown="use_encoded_value", unknown_value=-1
-                        ),
-                    ),
-                    ("to_long", FunctionTransformer(lambda x: x.astype("int64"))),
-                ]
-            )
-            transformers.append(("ids", ids_pipe, id_cols))
-
         return ColumnTransformer(
             transformers=transformers,
             remainder="passthrough",
@@ -194,17 +166,18 @@ class DataProcessor:
 
     def transform(
         self,
-        users: pd.DataFrame,
-        items: pd.DataFrame,
+        users: pd.DataFrame | None = None,
+        items: pd.DataFrame | None = None,
         interactions: pd.DataFrame | None = None,
     ) -> ProcessedFeatures:
         if not self.preprocessors["users"] or not self.preprocessors["items"]:
             raise RuntimeError("DataProcessor not fitted")
 
-        user_processed = self._get_clean_df("users", users)
-        item_processed = self._get_clean_df("items", items)
-        inter_processed = self._get_clean_df("inter", interactions)
-
+        user_processed = self._transform("users", users) if users is not None else None
+        item_processed = self._transform("items", items) if items is not None else None
+        inter_processed = (
+            self._transform("inter", interactions) if interactions is not None else None
+        )
         return ProcessedFeatures(
             users=user_processed,
             items=item_processed,
@@ -212,23 +185,27 @@ class DataProcessor:
             preprocessors=self.preprocessors,
         )
 
-    def _get_clean_df(self, key: str, original_df: pd.DataFrame | None) -> Any:
+    def _transform(self, key: str, df: pd.DataFrame | None) -> pd.DataFrame:
         ct = self.preprocessors[key]
-        if original_df is None or ct is None:
+
+        if ct is None:
             raise RuntimeError(f"DataProcessor not fitted for {key}")
 
-        processed_data = ct.transform(original_df)
+        processed_df = ct.transform(df)
 
-        if hasattr(processed_data, "toarray"):
-            df = pd.DataFrame(
-                np.array(processed_data),
-                index=original_df.index,
-                columns=ct.get_feature_names_out(),
-            )
-        else:
-            df = processed_data
+        assert isinstance(processed_df, pd.DataFrame)
 
-        return df
+        if config.USER_COL in processed_df.columns:
+            processed_df[config.USER_COL] = self.user_encoder.transform(
+                processed_df[[config.USER_COL]]
+            ).astype("int64")
+
+        if config.ITEM_COL in processed_df.columns:
+            processed_df[config.ITEM_COL] = self.item_encoder.transform(
+                processed_df[[config.ITEM_COL]]
+            ).astype("int64")
+
+        return processed_df
 
 
 def _get_column_types(
@@ -297,7 +274,7 @@ class TextConcatenator(BaseEstimator, TransformerMixin):
         _ = X, y
         return self
 
-    def transform(self, X: pd.DataFrame | np.ndarray) -> np.ndarray:
+    def transform(self, X: pd.DataFrame) -> np.ndarray:
         Xdf = (
             pd.DataFrame(X, columns=self.cols)
             if not isinstance(X, pd.DataFrame)

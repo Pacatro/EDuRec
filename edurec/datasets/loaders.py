@@ -224,7 +224,7 @@ def load_itm() -> RawDataset:
             "bin": [],
             "num": [],
             "cat": [],
-            "text": ["title", "description"],
+            "text": ["title", "descriptions"],
             "list": [],
         },
         "inter": {

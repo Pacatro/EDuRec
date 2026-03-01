@@ -8,8 +8,7 @@ from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 
 from .. import config
-from ..datasets import DatasetName
-from ..recsys.datamodule import ElearningDataModule
+from ..datasets import DatasetName, ElearningDataModule
 from ..recsys.engine import RecSys
 from ..recsys.io import save_model
 from ..recsys.model import EDuRecConfig, EDuRecMTL
@@ -71,10 +70,9 @@ def train(
         random_state=config.state["random_state"],
     )
 
-    inter = dm.train_processed.interactions
+    dm.setup()
 
-    print(inter)
-    print(dm.train_processed.items)
+    print(dm.item_feats_tensor[0])
 
     # model_config = EDuRecConfig(
     #     n_users=dm.num_users,

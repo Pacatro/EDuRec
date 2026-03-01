@@ -1,5 +1,5 @@
 import warnings
-from enum import Enum
+from enum import StrEnum
 from typing import Annotated
 
 import typer
@@ -26,7 +26,7 @@ app.add_typer(train_app)
 # app.add_typer(predict_app)
 
 
-class Device(str, Enum):
+class Device(StrEnum):
     AUTO = "auto"
     CPU = "cpu"
     CUDA = "cuda"
