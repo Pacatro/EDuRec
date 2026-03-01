@@ -72,7 +72,7 @@ def train(
 
     dm.setup()
 
-    print(dm.item_feats_tensor[0])
+    print(dm.train_ds[0])
 
     # model_config = EDuRecConfig(
     #     n_users=dm.num_users,

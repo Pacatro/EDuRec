@@ -221,11 +221,6 @@ def _get_column_types(
 
 
 class TimeFeaturesTransformer(BaseEstimator, TransformerMixin):
-    """
-    Entrada: una columna TIME_COL con strings/datetime.
-    Salida: DataFrame con features numéricas (float) listas para imputar/escalar.
-    """
-
     def fit(self, X, y=None) -> Self:
         _ = X, y
         return self

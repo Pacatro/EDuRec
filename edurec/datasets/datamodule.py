@@ -62,7 +62,6 @@ class ElearningDataModule(L.LightningDataModule):
         if not self.is_processed:
             self._train_inter, self._val_inter, self._test_inter = self._split_data()
 
-            # Siempre fitteamos con el catálogo completo para evitar IDs -1
             self.data_processor.fit(
                 users_train=self.users_feats,
                 items_train=self.items_feats,
