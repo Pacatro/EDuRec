@@ -1,7 +1,7 @@
 import pytest
 
 from edurec import config
-from edurec.datasets import DatasetName, load_data
+from edurec.datasets import DatasetName, load_raw_data
 from edurec.datasets.loaders import RawDataset
 
 
@@ -10,7 +10,7 @@ def test_data_loaders_mars():
     n_items = 2618
     n_interactions = 88998
 
-    raw_dataset = load_data(DatasetName.MARS)
+    raw_dataset = load_raw_data(DatasetName.MARS)
 
     assert isinstance(raw_dataset, RawDataset)
 
@@ -54,7 +54,7 @@ def test_data_loaders_itm():
     n_items = 70
     n_interactions = 5230
 
-    raw_dataset = load_data(DatasetName.ITM)
+    raw_dataset = load_raw_data(DatasetName.ITM)
 
     assert isinstance(raw_dataset, RawDataset)
 
