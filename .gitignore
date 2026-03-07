@@ -21,6 +21,8 @@ wandb/
 log*/ 
 sota_cv_data/
 
+# Data folders
+data/processed/
 
 # Other exetensions
 *.json

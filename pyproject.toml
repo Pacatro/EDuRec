@@ -23,6 +23,8 @@ dependencies = [
   "kmeans-pytorch>=0.3",
   "wandb>=0.24.1",
   "torch-geometric>=2.7.0",
+  "safetensors>=0.7.0",
+  "joblib>=1.5.3",
 ]
 
 [dependency-groups]
@@ -43,6 +45,12 @@ explicit = true
 pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "-v"
+# Ignore PyG warnings in tests
+filterwarnings = [
+  "ignore::DeprecationWarning",
+  "ignore:.*torch_geometric.distributed.*:DeprecationWarning",
+  "ignore:.*torch.jit.script.*:DeprecationWarning",
+]
 
 [project.scripts]
 edurec = "edurec.main:app"
