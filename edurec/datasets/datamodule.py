@@ -6,11 +6,12 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 from torch_geometric.data import HeteroData
+from safetensors.torch import save_file, load_file
 
 from .. import config
 from .data_processor import DataProcessor
 from .elearnig_dataset import ElearningDataset
-from .loaders import DatasetName, load_data
+from .loaders import DatasetName, load_raw_data
 
 
 class ElearningDataModule(L.LightningDataModule):
@@ -24,7 +25,7 @@ class ElearningDataModule(L.LightningDataModule):
         n_neg_train: int = config.N_NEG_TRAIN,
         n_neg_val: int = config.N_NEG_VAL,
         n_neg_test: int = config.N_NEG_TEST,
-        save_data: bool = False,
+        use_processed_data: bool = False,
         random_state: int | None = None,
     ) -> None:
         super().__init__()
@@ -37,74 +38,116 @@ class ElearningDataModule(L.LightningDataModule):
         self.n_neg_train = n_neg_train
         self.n_neg_val = n_neg_val
         self.n_neg_test = n_neg_test
-        self.save_data = save_data
+        self.use_processed_data = use_processed_data
         self.random_state = random_state
 
-        self.processed_path = (
-            Path(config.DATA_FOLDER) / "preprocessed" / f"{self.dataset_name.value}.csv"
+        self.processed_folder = Path(config.PROCESSED_FOLDER) / self.dataset_name.value
+
+        self.u_static: torch.Tensor | None = None
+        self.i_static: torch.Tensor | None = None
+
+        self.data_processor: DataProcessor | None = None
+        self._processed_data: dict[str, pd.DataFrame | None] = {
+            "train": None,
+            "val": None,
+            "test": None,
+        }
+
+        self._load_data()
+
+    @property
+    def is_processed(self) -> bool:
+        return self.u_static is not None and self._processed_data["train"] is not None
+
+    @property
+    def num_users(self) -> int:
+        if self.u_static is not None:
+            return self.u_static.shape[0]
+        return len(self.users_feats) if hasattr(self, "users_feats") else 0
+
+    @property
+    def num_items(self) -> int:
+        if self.i_static is not None:
+            return self.i_static.shape[0]
+        return len(self.items_feats) if hasattr(self, "items_feats") else 0
+
+    @property
+    def num_interactions(self) -> int:
+        if self.is_processed:
+            return sum(
+                len(df) for df in self._processed_data.values() if df is not None
+            )
+        return len(self.interactions) if hasattr(self, "interactions") else 0
+
+    @property
+    def sparsity(self) -> float:
+        n_inter = self.num_interactions
+        n_users = self.num_users
+        n_items = self.num_items
+        if n_users == 0 or n_items == 0:
+            return 0.0
+        return 1 - (n_inter / (n_users * n_items))
+
+    def _load_data(self):
+        required_files = [
+            "train.csv",
+            "val.csv",
+            "test.csv",
+            "static_feats.safetensors",
+            "processor.joblib",
+        ]
+
+        cache_exists = self.processed_folder.exists() and all(
+            (self.processed_folder / f).exists() for f in required_files
         )
 
-        raw_dataset = load_data(dataset)
+        if self.use_processed_data and cache_exists:
+            self._load_processed_data()
+            return
+
+        print("[DATA] Loading raw data")
+        raw_dataset = load_raw_data(self.dataset_name)
         self.interactions = raw_dataset.interactions
         self.users_feats = raw_dataset.u_feats
         self.items_feats = raw_dataset.i_feats
         self.schema = raw_dataset.schema
-
-        # Dataset stats
-        self.num_users = len(self.users_feats)
-        self.num_items = len(self.items_feats)
-        self.sparsity = 1 - len(self.interactions) / (self.num_users * self.num_items)
-        self.min_rating = self.interactions[config.RATING_COL].min()
-
         self.data_processor = DataProcessor(schema=self.schema)
-        self.is_processed = False
+
+    def _load_processed_data(self):
+        assert self.processed_folder is not None and self.processed_folder.exists()
+
+        print(
+            f"[CACHE] Loading processed data and preprocessor from {self.processed_folder}"
+        )
+
+        for split in ["train", "val", "test"]:
+            self._processed_data[split] = pd.read_csv(
+                self.processed_folder / f"{split}.csv"
+            )
+
+        static_feats = load_file(self.processed_folder / "static_feats.safetensors")
+
+        self.u_static = static_feats["u_static"]
+        self.i_static = static_feats["i_static"]
+
+        self.data_processor = DataProcessor.load(
+            self.processed_folder / "processor.joblib"
+        )
 
     def setup(self, stage: str | None = None) -> None:
         if not self.is_processed:
-            self._train_inter, self._val_inter, self._test_inter = self._split_data()
-
-            self.data_processor.fit(
-                users_train=self.users_feats,
-                items_train=self.items_feats,
-                interactions_train=self._train_inter,
-            )
-
-            processed_all = self.data_processor.transform(
-                users=self.users_feats, items=self.items_feats
-            )
-
-            assert processed_all.users is not None and processed_all.items is not None
-
-            self.u_static = self._generate_static_feats(
-                processed_all.users, config.USER_COL
-            )
-            self.i_static = self._generate_static_feats(
-                processed_all.items, config.ITEM_COL
-            )
-
-            self.is_processed = True
+            train_raw, val_raw, test_raw = self._split_data()
+            self._preprocess(train_raw, val_raw, test_raw)
 
         match stage:
             case "fit" | None:
-                p_train = self.data_processor.transform(interactions=self._train_inter)
-                assert p_train.interactions is not None
-                self.train_ds = ElearningDataset(
-                    p_train.interactions, n_negatives=self.n_neg_train
-                )
-
-                p_val = self.data_processor.transform(interactions=self._val_inter)
-                assert p_val.interactions is not None
-                self.val_ds = ElearningDataset(
-                    p_val.interactions, n_negatives=self.n_neg_val
-                )
+                self.train_ds = self._make_dataset("train", self.n_neg_train)
+                self.val_ds = self._make_dataset("val", self.n_neg_val)
             case "test":
-                p_test = self.data_processor.transform(interactions=self._test_inter)
-                assert p_test.interactions is not None
-                self.test_ds = ElearningDataset(
-                    p_test.interactions, n_negatives=self.n_neg_test
-                )
+                self.test_ds = self._make_dataset("test", self.n_neg_test)
 
     def _split_data(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        assert not self.is_processed
         df = self.interactions
         rng = np.random.default_rng(self.random_state)
 
@@ -157,19 +200,129 @@ class ElearningDataModule(L.LightningDataModule):
 
         return train_df, val_df, test_df
 
+    def _preprocess(
+        self,
+        train_raw: pd.DataFrame,
+        val_raw: pd.DataFrame,
+        test_raw: pd.DataFrame,
+    ):
+        assert self.data_processor is not None
+        self.data_processor.fit(
+            users_train=self.users_feats,
+            items_train=self.items_feats,
+            interactions_train=train_raw,
+        )
+
+        processed_all = self.data_processor.transform(
+            users=self.users_feats, items=self.items_feats
+        )
+        assert processed_all.users is not None and processed_all.items is not None
+
+        self.u_static = self._generate_static_feats(
+            processed_all.users, config.USER_COL
+        )
+        self.i_static = self._generate_static_feats(
+            processed_all.items, config.ITEM_COL
+        )
+
+        p_train = self.data_processor.transform(interactions=train_raw)
+        p_val = self.data_processor.transform(interactions=val_raw)
+        p_test = self.data_processor.transform(interactions=test_raw)
+
+        self._processed_data["train"] = p_train.interactions
+        self._processed_data["val"] = p_val.interactions
+        self._processed_data["test"] = p_test.interactions
+
+        if not self.use_processed_data:
+            self._save_processed_data()
+
     def _generate_static_feats(self, df: pd.DataFrame, id_col: str) -> torch.Tensor:
         df_sorted = df.sort_values(id_col)
-        print(df_sorted)
         feat_cols = [c for c in df_sorted.columns if c != id_col]
         return torch.tensor(df_sorted[feat_cols].values, dtype=torch.float32)
 
+    def _save_processed_data(self):
+        print("[CACHE] Saving processed data")
+
+        self.processed_folder.mkdir(parents=True, exist_ok=True)
+
+        for split, df in self._processed_data.items():
+            if df is None:
+                continue
+            df.to_csv(self.processed_folder / f"{split}.csv", index=False)
+
+        assert self.u_static is not None and self.i_static is not None
+
+        save_file(
+            {
+                "u_static": self.u_static.contiguous(),
+                "i_static": self.i_static.contiguous(),
+            },
+            self.processed_folder / "static_feats.safetensors",
+        )
+
+        assert self.data_processor is not None
+        self.data_processor.save(self.processed_folder / "processor.joblib")
+
+    def _make_dataset(self, split: str, n_negatives: int) -> ElearningDataset:
+        df = self._processed_data.get(split)
+
+        if df is None:
+            raise RuntimeError(
+                f"Data must be processed before creating the dataset for {split}"
+            )
+
+        return ElearningDataset(df, n_negatives=n_negatives)
+
     def create_inter_graph(self) -> HeteroData:
-        if not self.is_processed:
+        """
+        Constructs a heterogeneous bipartite graph from processed training interactions.
+
+        The graph uses a COO (Coordinate) format for edge indices, representing
+        positive interactions between users and items. It includes bidirectional
+        relations to facilitate message passing in GNN architectures.
+
+        Topology:
+            - Nodes: 'user' and 'item' with static features as 'x'.
+            - Edge ('user', 'interacts', 'item'): Directional interaction.
+            - Edge ('item', 'rev_interacts', 'user'): Reversed interaction for
+              bidirectional information flow.
+
+        Edge Index Structure [2, N]:
+            Row 0: [u_1, u_2, ..., u_n] (Source user indices)
+            Row 1: [i_1, i_2, ..., i_n] (Target item indices)
+            Mapping: u_k interacts with i_k.
+
+        Returns:
+            HeteroData: A PyG graph containing node features and edge indices.
+
+        Raises:
+            RuntimeError: If called before `setup()` or if training data/features
+                are not yet processed and cached.
+        """
+        df_train = self._processed_data["train"]
+
+        if df_train is None or self.u_static is None:
             raise RuntimeError("Data must be processed before creating the graph")
+
+        pos_train = df_train[df_train[config.RELEVANT_COL] > 0]
 
         data = HeteroData()
 
-        # TODO: Complete this function
+        data["user"].x = self.u_static
+        data["item"].x = self.i_static
+
+        edge_index = (
+            torch.tensor(
+                pos_train[[config.USER_COL, config.ITEM_COL]].values,  # (N, 2)
+                dtype=torch.long,
+            )
+            .t()  # (2, N)
+            .contiguous()
+        )
+
+        data["user", "interacts", "item"].edge_index = edge_index
+        data["item", "rev_interacts", "user"].edge_index = edge_index[[1, 0]]
 
         return data
 

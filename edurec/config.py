@@ -22,7 +22,7 @@ PADDING_VAL: int = 0
 INIT_TOKEN: str = "<|init|>"
 END_TOKEN: str = "<|end|>"
 EMPTY_TOKEN: str = "<|empty|>"
-
+PROCESSED_FOLDER: str = f"{DATA_FOLDER}/processed"
 
 # Model
 EMB_DIM: int = 256

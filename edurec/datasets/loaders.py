@@ -244,8 +244,7 @@ def load_itm() -> RawDataset:
     )
 
 
-# TODO: Return df and some other info metadata
-def load_data(dataset_name: DatasetName) -> RawDataset:
+def load_raw_data(dataset_name: DatasetName) -> RawDataset:
     """
     Load the specified dataset. If data was processed before, laod the data from disk.
 

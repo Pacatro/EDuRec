@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Annotated, cast
 
 import lightning as L
@@ -11,7 +12,8 @@ from .. import config
 from ..datasets import DatasetName, ElearningDataModule
 from ..recsys.engine import RecSys
 from ..recsys.io import save_model
-from ..recsys.model import EDuRecConfig, EDuRecMTL
+
+# from ..recsys.model import EDuRecConfig, EDuRecMTL
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -51,8 +53,8 @@ def train(
     save: Annotated[
         bool, typer.Option("--save_model", "-S", help="Save model")
     ] = False,
-    save_data: Annotated[
-        bool, typer.Option("--save_data", "-P", help="Save data")
+    use_procesed_data: Annotated[
+        bool, typer.Option("--use_processed", "-P", help="Use saved processed data")
     ] = config.SAVE_DATA,
     models_folder: Annotated[
         str,
@@ -66,13 +68,19 @@ def train(
         batch_size=batch_size,
         test_ratio=test_size,
         val_ratio=val_size,
-        save_data=save_data,
+        use_processed_data=use_procesed_data,
         random_state=config.state["random_state"],
     )
 
     dm.setup()
 
     print(dm.train_ds[0])
+    print(dm.create_inter_graph())
+
+    if config.state["verbose"]:
+        print(f"[TRAIN] Dataset {dataset.value} sparsity: {dm.sparsity}")
+        print(f"[TRAIN] Number of users: {dm.num_users}")
+        print(f"[TRAIN] Number of items: {dm.num_items}")
 
     # model_config = EDuRecConfig(
     #     n_users=dm.num_users,

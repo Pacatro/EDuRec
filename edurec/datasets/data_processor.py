@@ -1,6 +1,8 @@
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Self
 
+import joblib
 import numpy as np
 import pandas as pd
 from sklearn import set_config
@@ -16,6 +18,8 @@ from edurec.datasets.loaders import Schema
 from .. import config
 
 set_config(transform_output="pandas")
+
+type ColumnTypes = tuple[list[str], list[str], list[str], list[str], list[str]]
 
 
 @dataclass
@@ -82,7 +86,7 @@ class DataProcessor:
         )
         time_col = config.TIME_COL if config.TIME_COL in df.columns else None
 
-        # FIXME: THIS IS ONLY FOR TESTING, REMOVE WHEN THE LIST AND TEXT COLS PROCESSING ARE IMPLEMENTED
+        # WARNING: THIS IS ONLY FOR TESTING, REMOVE WHEN THE LIST AND TEXT COLS PROCESSING ARE IMPLEMENTED
         df = df.drop(columns=list_cols + text_cols)
 
         preprocessor = self._build_ct(
@@ -207,10 +211,25 @@ class DataProcessor:
 
         return processed_df
 
+    def save(self, path: str | Path) -> None:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        joblib.dump(self, path)
 
-def _get_column_types(
-    schema: Schema, prefix: str
-) -> tuple[list[str], list[str], list[str], list[str], list[str]]:
+    @classmethod
+    def load(cls, path: str | Path) -> Self:
+        path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(f"No processor found at {path}")
+
+        processor = joblib.load(path)
+
+        if not isinstance(processor, cls):
+            raise TypeError(f"File at {path} is not a {cls.__name__} object")
+
+        return processor
+
+
+def _get_column_types(schema: Schema, prefix: str) -> ColumnTypes:
     bin_cols = schema[prefix]["bin"]
     num_cols = schema[prefix]["num"]
     cat_cols = schema[prefix]["cat"]
