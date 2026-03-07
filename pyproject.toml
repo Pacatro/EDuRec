@@ -22,6 +22,7 @@ dependencies = [
   "numpy<2.0.0",
   "kmeans-pytorch>=0.3",
   "wandb>=0.24.1",
+  "torch-geometric>=2.7.0",
 ]
 
 [dependency-groups]

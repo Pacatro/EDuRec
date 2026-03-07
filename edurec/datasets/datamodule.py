@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader
+from torch_geometric.data import HeteroData
 
 from .. import config
 from .data_processor import DataProcessor
@@ -74,10 +75,10 @@ class ElearningDataModule(L.LightningDataModule):
 
             assert processed_all.users is not None and processed_all.items is not None
 
-            self.user_feats_tensor = self._generate_tensor(
+            self.u_static = self._generate_static_feats(
                 processed_all.users, config.USER_COL
             )
-            self.item_feats_tensor = self._generate_tensor(
+            self.i_static = self._generate_static_feats(
                 processed_all.items, config.ITEM_COL
             )
 
@@ -102,12 +103,6 @@ class ElearningDataModule(L.LightningDataModule):
                 self.test_ds = ElearningDataset(
                     p_test.interactions, n_negatives=self.n_neg_test
                 )
-
-    def _generate_tensor(self, df: pd.DataFrame, id_col: str) -> torch.Tensor:
-        df_sorted = df.sort_values(id_col)
-        print(df_sorted)
-        feat_cols = [c for c in df_sorted.columns if c != id_col]
-        return torch.tensor(df_sorted[feat_cols].values, dtype=torch.float32)
 
     def _split_data(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         df = self.interactions
@@ -161,6 +156,22 @@ class ElearningDataModule(L.LightningDataModule):
         test_df = pd.concat(test_parts, axis=0).reset_index(drop=True)
 
         return train_df, val_df, test_df
+
+    def _generate_static_feats(self, df: pd.DataFrame, id_col: str) -> torch.Tensor:
+        df_sorted = df.sort_values(id_col)
+        print(df_sorted)
+        feat_cols = [c for c in df_sorted.columns if c != id_col]
+        return torch.tensor(df_sorted[feat_cols].values, dtype=torch.float32)
+
+    def create_inter_graph(self) -> HeteroData:
+        if not self.is_processed:
+            raise RuntimeError("Data must be processed before creating the graph")
+
+        data = HeteroData()
+
+        # TODO: Complete this function
+
+        return data
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
