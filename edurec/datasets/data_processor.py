@@ -24,6 +24,11 @@ type ColumnTypes = tuple[list[str], list[str], list[str], list[str], list[str]]
 
 @dataclass
 class ProcessedFeatures:
+    """
+    Container for processed DataFrames and the fitted preprocessors used
+    to transform them.
+    """
+
     users: pd.DataFrame | None
     items: pd.DataFrame | None
     interactions: pd.DataFrame | None
@@ -31,6 +36,14 @@ class ProcessedFeatures:
 
 
 class DataProcessor:
+    """
+    Handles the end-to-end preprocessing pipeline for e-learning datasets.
+
+    This class manages separate Scikit-Learn pipelines for users, items, and
+    interaction features. It ensures consistent ID encoding across all datasets
+    and handles numerical scaling, categorical encoding, and temporal transformations.
+    """
+
     def __init__(
         self,
         schema: Schema,
@@ -64,6 +77,17 @@ class DataProcessor:
         items_train: pd.DataFrame,
         interactions_train: pd.DataFrame,
     ) -> Self:
+        """
+        Fits ID encoders and feature pipelines using training data.
+
+        Args:
+            users_train: DataFrame containing raw user features.
+            items_train: DataFrame containing raw item features.
+            interactions_train: DataFrame containing user-item interaction history.
+
+        Returns:
+            The fitted DataProcessor instance.
+        """
         all_user_ids = pd.concat(
             [users_train[[config.USER_COL]], interactions_train[[config.USER_COL]]]
         ).drop_duplicates()
@@ -81,6 +105,7 @@ class DataProcessor:
         return self
 
     def _fit_ct_feats(self, df: pd.DataFrame, prefix: str) -> None:
+        """Helper to build and fit a specific ColumnTransformer based on the schema prefix."""
         _, num_cols, cat_cols, text_cols, list_cols = _get_column_types(
             self.schema, prefix
         )
@@ -105,6 +130,10 @@ class DataProcessor:
         text_cols: list[str],
         time_col: str | None = None,
     ) -> ColumnTransformer:
+        """
+        Constructs a Scikit-Learn ColumnTransformer with pipelines for numerical
+        imputation/scaling, categorical encoding, and temporal feature extraction.
+        """
         transformers = []
 
         if time_col and time_col in num_cols:
@@ -174,6 +203,17 @@ class DataProcessor:
         items: pd.DataFrame | None = None,
         interactions: pd.DataFrame | None = None,
     ) -> ProcessedFeatures:
+        """
+        Applies fitted transformations to new or existing data.
+
+        Args:
+            users: User DataFrame to transform.
+            items: Item DataFrame to transform.
+            interactions: Interaction DataFrame to transform.
+
+        Returns:
+            ProcessedFeatures: Dataclass containing the transformed DataFrames.
+        """
         if not self.preprocessors["users"] or not self.preprocessors["items"]:
             raise RuntimeError("DataProcessor not fitted")
 
@@ -212,11 +252,26 @@ class DataProcessor:
         return processed_df
 
     def save(self, path: str | Path) -> None:
+        """
+        Save the fitted processor state to disk.
+
+        Args:
+            path: Target file path (usually with .joblib extension).
+        """
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         joblib.dump(self, path)
 
     @classmethod
     def load(cls, path: str | Path) -> Self:
+        """
+        Restores a fitted processor from a saved file.
+
+        Args:
+            path: Path to the saved .joblib file.
+
+        Returns:
+            Self: The restored DataProcessor instance.
+        """
         path = Path(path)
         if not path.exists():
             raise FileNotFoundError(f"No processor found at {path}")

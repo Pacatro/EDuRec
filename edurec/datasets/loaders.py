@@ -47,7 +47,7 @@ def add_relevant_col(df: pd.DataFrame) -> None:
         df (pd.DataFrame): The interactions dataframe. It must contain the
             columns defined in config.USER_COL and config.RATING_COL.
     """
-    if config.RELEVANT_COL in df.columns:
+    if config.RELEVANT_COL in df.columns or config.RATING_COL not in df.columns:
         return
 
     global_thershold = df[config.RATING_COL].mean()
@@ -66,6 +66,9 @@ def add_relevant_col(df: pd.DataFrame) -> None:
 
 
 def clean_df(df: pd.DataFrame) -> None:
+    """
+    Cleans and standardizes column names of the DataFrame.
+    """
     df.columns = (
         df.columns.str.lower()
         .str.strip()

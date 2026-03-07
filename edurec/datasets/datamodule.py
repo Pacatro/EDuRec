@@ -4,9 +4,9 @@ import lightning as L
 import numpy as np
 import pandas as pd
 import torch
+from safetensors.torch import load_file, save_file
 from torch.utils.data import DataLoader
 from torch_geometric.data import HeteroData
-from safetensors.torch import save_file, load_file
 
 from .. import config
 from .data_processor import DataProcessor
@@ -15,6 +15,26 @@ from .loaders import DatasetName, load_raw_data
 
 
 class ElearningDataModule(L.LightningDataModule):
+    """
+    Implements the end-to-end data pipeline for the recommendation system.
+
+    This module handles raw data ingestion, per-user temporal or random splitting,
+    feature preprocessing via a specialized `DataProcessor`, and persistence of
+    processed artifacts to disk to skip redundant computations in future runs.
+
+    Parameters:
+        dataset (DatasetName): The name of the dataset to use.
+        batch_size (int): The batch size for training and validation.
+        test_ratio (float): The ratio of test interactions to the total dataset.
+        val_ratio (float): The ratio of validation interactions to the total dataset.
+        min_interactions (int): The minimum number of interactions per user.
+        n_neg_train (int): The number of negative interactions to sample for training.
+        n_neg_val (int): The number of negative interactions to sample for validation.
+        n_neg_test (int): The number of negative interactions to sample for testing.
+        use_processed_data (bool): Whether to use pre-processed data from disk.
+        random_state (int | None): The random seed to use for data splitting.
+    """
+
     def __init__(
         self,
         dataset: DatasetName,
@@ -57,22 +77,26 @@ class ElearningDataModule(L.LightningDataModule):
 
     @property
     def is_processed(self) -> bool:
+        """Whether processed splits and static features are available."""
         return self.u_static is not None and self._processed_data["train"] is not None
 
     @property
     def num_users(self) -> int:
+        """Return total number of users from processed or raw features."""
         if self.u_static is not None:
             return self.u_static.shape[0]
         return len(self.users_feats) if hasattr(self, "users_feats") else 0
 
     @property
     def num_items(self) -> int:
+        """Return total number of items from processed or raw features."""
         if self.i_static is not None:
             return self.i_static.shape[0]
         return len(self.items_feats) if hasattr(self, "items_feats") else 0
 
     @property
     def num_interactions(self) -> int:
+        """Return interaction count across all splits or raw interactions."""
         if self.is_processed:
             return sum(
                 len(df) for df in self._processed_data.values() if df is not None
@@ -81,6 +105,7 @@ class ElearningDataModule(L.LightningDataModule):
 
     @property
     def sparsity(self) -> float:
+        """Compute dataset sparsity as 1 - interactions/(users*items)."""
         n_inter = self.num_interactions
         n_users = self.num_users
         n_items = self.num_items
@@ -89,6 +114,7 @@ class ElearningDataModule(L.LightningDataModule):
         return 1 - (n_inter / (n_users * n_items))
 
     def _load_data(self):
+        """Load raw inputs or processed cache depending on configuration."""
         required_files = [
             "train.csv",
             "val.csv",
@@ -114,6 +140,7 @@ class ElearningDataModule(L.LightningDataModule):
         self.data_processor = DataProcessor(schema=self.schema)
 
     def _load_processed_data(self):
+        """Load cached splits, static features, and fitted preprocessor."""
         assert self.processed_folder is not None and self.processed_folder.exists()
 
         print(
@@ -135,6 +162,7 @@ class ElearningDataModule(L.LightningDataModule):
         )
 
     def setup(self, stage: str | None = None) -> None:
+        """Prepare processed datasets for training/validation/testing stages."""
         if not self.is_processed:
             train_raw, val_raw, test_raw = self._split_data()
             self._preprocess(train_raw, val_raw, test_raw)
@@ -147,6 +175,14 @@ class ElearningDataModule(L.LightningDataModule):
                 self.test_ds = self._make_dataset("test", self.n_neg_test)
 
     def _split_data(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """
+        Splits global interactions into Train/Val/Test sets.
+        Applies temporal splitting (last-n) if timestamps are available,
+        otherwise performs a per-user random shuffle.
+
+        Returns:
+            tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]: Train/Val/Test splits.
+        """
         assert not self.is_processed
         df = self.interactions
         rng = np.random.default_rng(self.random_state)
@@ -206,6 +242,10 @@ class ElearningDataModule(L.LightningDataModule):
         val_raw: pd.DataFrame,
         test_raw: pd.DataFrame,
     ):
+        """
+        Fits the `DataProcessor` on training data and transforms all splits.
+        Also generates static feature matrices and persists results to the cache.
+        """
         assert self.data_processor is not None
         self.data_processor.fit(
             users_train=self.users_feats,
@@ -237,11 +277,17 @@ class ElearningDataModule(L.LightningDataModule):
             self._save_processed_data()
 
     def _generate_static_feats(self, df: pd.DataFrame, id_col: str) -> torch.Tensor:
+        """
+        Convert sorted entity features into a 2D tensor matrix with
+        shape (N, F), where N is the number of entities and F is the number
+        of features.
+        """
         df_sorted = df.sort_values(id_col)
         feat_cols = [c for c in df_sorted.columns if c != id_col]
         return torch.tensor(df_sorted[feat_cols].values, dtype=torch.float32)
 
     def _save_processed_data(self):
+        """Persist processed splits, static tensors, and preprocessing artifacts."""
         print("[CACHE] Saving processed data")
 
         self.processed_folder.mkdir(parents=True, exist_ok=True)
@@ -265,6 +311,7 @@ class ElearningDataModule(L.LightningDataModule):
         self.data_processor.save(self.processed_folder / "processor.joblib")
 
     def _make_dataset(self, split: str, n_negatives: int) -> ElearningDataset:
+        """Create an `ElearningDataset` for a processed split."""
         df = self._processed_data.get(split)
 
         if df is None:
@@ -342,10 +389,7 @@ class ElearningDataModule(L.LightningDataModule):
             shuffle=False,
         )
 
-    def test_dataloader(self) -> DataLoader | None:
-        if self.test_ds is None:
-            return None
-
+    def test_dataloader(self) -> DataLoader:
         return DataLoader(
             self.test_ds,
             batch_size=self.batch_size,
