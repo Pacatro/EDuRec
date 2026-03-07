@@ -6,7 +6,7 @@ import pandas as pd
 import torch
 from safetensors.torch import load_file, save_file
 from torch.utils.data import DataLoader
-from torch_geometric.data import HeteroData
+from torch_geometric.data import Data
 
 from .. import config
 from .data_processor import DataProcessor
@@ -321,31 +321,35 @@ class ElearningDataModule(L.LightningDataModule):
 
         return ElearningDataset(df, n_negatives=n_negatives)
 
-    def create_inter_graph(self) -> HeteroData:
+    def create_inter_graph(self) -> Data:
         """
-        Constructs a heterogeneous bipartite graph from processed training interactions.
+        Constructs a homogeneous bipartite graph from processed user-item training interactions.
 
-        The graph uses a COO (Coordinate) format for edge indices, representing
-        positive interactions between users and items. It includes bidirectional
-        relations to facilitate message passing in GNN architectures.
+        The graph uses a unified node index space [0, ..., num_users + num_items - 1],
+        where item indices are offset by the total number of users. This structure
+        is optimized for homogeneous GNNs and Graph Contrastive Learning (GCL)
+        augmentations like Edge Dropout.
+
+        Normaly, the correct representation of this graph is using HeteroData,
+        but because of we are going to use GCL and all the librarys and methods
+        for this use homogeneous graphs, we are going to use Data instead.
 
         Topology:
-            - Nodes: 'user' and 'item' with static features as 'x'.
-            - Edge ('user', 'interacts', 'item'): Directional interaction.
-            - Edge ('item', 'rev_interacts', 'user'): Reversed interaction for
-              bidirectional information flow.
+            - Nodes: Unified set representing both users and items.
+            - Edges: Undirected (bidirectional) interactions stored in a single
+              COO tensor to facilitate symmetric message passing.
 
-        Edge Index Structure [2, N]:
-            Row 0: [u_1, u_2, ..., u_n] (Source user indices)
-            Row 1: [i_1, i_2, ..., i_n] (Target item indices)
-            Mapping: u_k interacts with i_k.
+        Edge Index Structure [2, 2 * N]:
+            Row 0: [u_1, ..., u_n, (i_1 + offset), ..., (i_n + offset)]
+            Row 1: [(i_1 + offset), ..., (i_n + offset), u_1, ..., u_n]
+            Mapping: u_k <-> (i_k + offset).
 
         Returns:
-            HeteroData: A PyG graph containing node features and edge indices.
+            Data: A PyG Data object containing the unified edge_index,
+                  and raw features (u_x, i_x) for later projection.
 
         Raises:
-            RuntimeError: If called before `setup()` or if training data/features
-                are not yet processed and cached.
+            RuntimeError: If called before data/features are processed and cached.
         """
         df_train = self._processed_data["train"]
 
@@ -354,22 +358,32 @@ class ElearningDataModule(L.LightningDataModule):
 
         pos_train = df_train[df_train[config.RELEVANT_COL] > 0]
 
-        data = HeteroData()
-
-        data["user"].x = self.u_static
-        data["item"].x = self.i_static
-
-        edge_index = (
-            torch.tensor(
-                pos_train[[config.USER_COL, config.ITEM_COL]].values,  # (N, 2)
-                dtype=torch.long,
-            )
-            .t()  # (2, N)
-            .contiguous()
+        u_idx = torch.tensor(pos_train[config.USER_COL].values, dtype=torch.long)
+        i_idx = (
+            torch.tensor(pos_train[config.ITEM_COL].values, dtype=torch.long)
+            + self.num_users
         )
 
-        data["user", "interacts", "item"].edge_index = edge_index
-        data["item", "rev_interacts", "user"].edge_index = edge_index[[1, 0]]
+        edge_index_u2i = torch.stack([u_idx, i_idx], dim=0)
+        edge_index_i2u = torch.stack([i_idx, u_idx], dim=0)
+
+        full_edge_index = torch.cat(
+            [edge_index_u2i, edge_index_i2u], dim=1
+        ).contiguous()
+
+        num_nodes = self.num_users + self.num_items
+        data = Data(edge_index=full_edge_index, num_nodes=num_nodes)
+
+        data.u_x = self.u_static
+        data.i_x = self.i_static
+        data.num_users = self.num_users
+        data.num_items = self.num_items
+        data.node_type = torch.cat(
+            [
+                torch.zeros(self.num_users, dtype=torch.long),
+                torch.ones(self.num_items, dtype=torch.long),
+            ]
+        )
 
         return data
 
