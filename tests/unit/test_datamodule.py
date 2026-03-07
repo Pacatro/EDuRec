@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from edurec.datasets import DatasetName, ElearningDataModule
@@ -38,12 +36,22 @@ def test_create_inter_graph():
     assert train_raw is not None
 
     num_pos_inter = len(train_raw[train_raw[config.RELEVANT_COL] > 0])
-    graph = dm.create_inter_graph()
-    num_interacciones = graph["user", "interacts", "item"].num_edges
-    num_rev_interacciones = graph["item", "rev_interacts", "user"].num_edges
 
-    assert num_interacciones == num_rev_interacciones
-    assert num_interacciones == num_pos_inter
+    graph = dm.create_inter_graph()
+
+    assert graph.num_edges == 2 * num_pos_inter
+
+    num_users = graph.num_users
+
+    assert graph.edge_index is not None
+
+    item_indices = graph.edge_index[1, :num_pos_inter]
+
+    assert item_indices.min().item() >= num_users
+
+    assert hasattr(graph, "u_x")
+    assert hasattr(graph, "i_x")
+    assert graph.u_x.shape[0] == num_users
 
 
 if __name__ == "__main__":
