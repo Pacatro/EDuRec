@@ -68,11 +68,9 @@ def test_gcl_mars():
 
     u_struct, i_struct, loss = model(graph)
 
-    print(u_struct.shape)
-    print(i_struct.shape)
-    print(loss)
-
-    assert not True
+    assert u_struct.shape == (dm.num_users, cfg.dim_hidden)
+    assert i_struct.shape == (dm.num_items, cfg.dim_hidden)
+    assert not torch.isnan(loss)
 
 
 if __name__ == "__main__":
