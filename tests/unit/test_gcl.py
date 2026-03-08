@@ -54,7 +54,9 @@ def test_gcl_mars():
 
     dm.setup()
 
-    graph = dm.create_inter_graph().to("cuda")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    graph = dm.create_inter_graph().to(device)
 
     cfg = GCLConfig(
         dim_user=graph.u_x.shape[1],
@@ -64,7 +66,7 @@ def test_gcl_mars():
         tau=0.1,
     )
 
-    model = GhostGCL(cfg).to("cuda")
+    model = GhostGCL(cfg).to(device)
 
     u_struct, i_struct, loss = model(graph)
 
