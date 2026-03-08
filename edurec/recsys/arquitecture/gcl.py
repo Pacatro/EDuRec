@@ -150,8 +150,8 @@ class InfoNCELoss(nn.Module):
 
     The unified node space is assumed to follow the convention:
 
-        - [0, ..., num_users - 1]                 -> user nodes
-        - [num_users, ..., num_users + num_items - 1] -> item nodes
+        - User nodes: [0, ..., num_users - 1]
+        - Item nodes: [num_users, ..., num_users + num_items - 1]
 
     The loss is computed independently for users and items using two aligned
     embedding sets (e.g. obtained from two graph augmentations in Graph
@@ -174,7 +174,7 @@ class InfoNCELoss(nn.Module):
         max_samples_i (int): Maximum number of item nodes used to compute
             the contrastive loss. If the number of items exceeds this value,
             a random subset is sampled.
-        reduction (InfoNCEReduction): Strategy used to combine the user and
+        reduction (LossReduction): Strategy used to combine the user and
             item losses. Supported options are MEAN and SUM.
     """
 
