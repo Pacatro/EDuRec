@@ -24,7 +24,13 @@ END_TOKEN: str = "<|end|>"
 EMPTY_TOKEN: str = "<|empty|>"
 PROCESSED_FOLDER: str = f"{DATA_FOLDER}/processed"
 
-# Model
+# GCL
+DROP_EDGES_P: float = 0.2
+TAU: float = 0.1
+MAX_SAMPLES_U: int = 2048
+MAX_SAMPLES_I: int = 2048
+LOSS_REDUCTION: str = "mean"
+
 EMB_DIM: int = 256
 DROPOUT: float = 0.2
 HIDDEN_DIMS: list[int] = [256, 256, 128]
