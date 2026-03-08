@@ -108,13 +108,6 @@ class GhostGCL(nn.Module):
             reduction=cfg.loss_reduc,
         )
 
-    def encode(self, data: Data, edge_index: torch.Tensor) -> torch.Tensor:
-        u = self.u_proj(data.u_x)
-        i = self.i_proj(data.i_x)
-        x = torch.cat([u, i], dim=0)
-        x = self.gnn(x, edge_index)
-        return x
-
     def forward(self, data: Data) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         assert data.edge_index is not None
 
@@ -141,6 +134,13 @@ class GhostGCL(nn.Module):
         i_struct = z[num_users:]
 
         return u_struct, i_struct, loss
+
+    def encode(self, data: Data, edge_index: torch.Tensor) -> torch.Tensor:
+        u = self.u_proj(data.u_x)
+        i = self.i_proj(data.i_x)
+        x = torch.cat([u, i], dim=0)
+        x = self.gnn(x, edge_index)
+        return x
 
 
 class InfoNCELoss(nn.Module):
@@ -191,39 +191,6 @@ class InfoNCELoss(nn.Module):
         self.max_samples_i = max_samples_i
         self.reduction = reduction
 
-    def _similarity(self, h1: torch.Tensor, h2: torch.Tensor) -> torch.Tensor:
-        h1 = F.normalize(h1, dim=1)
-        h2 = F.normalize(h2, dim=1)
-        return h1 @ h2.t()
-
-    def _sample_nodes(
-        self,
-        h1: torch.Tensor,
-        h2: torch.Tensor,
-        max_samples: int,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        n = h1.shape[0]
-
-        if n <= max_samples:
-            return h1, h2
-
-        idx = torch.randperm(n, device=h1.device)[:max_samples]
-        return h1[idx], h2[idx]
-
-    def _compute_loss(
-        self,
-        h1: torch.Tensor,
-        h2: torch.Tensor,
-        max_samples: int = 0,
-    ) -> torch.Tensor:
-        h1, h2 = self._sample_nodes(h1, h2, max_samples)
-
-        sim = torch.exp(self._similarity(h1, h2) / self.tau)
-        pos = sim.diag()
-        neg = sim.sum(dim=1) - pos
-        loss = -torch.log(pos / (pos + neg)).mean()
-        return loss
-
     def forward(
         self, h1: torch.Tensor, h2: torch.Tensor, num_users: int, num_items: int
     ) -> torch.Tensor:
@@ -240,3 +207,35 @@ class InfoNCELoss(nn.Module):
             return loss_u + loss_i
 
         return 0.5 * (loss_u + loss_i)
+
+    def _compute_loss(
+        self,
+        h1: torch.Tensor,
+        h2: torch.Tensor,
+        max_samples: int = 0,
+    ) -> torch.Tensor:
+        h1, h2 = self._sample_nodes(h1, h2, max_samples)
+        sim = torch.exp(self._similarity(h1, h2) / self.tau)
+        pos = sim.diag()
+        neg = sim.sum(dim=1) - pos
+        loss = -torch.log(pos / (pos + neg)).mean()
+        return loss
+
+    def _sample_nodes(
+        self,
+        h1: torch.Tensor,
+        h2: torch.Tensor,
+        max_samples: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        n = h1.shape[0]
+
+        if n <= max_samples:
+            return h1, h2
+
+        idx = torch.randperm(n, device=h1.device)[:max_samples]
+        return h1[idx], h2[idx]
+
+    def _similarity(self, h1: torch.Tensor, h2: torch.Tensor) -> torch.Tensor:
+        h1 = F.normalize(h1, dim=1)
+        h2 = F.normalize(h2, dim=1)
+        return h1 @ h2.t()
