@@ -45,7 +45,7 @@ class GCLConfig:
     loss_reduc: LossReduction = LossReduction(config.LOSS_REDUCTION)
 
 
-class GhostGCL(nn.Module):
+class GCL(nn.Module):
     """
     Graph Contrastive Learning encoder for the GHOST recommendation architecture.
 
