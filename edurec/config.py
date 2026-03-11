@@ -18,10 +18,6 @@ RELEVANT_COL: str = "relevant"
 MIN_INTERACTIONS: int = 3
 
 # Preprocessing
-PADDING_VAL: int = 0
-INIT_TOKEN: str = "<|init|>"
-END_TOKEN: str = "<|end|>"
-EMPTY_TOKEN: str = "<|empty|>"
 PROCESSED_FOLDER: str = f"{DATA_FOLDER}/processed"
 
 # GCL
@@ -30,6 +26,13 @@ TAU: float = 0.1
 MAX_SAMPLES_U: int = 2048
 MAX_SAMPLES_I: int = 2048
 LOSS_REDUCTION: str = "mean"
+
+# Ranker
+NUM_HEADS: int = 4
+NUM_BLOCKS: int = 2
+FF_DIM: int = 256
+DROPOUT: float = 0.1
+MAX_HISTORY_LEN: int = 50
 
 EMB_DIM: int = 256
 DROPOUT: float = 0.2
