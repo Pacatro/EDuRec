@@ -73,6 +73,8 @@ class ElearningDataModule(L.LightningDataModule):
             "test": None,
         }
 
+        self.global_history = {}
+
         self._load_data()
 
     @property
@@ -166,6 +168,8 @@ class ElearningDataModule(L.LightningDataModule):
         if not self.is_processed:
             train_raw, val_raw, test_raw = self._split_data()
             self._preprocess(train_raw, val_raw, test_raw)
+
+        self.global_history = self._generate_global_history()
 
         match stage:
             case "fit" | None:
@@ -276,6 +280,41 @@ class ElearningDataModule(L.LightningDataModule):
         if not self.use_processed_data:
             self._save_processed_data()
 
+    def _generate_global_history(self) -> dict[int, list]:
+        train_p = self._processed_data["train"]
+        train_val = self._processed_data["val"]
+        train_test = self._processed_data["test"]
+
+        assert train_p is not None and train_val is not None and train_test is not None
+
+        excluded_cols = [
+            config.USER_COL,
+            config.ITEM_COL,
+            config.RELEVANT_COL,
+            config.RATING_COL,
+        ]
+
+        if config.TIME_COL in train_p.columns:
+            excluded_cols.append(config.TIME_COL)
+
+        ctx_cols = [c for c in train_p.columns if c not in excluded_cols]
+
+        all_interactions = pd.concat([train_p, train_val, train_test])
+
+        if config.TIME_COL in all_interactions.columns:
+            all_interactions = all_interactions.sort_values(config.TIME_COL)
+
+        pos_inter = all_interactions[all_interactions[config.RELEVANT_COL] > 0]
+
+        global_history = {}
+        for u_id, group in pos_inter.groupby(config.USER_COL):
+            items = group[config.ITEM_COL].tolist()
+            ctx_vals = group[ctx_cols].values.tolist()
+
+            global_history[u_id] = list(zip(items, ctx_vals))
+
+        return global_history
+
     def _generate_static_feats(self, df: pd.DataFrame, id_col: str) -> torch.Tensor:
         """
         Convert sorted entity features into a 2D tensor matrix with
@@ -319,7 +358,7 @@ class ElearningDataModule(L.LightningDataModule):
                 f"Data must be processed before creating the dataset for {split}"
             )
 
-        return ElearningDataset(df, n_negatives=n_negatives)
+        return ElearningDataset(df, self.global_history, n_negatives=n_negatives)
 
     def create_inter_graph(self) -> Data:
         """

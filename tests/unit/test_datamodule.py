@@ -4,10 +4,14 @@ from edurec.datasets import DatasetName, ElearningDataModule
 from edurec import config
 
 
-def test_split_mars():
-    dm = ElearningDataModule(
+@pytest.fixture
+def dm() -> ElearningDataModule:
+    return ElearningDataModule(
         DatasetName.MARS, batch_size=1, test_ratio=0.2, val_ratio=0.2
     )
+
+
+def test_split_mars(dm: ElearningDataModule):
     inter_len = dm.num_interactions
     train_df, val_df, test_df = dm._split_data()
 
@@ -16,19 +20,12 @@ def test_split_mars():
     assert len(val_df) == len(test_df)
 
 
-def test_setup():
-    dm = ElearningDataModule(
-        DatasetName.MARS, batch_size=1, test_ratio=0.2, val_ratio=0.2
-    )
+def test_setup(dm: ElearningDataModule):
     dm.setup()
     assert dm.is_processed
 
 
-def test_create_inter_graph():
-    dm = ElearningDataModule(
-        DatasetName.MARS, batch_size=1, test_ratio=0.2, val_ratio=0.2
-    )
-
+def test_create_inter_graph(dm: ElearningDataModule):
     dm.setup()
 
     train_raw = dm._processed_data["train"]
@@ -52,6 +49,16 @@ def test_create_inter_graph():
     assert hasattr(graph, "u_x")
     assert hasattr(graph, "i_x")
     assert graph.u_x.shape[0] == num_users
+
+
+def test_generate_global_history(dm: ElearningDataModule):
+    dm.setup()
+
+    global_history = dm._generate_global_history()
+
+    assert global_history is not None
+
+    assert len(global_history) > 0
 
 
 if __name__ == "__main__":

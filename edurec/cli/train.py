@@ -70,12 +70,14 @@ def train(
         val_ratio=val_size,
         use_processed_data=use_procesed_data,
         random_state=config.state["random_state"],
+        n_neg_train=0,
     )
 
     dm.setup()
+    graph = dm.create_inter_graph()
 
     print(dm.train_ds[0])
-    print(dm.create_inter_graph())
+    print(graph)
 
     if config.state["verbose"]:
         print(f"[TRAIN] Dataset {dataset.value} sparsity: {dm.sparsity}")

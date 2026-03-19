@@ -320,7 +320,7 @@ class TimeFeaturesTransformer(BaseEstimator, TransformerMixin):
 
         return pd.DataFrame(
             {
-                "time_ts": ts,
+                config.TIME_COL: ts,
                 # "time_hour": hour,
                 # "time_dow": dow,
                 # "time_month": month,
