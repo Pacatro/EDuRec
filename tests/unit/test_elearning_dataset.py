@@ -2,6 +2,7 @@ import pytest
 import torch
 
 from edurec.datasets import DatasetName, ElearningDataModule, ElearningDataset
+from edurec import config
 
 
 @pytest.fixture
@@ -34,5 +35,5 @@ def test_elearning_dataset(dm: ElearningDataModule):
     ]
 
     assert set(elem.keys()) == set(expected_keys)
-
     assert all(isinstance(elem[k], torch.Tensor) for k in expected_keys)
+    assert elem["history_items"].shape == torch.Size([config.MAX_HISTORY_LEN])

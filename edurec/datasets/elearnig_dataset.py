@@ -36,30 +36,34 @@ class ElearningDataset(Dataset):
 
         # Take all items before the current one
         try:
-            pos_idx = full_hist.index(current_item)
+            pos_idx = next(i for i, x in enumerate(full_hist) if x[0] == current_item)
             history_data = full_hist[:pos_idx]
-        except ValueError:
+        except StopIteration:
             history_data = full_hist.copy()
+
+        if len(history_data) > config.MAX_HISTORY_LEN:
+            history_data = history_data[-config.MAX_HISTORY_LEN :]
 
         hist_len = len(history_data)
         hist_items = torch.zeros(config.MAX_HISTORY_LEN, dtype=torch.long)
+        mask = torch.zeros(config.MAX_HISTORY_LEN, dtype=torch.bool)
 
-        # The number of interaction features is the same for all items
+        if hist_len == 0:
+            hist_ctx = torch.zeros(config.MAX_HISTORY_LEN, 0, dtype=torch.float32)
+            return hist_items, hist_ctx, mask
+
         num_ctx_feats = len(history_data[0][1])
 
         hist_ctx = torch.zeros(
             config.MAX_HISTORY_LEN, num_ctx_feats, dtype=torch.float32
         )
-        mask = torch.zeros(config.MAX_HISTORY_LEN, dtype=torch.bool)
-
-        if hist_len > 0:
-            hist_items[:hist_len] = torch.tensor(
-                [x[0] for x in history_data], dtype=torch.long
-            )
-            hist_ctx[:hist_len] = torch.tensor(
-                [x[1] for x in history_data], dtype=torch.float32
-            )
-            mask[:hist_len] = True
+        hist_items[:hist_len] = torch.tensor(
+            [x[0] for x in history_data], dtype=torch.long
+        )
+        hist_ctx[:hist_len] = torch.tensor(
+            [x[1] for x in history_data], dtype=torch.float32
+        )
+        mask[:hist_len] = True
 
         return hist_items, hist_ctx, mask
 
