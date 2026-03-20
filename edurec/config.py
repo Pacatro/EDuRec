@@ -35,9 +35,6 @@ FF_DIM: int = 256
 DROPOUT: float = 0.1
 MAX_HISTORY_LEN: int = 50
 
-EMB_DIM: int = 256
-DROPOUT: float = 0.2
-HIDDEN_DIMS: list[int] = [256, 256, 128]
 
 # Training
 LR: float = 0.001
@@ -56,10 +53,7 @@ N_NEG_VAL: int = 100
 N_NEG_TEST: int = 100
 SAVE_DATA: bool = False
 MONITOR: str = f"val/Ndcg@{TOP_K}"
-# If alpha is 0.5, both tasks have the same importance
-# If alpha is 0.0, only relevance task is considered
-# If alpha is 1.0, only rating task is considered
-ALPHA: float = 0.5
+ALPHA: float = 0.05
 
 # Eval
 SEEDS: list[int] = [0, 1, 42]

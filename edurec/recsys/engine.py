@@ -1,8 +1,8 @@
-from typing import Any, Protocol
-
 import lightning.pytorch as L
 import torch
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
+from torch import nn
+from torch_geometric.data import Data
 from torchmetrics import Metric, MetricCollection
 from torchmetrics.retrieval import (
     RetrievalAUROC,
@@ -15,62 +15,16 @@ from torchmetrics.retrieval import (
 )
 
 from .. import config
-
-
-# WARNING: This is a temporary solution until we find a better arquitecture for the model
-class ModelProto(Protocol):
-    def __call__(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]: ...
-
-    def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]: ...
-
-    def compute_loss(
-        self,
-        preds: dict[str, torch.Tensor],
-        batch: dict[str, torch.Tensor],
-        *args: Any,
-        **kwargs: Any,
-    ) -> tuple[torch.Tensor, dict[str, torch.Tensor] | None]: ...
-
-    def compute_ranking_metrics(
-        self,
-        preds: dict[str, torch.Tensor],
-        batch: dict[str, torch.Tensor],
-        ranking_metrics: MetricCollection,
-    ) -> None: ...
-
-
-class RetrievalFBetaScore(Metric):
-    def __init__(
-        self, top_k: int = 10, beta: float = 1.0, adaptive_k: bool = False, **kwargs
-    ):
-        super().__init__(**kwargs)
-        self.beta = beta
-        self.top_k = top_k
-
-        self.precision = RetrievalPrecision(top_k=top_k, adaptive_k=adaptive_k)
-        self.recall = RetrievalRecall(top_k=top_k)
-
-    def update(self, preds: torch.Tensor, target: torch.Tensor, indexes: torch.Tensor):
-        self.precision.update(preds, target, indexes=indexes)
-        self.recall.update(preds, target, indexes=indexes)
-
-    def compute(self):
-        precision = self.precision.compute()
-        recall = self.recall.compute()
-
-        return ((1 + self.beta**2) * precision * recall) / (
-            (self.beta**2 * precision) + recall
-        )
-
-    def reset(self):
-        self.precision.reset()
-        self.recall.reset()
+from .arquitecture import Ghost, GhostConfig
 
 
 class RecSys(L.LightningModule):
     def __init__(
         self,
-        model: ModelProto,
+        cfg: GhostConfig,
+        inter_graph: Data,
+        u_static: torch.Tensor,
+        i_static: torch.Tensor,
         lr: float = config.LR,
         weight_decay: float = config.WEIGHT_DECAY,
         top_k: int = config.TOP_K,
@@ -79,12 +33,18 @@ class RecSys(L.LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
-        self.model = model
+        self.cfg = cfg
+        self.inter_graph = inter_graph.to("cuda")
         self.lr = lr
         self.weight_decay = weight_decay
         self.monitor = monitor
         self.alpha = alpha
         self.top_k = top_k
+
+        self.register_buffer("u_static", u_static)
+        self.register_buffer("i_static", i_static)
+
+        self.ranker_loss = nn.BCEWithLogitsLoss()
 
         ranking_metrics = MetricCollection(
             {
@@ -104,28 +64,22 @@ class RecSys(L.LightningModule):
         self.val_ranking_metrics = ranking_metrics.clone(prefix="val/")
         self.test_ranking_metrics = ranking_metrics.clone(prefix="test/")
 
-    def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        return self.model(batch)
+        self.model = Ghost(cfg)
+        self.model_name = self.model.__class__.__name__
 
-    def _step(
-        self,
-        batch: dict[str, torch.Tensor],
-        prefix: str,
-        ranking_metrics: MetricCollection | None = None,
-    ):
-        preds = self.model(batch)
-        loss, logs = self.model.compute_loss(preds, batch, self.alpha)
-
-        self.log(f"{prefix}/Loss", loss, prog_bar=True)
-
-        if logs is not None:
-            for k, v in logs.items():
-                self.log(f"{prefix}/{k}", v, on_epoch=True)
-
-        if ranking_metrics is not None:
-            self.model.compute_ranking_metrics(preds, batch, ranking_metrics)
-
-        return loss
+    def forward(
+        self, batch: dict[str, torch.Tensor]
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        return self.model(
+            u_id=batch["user_id"],
+            h_ids=batch["history_items"],
+            h_ctx=batch["history_ctx"],
+            c_ids=batch["candidates"],
+            inter_graph=self.inter_graph,
+            u_static_global=self.u_static,
+            i_static_global=self.i_static,
+            hist_mask=batch["mask"],
+        )
 
     def training_step(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         return self._step(batch, "train")
@@ -143,6 +97,63 @@ class RecSys(L.LightningModule):
             "test",
             ranking_metrics=self.test_ranking_metrics,
         )
+
+    def _step(
+        self,
+        batch: dict[str, torch.Tensor],
+        prefix: str,
+        ranking_metrics: MetricCollection | None = None,
+    ):
+        scores, gcl_loss = self(batch)
+        targets = batch["target"].float()
+
+        rank_loss = self.ranker_loss(scores, targets)
+        loss = self._compute_loss(rank_loss, gcl_loss)
+
+        self.log(
+            f"{prefix}/RankLoss",
+            rank_loss,
+            on_step=(prefix == "train"),
+            on_epoch=True,
+            prog_bar=(prefix != "train"),
+            batch_size=targets.size(0),
+        )
+        self.log(
+            f"{prefix}/GclLoss",
+            gcl_loss,
+            on_step=(prefix == "train"),
+            on_epoch=True,
+            prog_bar=False,
+            batch_size=targets.size(0),
+        )
+        self.log(
+            f"{prefix}/Loss",
+            loss,
+            on_step=(prefix == "train"),
+            on_epoch=True,
+            prog_bar=True,
+            batch_size=targets.size(0),
+        )
+
+        if ranking_metrics is not None:
+            preds = scores.reshape(-1)
+            target = targets.reshape(-1).long()
+
+            batch_size = targets.size(0)
+            num_candidates = targets.size(1) if targets.ndim > 1 else 1
+
+            indexes = torch.arange(
+                batch_size, device=targets.device, dtype=torch.long
+            ).repeat_interleave(num_candidates)
+
+            ranking_metrics.update(preds=preds, target=target, indexes=indexes)
+
+        return loss
+
+    def _compute_loss(
+        self, rank_loss: torch.Tensor, gcl_loss: torch.Tensor
+    ) -> torch.Tensor:
+        return rank_loss + self.alpha * gcl_loss
 
     def on_validation_epoch_start(self) -> None:
         self.val_ranking_metrics.reset()
@@ -173,3 +184,31 @@ class RecSys(L.LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": {"scheduler": scheduler, "monitor": self.monitor},
         }
+
+
+class RetrievalFBetaScore(Metric):
+    def __init__(
+        self, top_k: int = 10, beta: float = 1.0, adaptive_k: bool = False, **kwargs
+    ):
+        super().__init__(**kwargs)
+        self.beta = beta
+        self.top_k = top_k
+
+        self.precision = RetrievalPrecision(top_k=top_k, adaptive_k=adaptive_k)
+        self.recall = RetrievalRecall(top_k=top_k)
+
+    def update(self, preds: torch.Tensor, target: torch.Tensor, indexes: torch.Tensor):
+        self.precision.update(preds, target, indexes=indexes)
+        self.recall.update(preds, target, indexes=indexes)
+
+    def compute(self):
+        precision = self.precision.compute()
+        recall = self.recall.compute()
+
+        return ((1 + self.beta**2) * precision * recall) / (
+            (self.beta**2 * precision) + recall
+        )
+
+    def reset(self):
+        self.precision.reset()
+        self.recall.reset()

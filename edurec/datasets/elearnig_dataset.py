@@ -11,12 +11,14 @@ class ElearningDataset(Dataset):
         self,
         interactions: pd.DataFrame,
         global_history: dict[int, list],
+        num_ctx_feats: int,
         n_negatives: int = 0,
         min_rating: float | None = None,
     ) -> None:
         self.n_negatives = n_negatives
         self.min_rating = min_rating
         self.global_history = global_history
+        self.num_ctx_feats = num_ctx_feats
 
         self.user_ids = interactions[config.USER_COL].values
         self.item_ids = interactions[config.ITEM_COL].values
@@ -48,15 +50,13 @@ class ElearningDataset(Dataset):
         hist_items = torch.zeros(config.MAX_HISTORY_LEN, dtype=torch.long)
         mask = torch.zeros(config.MAX_HISTORY_LEN, dtype=torch.bool)
 
+        hist_ctx = torch.zeros(
+            config.MAX_HISTORY_LEN, self.num_ctx_feats, dtype=torch.float32
+        )
+
         if hist_len == 0:
-            hist_ctx = torch.zeros(config.MAX_HISTORY_LEN, 0, dtype=torch.float32)
             return hist_items, hist_ctx, mask
 
-        num_ctx_feats = len(history_data[0][1])
-
-        hist_ctx = torch.zeros(
-            config.MAX_HISTORY_LEN, num_ctx_feats, dtype=torch.float32
-        )
         hist_items[:hist_len] = torch.tensor(
             [x[0] for x in history_data], dtype=torch.long
         )

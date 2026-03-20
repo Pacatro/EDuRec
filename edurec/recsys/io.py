@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from .model import EDuRecConfig
+from .arquitecture import GhostConfig
 
 
 def save_model(
     model_name: str,
-    model_config: EDuRecConfig,
+    model_config: GhostConfig,
     best_model_path: str,
     models_folder: str,
     dataset_name: str,
@@ -39,7 +39,7 @@ def save_model(
 
 def load_model(
     models_folder: str | Path, dataset_name: str
-) -> tuple[Path, EDuRecConfig]:
+) -> tuple[Path, GhostConfig]:
     """Get the last saved model and config."""
     root = Path(models_folder) / dataset_name
 
@@ -66,6 +66,6 @@ def load_model(
         raise ValueError(f"Model {latest_dir} is not a pytorch model")
 
     config_data = json.loads(config_file.read_text(encoding="utf-8"))
-    model_config = EDuRecConfig(**config_data)
+    model_config = GhostConfig(**config_data)
 
     return model_file, model_config

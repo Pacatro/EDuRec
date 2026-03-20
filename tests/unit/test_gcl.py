@@ -3,7 +3,7 @@ import torch
 from torch_geometric.data import Data
 
 from edurec.datasets.loaders import DatasetName
-from edurec.recsys.arquitecture import GCLConfig, GhostGCL
+from edurec.recsys.arquitecture import GCLConfig, GCL
 from edurec.datasets import ElearningDataModule
 
 
@@ -35,7 +35,7 @@ def test_gcl():
     data.i_x = i_x
     data.num_users = num_users
 
-    model = GhostGCL(cfg)
+    model = GCL(cfg)
 
     eu_struct, ei_struct, loss = model(data)
 
@@ -66,7 +66,7 @@ def test_gcl_mars():
         tau=0.1,
     )
 
-    model = GhostGCL(cfg).to(device)
+    model = GCL(cfg).to(device)
 
     u_struct, i_struct, loss = model(graph)
 

@@ -115,6 +115,18 @@ class ElearningDataModule(L.LightningDataModule):
             return 0.0
         return 1 - (n_inter / (n_users * n_items))
 
+    @property
+    def num_user_feats(self) -> int:
+        if self.u_static is not None:
+            return self.u_static.shape[1]
+        return len(self.users_feats.columns) - 1 if hasattr(self, "users_feats") else 0
+
+    @property
+    def num_item_feats(self) -> int:
+        if self.i_static is not None:
+            return self.i_static.shape[1]
+        return len(self.items_feats.columns) - 1 if hasattr(self, "items_feats") else 0
+
     def _load_data(self):
         """Load raw inputs or processed cache depending on configuration."""
         required_files = [
@@ -358,7 +370,23 @@ class ElearningDataModule(L.LightningDataModule):
                 f"Data must be processed before creating the dataset for {split}"
             )
 
-        return ElearningDataset(df, self.global_history, n_negatives=n_negatives)
+        return ElearningDataset(
+            interactions=df,
+            global_history=self.global_history,
+            num_ctx_feats=self._num_inter_feats(df),
+            n_negatives=n_negatives,
+        )
+
+    def _num_inter_feats(self, df: pd.DataFrame) -> int:
+        excluded_cols = [
+            config.USER_COL,
+            config.ITEM_COL,
+            config.RELEVANT_COL,
+            config.RATING_COL,
+            config.TIME_COL,
+        ]
+
+        return len([c for c in df.columns if c not in excluded_cols])
 
     def create_inter_graph(self) -> Data:
         """
@@ -431,7 +459,7 @@ class ElearningDataModule(L.LightningDataModule):
             self.train_ds,
             batch_size=self.batch_size,
             num_workers=config.NUM_WORKERS,
-            shuffle=False,
+            shuffle=True,
         )
 
     def val_dataloader(self) -> DataLoader:

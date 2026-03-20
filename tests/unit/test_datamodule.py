@@ -57,8 +57,14 @@ def test_generate_global_history(dm: ElearningDataModule):
     global_history = dm._generate_global_history()
 
     assert global_history is not None
-
     assert len(global_history) > 0
+
+
+def test_num_static_feats(dm: ElearningDataModule):
+    dm.setup()
+
+    assert dm.num_user_feats == 1
+    assert dm.num_item_feats == 6
 
 
 if __name__ == "__main__":
