@@ -1,7 +1,7 @@
 import lightning.pytorch as L
 import torch
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
-from torch import nn
+from torch import device, nn
 from torch_geometric.data import Data
 from torchmetrics import Metric, MetricCollection
 from torchmetrics.retrieval import (
@@ -34,7 +34,9 @@ class RecSys(L.LightningModule):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
         self.cfg = cfg
-        self.inter_graph = inter_graph.to("cuda")
+        self.inter_graph = inter_graph.to(
+            "cuda" if config.state["device"] == "auto" else config.state["device"]
+        )
         self.lr = lr
         self.weight_decay = weight_decay
         self.monitor = monitor

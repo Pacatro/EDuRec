@@ -1,7 +1,6 @@
 from typing import Annotated, cast
 
 import lightning as L
-import pandas as pd
 import typer
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
