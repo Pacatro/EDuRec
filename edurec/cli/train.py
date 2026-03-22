@@ -39,6 +39,22 @@ def train(
     top_k: Annotated[
         int, typer.Option("--top_k", "-k", help="Top-k value")
     ] = config.TOP_K,
+    n_neg_train: Annotated[
+        int,
+        typer.Option(
+            "--n_neg_train", help="Number of negatives to sample for training"
+        ),
+    ] = config.N_NEG_TRAIN,
+    n_neg_val: Annotated[
+        int,
+        typer.Option(
+            "--n_neg_val", help="Number of negatives to sample for validation"
+        ),
+    ] = config.N_NEG_VAL,
+    n_neg_test: Annotated[
+        int,
+        typer.Option("--n_neg_test", help="Number of negatives to sample for testing"),
+    ] = config.N_NEG_TEST,
     monitor: Annotated[
         str, typer.Option("--monitor", "-m", help="Monitor metric")
     ] = config.MONITOR,
@@ -66,7 +82,12 @@ def train(
         val_ratio=val_size,
         use_processed_data=use_procesed_data,
         random_state=config.state["random_state"],
+        n_neg_train=n_neg_train,
+        n_neg_val=n_neg_val,
+        n_neg_test=n_neg_test,
     )
+
+    dm.setup()
 
     if config.state["verbose"]:
         print(f"[TRAIN] Dataset {dataset.value} sparsity: {dm.sparsity}")
@@ -95,12 +116,15 @@ def train(
     early_stop_model = EarlyStopping(
         monitor=monitor,
         patience=patience,
-        mode="max",
+        mode="min" if "Loss" in monitor else "max",
         min_delta=config.DELTA,
         verbose=True,
     )
     checkpoint_model = ModelCheckpoint(
-        monitor=monitor, mode="max", save_top_k=1, filename=f"best_{model_name}"
+        monitor=monitor,
+        mode="min" if "Loss" in monitor else "max",
+        save_top_k=1,
+        filename=f"best_{model_name}",
     )
 
     train_logger = (
@@ -125,7 +149,7 @@ def train(
         print("[TRAIN] Debug mode: Skipping evaluation")
         return
 
-    test_results = trainer.test(model=recsys, datamodule=dm)
+    test_results = trainer.test(ckpt_path="best", datamodule=dm, weights_only=False)
 
     if save:
         save_model(
