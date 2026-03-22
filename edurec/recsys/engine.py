@@ -1,7 +1,7 @@
 import lightning.pytorch as L
 import torch
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
-from torch import device, nn
+from torch import nn
 from torch_geometric.data import Data
 from torchmetrics import Metric, MetricCollection
 from torchmetrics.retrieval import (
@@ -105,8 +105,8 @@ class RecSys(L.LightningModule):
         batch: dict[str, torch.Tensor],
         prefix: str,
         ranking_metrics: MetricCollection | None = None,
-    ):
-        scores, gcl_loss = self(batch)
+    ) -> torch.Tensor:
+        scores, gcl_loss = self.model(batch)
         targets = batch["target"].float()
 
         rank_loss = self.ranker_loss(scores, targets)

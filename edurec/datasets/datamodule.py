@@ -294,10 +294,8 @@ class ElearningDataModule(L.LightningDataModule):
 
     def _generate_global_history(self) -> dict[int, list]:
         train_p = self._processed_data["train"]
-        train_val = self._processed_data["val"]
-        train_test = self._processed_data["test"]
 
-        assert train_p is not None and train_val is not None and train_test is not None
+        assert train_p is not None
 
         excluded_cols = [
             config.USER_COL,
@@ -311,12 +309,10 @@ class ElearningDataModule(L.LightningDataModule):
 
         ctx_cols = [c for c in train_p.columns if c not in excluded_cols]
 
-        all_interactions = pd.concat([train_p, train_val, train_test])
+        if config.TIME_COL in train_p.columns:
+            train_p = train_p.sort_values(config.TIME_COL)
 
-        if config.TIME_COL in all_interactions.columns:
-            all_interactions = all_interactions.sort_values(config.TIME_COL)
-
-        pos_inter = all_interactions[all_interactions[config.RELEVANT_COL] > 0]
+        pos_inter = train_p[train_p[config.RELEVANT_COL] > 0]
 
         global_history = {}
         for u_id, group in pos_inter.groupby(config.USER_COL):
