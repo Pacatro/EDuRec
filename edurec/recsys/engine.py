@@ -15,10 +15,8 @@ from torchmetrics.retrieval import (
     RetrievalRecall,
 )
 
-from edurec.recsys.arquitecture.gcl import InfoNCELoss
-
 from .. import config
-from .arquitecture import Ghost, GhostConfig
+from .arquitecture import Ghost, GhostConfig, InfoNCELoss
 
 
 class RecSys(L.LightningModule):
