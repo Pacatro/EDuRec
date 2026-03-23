@@ -58,6 +58,9 @@ def train(
     monitor: Annotated[
         str, typer.Option("--monitor", "-m", help="Monitor metric")
     ] = config.MONITOR,
+    adaptive_k: Annotated[
+        bool, typer.Option("--adaptive_k", "-a", help="Use adaptive k to compute some metrics")
+    ] = config.ADAPTIVE_K,
     use_logger: Annotated[
         bool, typer.Option("--use_logger", "-L", help="Use MLFlow logger")
     ] = False,
@@ -93,6 +96,7 @@ def train(
         print(f"[TRAIN] Dataset {dataset.value} sparsity: {dm.sparsity}")
         print(f"[TRAIN] Number of users: {dm.num_users}")
         print(f"[TRAIN] Number of items: {dm.num_items}")
+        print(f"[TRAIN] Using adaptive k: {adaptive_k}")
 
     cfg = GhostConfig(
         user_dim=dm.num_user_feats, item_dim=dm.num_item_feats, hidden_dim=64
@@ -106,9 +110,8 @@ def train(
         i_static=dm.i_static,
         lr=lr,
         top_k=top_k,
+        adaptive_k=adaptive_k,
     )
-
-    model_name = recsys.model_name
 
     # recsys = torch.compile(recsys) if not debug else recsys
 
@@ -124,11 +127,11 @@ def train(
         monitor=monitor,
         mode="min" if "Loss" in monitor else "max",
         save_top_k=1,
-        filename=f"best_{model_name}",
+        filename=f"best_{recsys.model_name}",
     )
 
     train_logger = (
-        WandbLogger(project=config.EXPERIMENT_NAME, name=f"train_{model_name}")
+        WandbLogger(project=config.EXPERIMENT_NAME, name=f"train_{recsys.model_name}")
         if use_logger and not debug
         else None
     )
@@ -153,7 +156,7 @@ def train(
 
     if save:
         save_model(
-            model_name,
+            recsys.model_name,
             cfg,
             checkpoint_model.best_model_path,
             models_folder,

@@ -29,6 +29,7 @@ class RecSys(L.LightningModule):
         weight_decay: float = config.WEIGHT_DECAY,
         top_k: int = config.TOP_K,
         alpha: float = config.ALPHA,
+        adaptive_k: bool = config.ADAPTIVE_K,
         monitor: str = config.MONITOR,
     ):
         super().__init__()
@@ -54,7 +55,7 @@ class RecSys(L.LightningModule):
 
         self.test_ranking_metrics = MetricCollection(
             {
-                f"Precision@{top_k}": RetrievalPrecision(top_k=top_k, adaptive_k=True),
+                f"Precision@{top_k}": RetrievalPrecision(top_k=top_k, adaptive_k=adaptive_k),
                 f"Recall@{top_k}": RetrievalRecall(top_k=top_k),
                 f"Ndcg@{top_k}": RetrievalNormalizedDCG(top_k=top_k),
                 f"Hit@{top_k}": RetrievalHitRate(top_k=top_k),
@@ -62,7 +63,7 @@ class RecSys(L.LightningModule):
                 f"Mrr@{top_k}": RetrievalMRR(top_k=top_k),
                 f"AUROC@{top_k}": RetrievalAUROC(top_k=top_k),
                 f"F1@{top_k}": RetrievalFBetaScore(
-                    top_k=top_k, beta=1.0, adaptive_k=True
+                    top_k=top_k, beta=1.0, adaptive_k=adaptive_k
                 ),
             },
             prefix="test/",

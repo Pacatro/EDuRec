@@ -53,6 +53,7 @@ N_NEG_VAL: int = 100
 N_NEG_TEST: int = 100
 SAVE_DATA: bool = False
 MONITOR: str = f"val/Ndcg@{TOP_K}"
+ADAPTIVE_K: bool = False
 ALPHA: float = 0.05
 
 # Eval
