@@ -26,6 +26,7 @@ def test_elearning_dataset(dm: ElearningDataModule):
     assert isinstance(elem, dict)
 
     expected_keys = [
+        "query_id",
         "user_id",
         "history_items",
         "history_ctx",

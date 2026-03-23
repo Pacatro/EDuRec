@@ -71,6 +71,7 @@ class ElearningDataset(Dataset):
         user_idx = self.user_ids[idx]
         item_idx = self.item_ids[idx]
         target = float(self.targets[idx])
+        query_id = torch.tensor(idx, dtype=torch.long)
 
         hist_items, hist_ctx, mask = self._get_history_and_mask(user_idx, item_idx)
 
@@ -85,6 +86,7 @@ class ElearningDataset(Dataset):
             targets[0] = target
 
             return {
+                "query_id": query_id,
                 "user_id": torch.tensor(user_idx, dtype=torch.long),
                 "history_items": hist_items,
                 "history_ctx": hist_ctx,
@@ -94,6 +96,7 @@ class ElearningDataset(Dataset):
             }
 
         return {
+            "query_id": query_id,
             "user_id": torch.tensor(user_idx, dtype=torch.long),
             "history_items": hist_items,
             "history_ctx": hist_ctx,

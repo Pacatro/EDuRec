@@ -46,9 +46,13 @@ class RecSys(L.LightningModule):
         self.register_buffer("u_static", u_static)
         self.register_buffer("i_static", i_static)
 
-        self.ranker_loss = nn.BCEWithLogitsLoss()
+        self.ranker_loss = nn.CrossEntropyLoss()
 
-        ranking_metrics = MetricCollection(
+        self.val_ranking_metrics = MetricCollection(
+            {f"Ndcg@{top_k}": RetrievalNormalizedDCG(top_k=top_k)}, prefix="val/"
+        )
+
+        self.test_ranking_metrics = MetricCollection(
             {
                 f"Precision@{top_k}": RetrievalPrecision(top_k=top_k, adaptive_k=True),
                 f"Recall@{top_k}": RetrievalRecall(top_k=top_k),
@@ -60,11 +64,9 @@ class RecSys(L.LightningModule):
                 f"F1@{top_k}": RetrievalFBetaScore(
                     top_k=top_k, beta=1.0, adaptive_k=True
                 ),
-            }
+            },
+            prefix="test/",
         )
-
-        self.val_ranking_metrics = ranking_metrics.clone(prefix="val/")
-        self.test_ranking_metrics = ranking_metrics.clone(prefix="test/")
 
         self.model = Ghost(cfg)
         self.model_name = self.model.__class__.__name__
@@ -106,10 +108,10 @@ class RecSys(L.LightningModule):
         prefix: str,
         ranking_metrics: MetricCollection | None = None,
     ) -> torch.Tensor:
-        scores, gcl_loss = self.model(batch)
+        scores, gcl_loss = self(batch)
         targets = batch["target"].float()
 
-        rank_loss = self.ranker_loss(scores, targets)
+        rank_loss = self._compute_rank_loss(scores, targets)
         loss = self._compute_loss(rank_loss, gcl_loss)
 
         self.log(
@@ -138,19 +140,34 @@ class RecSys(L.LightningModule):
         )
 
         if ranking_metrics is not None:
-            preds = scores.reshape(-1)
-            target = targets.reshape(-1).long()
+            preds = scores.flatten()
+            target = targets.flatten().long()
 
-            batch_size = targets.size(0)
             num_candidates = targets.size(1) if targets.ndim > 1 else 1
 
-            indexes = torch.arange(
-                batch_size, device=targets.device, dtype=torch.long
-            ).repeat_interleave(num_candidates)
+            if targets.ndim == 1:
+                indexes = batch["query_id"].reshape(-1).long()
+            else:
+                num_candidates = targets.size(1)
+                indexes = (
+                    batch["query_id"]
+                    .reshape(-1)
+                    .long()
+                    .repeat_interleave(num_candidates)
+                )
 
             ranking_metrics.update(preds=preds, target=target, indexes=indexes)
 
         return loss
+
+    def _compute_rank_loss(
+        self, scores: torch.Tensor, targets: torch.Tensor
+    ) -> torch.Tensor:
+        if scores.ndim == 2 and targets.ndim == 2:
+            pos_idx = targets.argmax(dim=1)  # [B]
+            return self.ranker_loss(scores, pos_idx)
+
+        return nn.functional.binary_cross_entropy_with_logits(scores, targets.float())
 
     def _compute_loss(
         self, rank_loss: torch.Tensor, gcl_loss: torch.Tensor
