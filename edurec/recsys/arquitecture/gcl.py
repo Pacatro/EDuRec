@@ -6,7 +6,6 @@ import torch.nn.functional as F
 from torch import nn
 from torch_geometric.data import Data
 from torch_geometric.nn import LGConv
-from torch_geometric.utils import dropout_edge
 
 from ... import config
 
@@ -43,6 +42,7 @@ class GCLConfig:
     max_samples_u: int = config.MAX_SAMPLES_U
     max_samples_i: int = config.MAX_SAMPLES_I
     loss_reduc: LossReduction = LossReduction(config.LOSS_REDUCTION)
+    num_layers: int = config.GNN_LAYERS
 
 
 class GCL(nn.Module):
@@ -53,19 +53,18 @@ class GCL(nn.Module):
     user-item interaction graph represented as a homogeneous PyG `Data` object
     with a unified node index space.
 
-    The encoder operates in three main stages:
+    The encoder operates in two main stages:
 
         1. User and item raw features are independently projected into a shared
         latent space of dimension `dim_hidden`.
-        2. Two stochastic graph views are created from the original interaction
-        graph by applying edge dropout.
-        3. Each view is encoded with a Light Graph Convolution (LGConv) layer, and
-        the resulting node representations are optimized with an InfoNCE-based
-        contrastive objective.
+        2. The projected features are propagated through multiple Light Graph
+        Convolution (LGConv) layers, aggregating representations from each
+        propagation step in the LightGCN style.
 
-    The final structural representations are obtained by averaging the node
-    embeddings from both augmented views, then splitting them back into user
-    and item embeddings according to the unified node layout.
+    Contrastive view generation is intentionally kept outside this module so
+    the training loop can control when stochastic graph augmentations are
+    applied. The encoder itself always produces structural embeddings from the
+    provided graph.
 
     Expected graph layout:
         - Nodes [0, ..., num_users - 1] correspond to users.
@@ -83,14 +82,12 @@ class GCL(nn.Module):
           derives them from `u_x` and `i_x`.
 
     Returns:
-        tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        tuple[torch.Tensor, torch.Tensor]:
             A tuple containing:
                 - `u_struct`: Structural user embeddings of shape
                   [num_users, dim_hidden].
                 - `i_struct`: Structural item embeddings of shape
                   [num_items, dim_hidden].
-                - `loss`: Scalar InfoNCE contrastive loss computed between the
-                  two augmented graph views.
     """
 
     def __init__(self, cfg: GCLConfig):
@@ -100,47 +97,38 @@ class GCL(nn.Module):
         self.u_proj = nn.Linear(cfg.dim_user, cfg.dim_hidden)
         self.i_proj = nn.Linear(cfg.dim_item, cfg.dim_hidden)
 
-        self.gnn = LGConv()
-        self.contrast_loss = InfoNCELoss(
-            tau=cfg.tau,
-            max_samples_u=cfg.max_samples_u,
-            max_samples_i=cfg.max_samples_i,
-            reduction=cfg.loss_reduc,
-        )
+        self.convs = nn.ModuleList(LGConv() for _ in range(cfg.num_layers))
 
-    def forward(self, data: Data) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        assert data.edge_index is not None
-
-        # View 1
-        edge_index_1, _ = dropout_edge(
-            data.edge_index, p=self.drop_edges_p, force_undirected=True
-        )
-
-        # View 2
-        edge_index_2, _ = dropout_edge(
-            data.edge_index, p=self.drop_edges_p, force_undirected=True
-        )
-
-        z1 = self.encode(data, edge_index_1)
-        z2 = self.encode(data, edge_index_2)
-
+    def forward(self, data: Data) -> tuple[torch.Tensor, torch.Tensor]:
         num_users = data.u_x.shape[0]
         num_items = data.i_x.shape[0]
+        z = self.encode(data)
+        return self.split_embeddings(z, num_users, num_items)
 
-        loss = self.contrast_loss(z1, z2, num_users, num_items)
+    def encode(
+        self, data: Data, edge_index: torch.Tensor | None = None
+    ) -> torch.Tensor:
+        assert data.edge_index is not None or edge_index is not None
 
-        z = 0.5 * (z1 + z2)
-        u_struct = z[:num_users]
-        i_struct = z[num_users:]
+        edge_index = data.edge_index if edge_index is None else edge_index
 
-        return u_struct, i_struct, loss
-
-    def encode(self, data: Data, edge_index: torch.Tensor) -> torch.Tensor:
         u = self.u_proj(data.u_x)
         i = self.i_proj(data.i_x)
         x = torch.cat([u, i], dim=0)
-        x = self.gnn(x, edge_index)
-        return x
+
+        layer_outputs = [x]
+        for conv in self.convs:
+            x = conv(x, edge_index)
+            layer_outputs.append(x)
+
+        return torch.stack(layer_outputs, dim=0).mean(dim=0)
+
+    def split_embeddings(
+        self, z: torch.Tensor, num_users: int, num_items: int
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        u_struct = z[:num_users]
+        i_struct = z[num_users : num_users + num_items]
+        return u_struct, i_struct
 
 
 class InfoNCELoss(nn.Module):
@@ -215,11 +203,14 @@ class InfoNCELoss(nn.Module):
         max_samples: int = 0,
     ) -> torch.Tensor:
         h1, h2 = self._sample_nodes(h1, h2, max_samples)
-        sim = torch.exp(self._similarity(h1, h2) / self.tau)
-        pos = sim.diag()
-        neg = sim.sum(dim=1) - pos
-        loss = -torch.log(pos / (pos + neg)).mean()
-        return loss
+        return 0.5 * (
+            self._directional_loss(h1, h2) + self._directional_loss(h2, h1)
+        )
+
+    def _directional_loss(self, h1: torch.Tensor, h2: torch.Tensor) -> torch.Tensor:
+        logits = self._similarity(h1, h2) / self.tau
+        labels = torch.arange(logits.size(0), device=logits.device)
+        return F.cross_entropy(logits, labels)
 
     def _sample_nodes(
         self,
@@ -229,7 +220,7 @@ class InfoNCELoss(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         n = h1.shape[0]
 
-        if n <= max_samples:
+        if max_samples <= 0 or n <= max_samples:
             return h1, h2
 
         idx = torch.randperm(n, device=h1.device)[:max_samples]

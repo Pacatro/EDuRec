@@ -14,6 +14,7 @@ def test_gcl():
         dim_hidden=32,
         drop_edges_p=0.2,
         tau=0.1,
+        num_layers=2,
     )
 
     num_users = 10
@@ -37,14 +38,11 @@ def test_gcl():
 
     model = GCL(cfg)
 
-    eu_struct, ei_struct, loss = model(data)
+    eu_struct, ei_struct = model(data)
 
     assert eu_struct.shape == (num_users, cfg.dim_hidden)
     assert ei_struct.shape == (num_items, cfg.dim_hidden)
-
-    assert loss.dim() == 0
-    assert loss.requires_grad
-    assert not torch.isnan(loss)
+    assert len(model.convs) == cfg.num_layers
 
 
 def test_gcl_mars():
@@ -64,15 +62,15 @@ def test_gcl_mars():
         dim_hidden=32,
         drop_edges_p=0.2,
         tau=0.1,
+        num_layers=2,
     )
 
     model = GCL(cfg).to(device)
 
-    u_struct, i_struct, loss = model(graph)
+    u_struct, i_struct = model(graph)
 
     assert u_struct.shape == (dm.num_users, cfg.dim_hidden)
     assert i_struct.shape == (dm.num_items, cfg.dim_hidden)
-    assert not torch.isnan(loss)
 
 
 if __name__ == "__main__":

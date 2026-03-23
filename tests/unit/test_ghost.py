@@ -14,9 +14,9 @@ def cfg():
 def test_ghost(cfg: GhostConfig, monkeypatch):
     mock_gcl = MagicMock()
     mock_ranker = MagicMock()
-    monkeypatch.setattr("edurec.recsys.arquitecture.gcl.GCL", lambda _: mock_gcl)
+    monkeypatch.setattr("edurec.recsys.arquitecture.ghost.GCL", lambda _: mock_gcl)
     monkeypatch.setattr(
-        "edurec.recsys.arquitecture.ranker.Ranker", lambda _: mock_ranker
+        "edurec.recsys.arquitecture.ghost.Ranker", lambda _: mock_ranker
     )
 
     model = Ghost(cfg)
@@ -41,12 +41,12 @@ def test_ghost(cfg: GhostConfig, monkeypatch):
 
     u_struct_mock = torch.randn(num_users, cfg.hidden_dim)
     i_struct_mock = torch.randn(num_items, cfg.hidden_dim)
-    mock_gcl.return_value = (u_struct_mock, i_struct_mock, torch.tensor(0.0))
+    mock_gcl.return_value = (u_struct_mock, i_struct_mock)
 
     expected_scores = torch.randn(batch_size, num_candidates)
     mock_ranker.return_value = expected_scores
 
-    scores, _ = model(
+    scores = model(
         u_id=u_id,
         h_ids=h_ids,
         h_ctx=h_ctx,

@@ -27,6 +27,7 @@ TAU: float = 0.1
 MAX_SAMPLES_U: int = 2048
 MAX_SAMPLES_I: int = 2048
 LOSS_REDUCTION: str = "mean"
+GNN_LAYERS: int = 2
 
 # Ranker
 NUM_HEADS: int = 4

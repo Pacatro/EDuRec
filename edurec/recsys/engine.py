@@ -3,6 +3,7 @@ import torch
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from torch import nn
 from torch_geometric.data import Data
+from torch_geometric.utils import dropout_edge
 from torchmetrics import Metric, MetricCollection
 from torchmetrics.retrieval import (
     RetrievalAUROC,
@@ -13,6 +14,8 @@ from torchmetrics.retrieval import (
     RetrievalPrecision,
     RetrievalRecall,
 )
+
+from edurec.recsys.arquitecture.gcl import InfoNCELoss
 
 from .. import config
 from .arquitecture import Ghost, GhostConfig
@@ -47,7 +50,13 @@ class RecSys(L.LightningModule):
         self.register_buffer("u_static", u_static)
         self.register_buffer("i_static", i_static)
 
-        self.ranker_loss = nn.CrossEntropyLoss()
+        self.ranker_loss = nn.BCEWithLogitsLoss()
+        self.gcl_loss = InfoNCELoss(
+            tau=cfg.gcl.tau,
+            max_samples_u=cfg.gcl.max_samples_u,
+            max_samples_i=cfg.gcl.max_samples_i,
+            reduction=cfg.gcl.loss_reduc,
+        )
 
         self.val_ranking_metrics = MetricCollection(
             {f"Ndcg@{top_k}": RetrievalNormalizedDCG(top_k=top_k)}, prefix="val/"
@@ -74,7 +83,7 @@ class RecSys(L.LightningModule):
 
     def forward(
         self, batch: dict[str, torch.Tensor]
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> torch.Tensor:
         return self.model(
             u_id=batch["user_id"],
             h_ids=batch["history_items"],
@@ -109,10 +118,11 @@ class RecSys(L.LightningModule):
         prefix: str,
         ranking_metrics: MetricCollection | None = None,
     ) -> torch.Tensor:
-        scores, gcl_loss = self(batch)
+        scores = self(batch)
         targets = batch["target"].float()
 
         rank_loss = self._compute_rank_loss(scores, targets)
+        gcl_loss = self._compute_gcl_loss() if prefix == "train" else rank_loss.new_zeros(())
         loss = self._compute_loss(rank_loss, gcl_loss)
 
         self.log(
@@ -128,7 +138,7 @@ class RecSys(L.LightningModule):
             gcl_loss,
             on_step=(prefix == "train"),
             on_epoch=True,
-            prog_bar=False,
+            prog_bar=(prefix != "train"),
             batch_size=targets.size(0),
         )
         self.log(
@@ -175,6 +185,45 @@ class RecSys(L.LightningModule):
     ) -> torch.Tensor:
         return rank_loss + self.alpha * gcl_loss
 
+    def _compute_gcl_loss(self) -> torch.Tensor:
+        assert self.inter_graph.edge_index is not None
+        edge_index_1 = self._create_graph_view(self.inter_graph.edge_index)
+        edge_index_2 = self._create_graph_view(self.inter_graph.edge_index)
+
+        z1 = self.model.gcl.encode(self.inter_graph, edge_index_1)
+        z2 = self.model.gcl.encode(self.inter_graph, edge_index_2)
+
+        num_users = self.inter_graph.u_x.shape[0]
+        num_items = self.inter_graph.i_x.shape[0]
+
+        return self.gcl_loss(z1, z2, num_users, num_items)
+
+    def _create_graph_view(self, edge_index: torch.Tensor) -> torch.Tensor:
+        if self.cfg.edge_dropout <= 0:
+            return edge_index
+
+        num_edges = edge_index.size(1)
+
+        # The interaction graph is stored as [u->i | i->u], preserving one
+        # reverse edge for each interaction in the same position.
+        if num_edges % 2 != 0:
+            edge_index_view, _ = dropout_edge(
+                edge_index, p=self.cfg.edge_dropout, force_undirected=True
+            )
+            return edge_index_view
+
+        half_edges = num_edges // 2
+        if half_edges == 0:
+            return edge_index
+
+        keep_mask = torch.rand(half_edges, device=edge_index.device) >= self.cfg.edge_dropout
+        if not torch.any(keep_mask):
+            keep_mask[torch.randint(half_edges, (1,), device=edge_index.device)] = True
+
+        edge_index_u2i = edge_index[:, :half_edges][:, keep_mask]
+        edge_index_i2u = edge_index[:, half_edges:][:, keep_mask]
+        return torch.cat([edge_index_u2i, edge_index_i2u], dim=1).contiguous()
+
     def on_validation_epoch_start(self) -> None:
         self.val_ranking_metrics.reset()
 
@@ -187,7 +236,7 @@ class RecSys(L.LightningModule):
     def on_test_epoch_end(self) -> None:
         self.log_dict(self.test_ranking_metrics.compute())
 
-    def predict_step(self, batch: dict[str, torch.Tensor]) -> dict[str, int | float]:
+    def predict_step(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         return self(batch)
 
     def configure_optimizers(self) -> OptimizerLRScheduler:

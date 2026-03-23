@@ -5,7 +5,7 @@ from torch import nn
 from torch_geometric.data import Data
 
 from ... import config
-from .gcl import GCL, GCLConfig
+from .gcl import GCL, GCLConfig, LossReduction
 from .ranker import Ranker, RankerConfig
 
 
@@ -21,6 +21,7 @@ class GhostConfig:
     max_user_samples: int = config.MAX_SAMPLES_U
     max_item_samples: int = config.MAX_SAMPLES_I
     loss_reduction: str = config.LOSS_REDUCTION
+    gnn_layers: int = config.GNN_LAYERS
 
     # Ranker Defaults
     n_heads: int = config.NUM_HEADS
@@ -39,6 +40,8 @@ class GhostConfig:
             tau=self.temperature,
             max_samples_u=self.max_user_samples,
             max_samples_i=self.max_item_samples,
+            loss_reduc=LossReduction(self.loss_reduction),
+            num_layers=self.gnn_layers,
         )
 
     @property
@@ -77,8 +80,8 @@ class Ghost(nn.Module):
         u_static_global: torch.Tensor,  # [B, num_users_feats]
         i_static_global: torch.Tensor,  # [B, num_items_feats]
         hist_mask: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        u_struct, i_struct, gcl_loss = self.gcl(inter_graph)
+    ) -> torch.Tensor:
+        u_struct, i_struct = self.gcl(inter_graph)
 
         token_u = (
             self.proj_u_struct(u_struct[u_id])
@@ -97,4 +100,4 @@ class Ghost(nn.Module):
 
         scores = self.ranker(token_u, tokens_i, tokens_c, hist_mask=hist_mask)
 
-        return scores, gcl_loss
+        return scores
