@@ -110,7 +110,6 @@ def train(
     cfg = GhostConfig(
         num_users=dm.num_users,
         num_items=dm.num_items,
-        emb_dim=64,
         num_user_feats=dm.num_user_feats,
         num_item_feats=dm.num_item_feats,
         num_ctx_feats=dm.train_ds.num_ctx_feats,

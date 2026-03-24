@@ -13,10 +13,10 @@ from .ranker import Ranker, RankerConfig
 class GhostConfig:
     num_users: int
     num_items: int
-    emb_dim: int
     num_user_feats: int
     num_item_feats: int
     num_ctx_feats: int
+    emb_dim: int = config.EMB_DIM
 
     # GCL Defaults
     edge_dropout: float = config.DROP_EDGES_P

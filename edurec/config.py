@@ -37,6 +37,8 @@ DROPOUT: float = 0.1
 MAX_HISTORY_LEN: int = 50
 NUM_SCORES: int = 1
 
+# Model
+EMB_DIM: int = 256
 
 # Training
 LR: float = 0.001
