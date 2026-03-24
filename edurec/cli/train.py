@@ -59,7 +59,10 @@ def train(
         str, typer.Option("--monitor", "-m", help="Monitor metric")
     ] = config.MONITOR,
     adaptive_k: Annotated[
-        bool, typer.Option("--adaptive_k", "-a", help="Use adaptive k to compute some metrics")
+        bool,
+        typer.Option(
+            "--adaptive_k", "-a", help="Use adaptive k to compute some metrics"
+        ),
     ] = config.ADAPTIVE_K,
     use_logger: Annotated[
         bool, typer.Option("--use_logger", "-L", help="Use MLFlow logger")
@@ -96,16 +99,29 @@ def train(
         print(f"[TRAIN] Dataset {dataset.value} sparsity: {dm.sparsity}")
         print(f"[TRAIN] Number of users: {dm.num_users}")
         print(f"[TRAIN] Number of items: {dm.num_items}")
+        print(f"[TRAIN] Number of user features: {dm.num_user_feats}")
+        print(f"[TRAIN] Number of item features: {dm.num_item_feats}")
+        print(f"[TRAIN] Number of interactions: {dm.num_interactions}")
+        print(f"[TRAIN] Number of negatives for training: {n_neg_train}")
+        print(f"[TRAIN] Number of negatives for validation: {n_neg_val}")
+        print(f"[TRAIN] Number of negatives for testing: {n_neg_test}")
         print(f"[TRAIN] Using adaptive k: {adaptive_k}")
 
     cfg = GhostConfig(
-        user_dim=dm.num_user_feats, item_dim=dm.num_item_feats, hidden_dim=64
+        num_users=dm.num_users,
+        num_items=dm.num_items,
+        emb_dim=64,
+        num_user_feats=dm.num_user_feats,
+        num_item_feats=dm.num_item_feats,
+        num_ctx_feats=dm.train_ds.num_ctx_feats,
     )
     assert dm.u_static is not None and dm.i_static is not None
 
+    graph = dm.create_inter_graph()
+
     recsys = RecSys(
         cfg=cfg,
-        inter_graph=dm.create_inter_graph(),
+        inter_graph=graph,
         u_static=dm.u_static,
         i_static=dm.i_static,
         lr=lr,
@@ -123,6 +139,7 @@ def train(
         min_delta=config.DELTA,
         verbose=True,
     )
+
     checkpoint_model = ModelCheckpoint(
         monitor=monitor,
         mode="min" if "Loss" in monitor else "max",

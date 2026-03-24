@@ -3,15 +3,15 @@ import torch
 from torch_geometric.data import Data
 
 from edurec.datasets.loaders import DatasetName
-from edurec.recsys.arquitecture import GCLConfig, GCL
+from edurec.recsys.arquitecture import GnnEncoderConfig, GnnEncoder
 from edurec.datasets import ElearningDataModule
 
 
 def test_gcl():
-    cfg = GCLConfig(
-        dim_user=16,
-        dim_item=24,
-        dim_hidden=32,
+    cfg = GnnEncoderConfig(
+        num_users=10,
+        num_items=5,
+        embed_dim=32,
         drop_edges_p=0.2,
         tau=0.1,
         num_layers=2,
@@ -20,8 +20,8 @@ def test_gcl():
     num_users = 10
     num_items = 5
 
-    u_x = torch.randn(num_users, cfg.dim_user)
-    i_x = torch.randn(num_items, cfg.dim_item)
+    u_x = torch.randn(num_users, cfg.embed_dim)
+    i_x = torch.randn(num_items, cfg.embed_dim)
 
     edge_index = torch.tensor(
         [
@@ -36,7 +36,7 @@ def test_gcl():
     data.i_x = i_x
     data.num_users = num_users
 
-    model = GCL(cfg)
+    model = GnnEncoder(cfg)
 
     eu_struct, ei_struct = model(data)
 

@@ -1,10 +1,10 @@
-from .gcl import GCL, GCLConfig, InfoNCELoss, LossReduction
+from .gnn_encoder import GnnEncoder, GnnEncoderConfig, InfoNCELoss, LossReduction
 from .ranker import Ranker, RankerConfig
 from .ghost import Ghost, GhostConfig
 
 __all__ = [
-    "GCL",
-    "GCLConfig",
+    "GnnEncoder",
+    "GnnEncoderConfig",
     "Ranker",
     "RankerConfig",
     "Ghost",

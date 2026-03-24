@@ -6,141 +6,90 @@ from torch import nn
 
 @dataclass
 class RankerConfig:
-    """
-    Configuration parameters for the Ranker module.
-
-    Attributes:
-        dim_model (int): The number of expected features in the input and output
-            of the transformer and scorer.
-        n_heads (int): Number of heads in the multi-head attention mechanism.
-        n_blocks (int): Number of sub-encoder-layers in the transformer encoder.
-        ff_dim (int): Dimension of the feedforward network model.
-        dropout (float): Dropout value applied to the transformer and scorer layers.
-        max_history_len (int): Maximum length of the user's interaction history.
-    """
-
-    dim_model: int
+    embed_dim: int
     n_heads: int
     n_blocks: int
     ff_dim: int
-    dropout: float
-    max_history_len: int
+    num_scores: int = 1
+    dropout: float = 0.1
+    norm_first: bool = True
 
 
-# TODO: Implement candidate isolation
-# En lugar de seq = [token_u, token_i, token_c] usar seq = [token_u, token_i, token_c1, token_c2, ..., token_cK]
 class Ranker(nn.Module):
-    """
-    Transformer-based Ranker for candidate item scoring.
-
-    This module processes a sequence consisting of a user embedding, historical
-    item embeddings, and a candidate item embedding. It uses a Transformer
-    Encoder to model the interactions within this sequence and outputs a score
-    representing the likelihood of interaction with the candidate item.
-
-    The input sequence layout is typically: [User, Hist_1, ..., Hist_L, Candidate].
-    """
-
     def __init__(self, cfg: RankerConfig):
         super().__init__()
         self.cfg = cfg
 
-        # user token + hist_token + item tokens + candidate tokens
-        max_len = cfg.max_history_len + 2
-        self.pos_enc = nn.Embedding(max_len, cfg.dim_model)
+        self.user_proj = nn.Linear(cfg.embed_dim, cfg.embed_dim, bias=False)
+        self.history_proj = nn.Linear(cfg.embed_dim, cfg.embed_dim, bias=False)
+        self.candidate_proj = nn.Linear(cfg.embed_dim, cfg.embed_dim, bias=False)
 
-        self.in_dropout = nn.Dropout(cfg.dropout)
-        self.layer_norm = nn.LayerNorm(cfg.dim_model)
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=cfg.dim_model,
-            nhead=cfg.n_heads,
-            dim_feedforward=cfg.ff_dim,
-            dropout=cfg.dropout,
+            cfg.embed_dim,
+            cfg.n_heads,
+            cfg.ff_dim,
+            cfg.dropout,
             activation="gelu",
             batch_first=True,
-            norm_first=False,
+            norm_first=cfg.norm_first,
         )
 
-        self.transformer_enc = nn.TransformerEncoder(
+        self.transformer = nn.TransformerEncoder(
             encoder_layer,
             num_layers=cfg.n_blocks,
+            norm=nn.LayerNorm(cfg.embed_dim),
+            enable_nested_tensor=not cfg.norm_first,
         )
 
-        self.final_norm = nn.LayerNorm(cfg.dim_model)
-        self.scorer = Scorer(cfg.dim_model, cfg.dropout)
+        self.scorer = Scorer(cfg.embed_dim, cfg.num_scores, cfg.dropout)
 
     def forward(
         self,
-        token_u: torch.Tensor,  # [B, 1, D]
-        tokens_i: torch.Tensor,  # [B, L, D]
-        tokens_c: torch.Tensor,  # [B, K, D]
-        hist_mask: torch.Tensor | None = None,
+        user_emb: torch.Tensor,  # [B, D]
+        history_emb: torch.Tensor,  # [B, H, D]
+        candidate_emb: torch.Tensor,  # [B, C, D]
     ) -> torch.Tensor:
-        B, L, D = tokens_i.shape
+        H = history_emb.shape[1]
 
-        if tokens_c.ndim == 2:
-            tokens_c = tokens_c.unsqueeze(1)
+        user_token = self.user_proj(user_emb).unsqueeze(1)  # [B, 1, D]
+        history_tokens = self.history_proj(history_emb)  # [B, H, D]
+        candidate_tokens = self.candidate_proj(candidate_emb)  # [B, C, D]
 
-        _, K, D = tokens_c.shape
+        seq = torch.cat(
+            [user_token, history_tokens, candidate_tokens], dim=1
+        )  # [B, T, D]
 
-        # Repeat context tokend for each candidate: [B, K, ...] --> [B*K, ...]
-        # Now, for each example in the batch, we generate K different sequences
-        # [u, h1, ..., hL, c1]
-        # [u, h1, ..., hL, c2]
-        # ...
-        # [u, h1, ..., hL, cK]
-        token_u = token_u.unsqueeze(1).expand(-1, K, -1, -1)
-        tokens_i = tokens_i.unsqueeze(1).expand(-1, K, -1, -1)
-        tokens_c = tokens_c.unsqueeze(2)
+        T = seq.shape[1]
+        candidate_start_offset = 1 + H
 
-        seq = torch.cat([token_u, tokens_i, tokens_c], dim=2)
-        # L + 2 because we add the user token and the candidate token
-        seq = seq.reshape(B * K, L + 2, D)  # [B*K, L+2, D]
+        attn_mask = self._make_attn_mask(T, candidate_start_offset, seq.device)
 
-        positions = torch.arange(
-            L + 2,
-            device=seq.device,
-            dtype=torch.long,
-        ).unsqueeze(0)
+        out = self.transformer(seq, mask=attn_mask)
 
-        seq = self.in_dropout(seq + self.pos_enc(positions))  # [B*K, L+2, D]
+        candidate_out = out[:, candidate_start_offset:, :]  # [B, C, D]
+        scores = self.scorer(candidate_out)  # [B, C, num_scores]
 
-        src_key_padding_mask = None
+        return scores
 
-        if hist_mask is not None:
-            hist_mask = ~hist_mask
-            special_tokens = torch.zeros(
-                B, 2, dtype=torch.bool, device=hist_mask.device
-            )
-            src_key_padding_mask = torch.cat(
-                [special_tokens[:, :1], hist_mask, special_tokens[:, 1:]], dim=1
-            )
-            src_key_padding_mask = (
-                src_key_padding_mask.unsqueeze(1)
-                .expand(-1, K, -1)
-                .reshape(B * K, L + 2)
-            )
-
-        seq = self.layer_norm(seq)
-        hidden = self.transformer_enc(seq, src_key_padding_mask=src_key_padding_mask)
-        hidden = self.final_norm(hidden)
-
-        h_candidate = hidden[:, -1, :]  # [B*K, D]
-        scores = self.scorer(h_candidate).reshape(B, K)  # [B, K]
-
-        return scores.squeeze(1) if K == 1 else scores
+    def _make_attn_mask(
+        self, seq_len: int, candidate_start_offset: int, device: torch.device
+    ) -> torch.Tensor:
+        mask = torch.tril(torch.ones((seq_len, seq_len), device=device)) == 0
+        mask[candidate_start_offset:, candidate_start_offset:] = True
+        candidate_indices = torch.arange(candidate_start_offset, seq_len, device=device)
+        mask[candidate_indices, candidate_indices] = False
+        return mask
 
 
 class Scorer(nn.Module):
-    def __init__(self, dim_model: int, dropout: float):
+    def __init__(self, emb_dim: int, num_scores: int, dropout: float):
         super().__init__()
         self.scorer = nn.Sequential(
-            nn.Linear(dim_model, dim_model),
+            nn.Linear(emb_dim, emb_dim // 2),
             nn.GELU(),
             nn.Dropout(dropout),
-            nn.Linear(dim_model, 1),
+            nn.Linear(emb_dim // 2, num_scores),
         )
-        # self.scorer = nn.Linear(dim_model, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.scorer(x)

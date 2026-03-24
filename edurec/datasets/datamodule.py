@@ -437,8 +437,6 @@ class ElearningDataModule(L.LightningDataModule):
         num_nodes = self.num_users + self.num_items
         data = Data(edge_index=full_edge_index, num_nodes=num_nodes)
 
-        data.u_x = self.u_static
-        data.i_x = self.i_static
         data.num_users = self.num_users
         data.num_items = self.num_items
         data.node_type = torch.cat(

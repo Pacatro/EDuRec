@@ -75,34 +75,41 @@ class ElearningDataset(Dataset):
 
         hist_items, hist_ctx, mask = self._get_history_and_mask(user_idx, item_idx)
 
-        if self.n_negatives > 0:
-            neg_itms = self._sample_negatives(user_idx)
-
-            candidates = torch.tensor(
-                np.concatenate([[item_idx], neg_itms]), dtype=torch.long
-            )
-
-            targets = torch.zeros(len(candidates), dtype=torch.float32)
-            targets[0] = target
-
+        if self.n_negatives <= 0:
             return {
                 "query_id": query_id,
                 "user_id": torch.tensor(user_idx, dtype=torch.long),
                 "history_items": hist_items,
                 "history_ctx": hist_ctx,
-                "candidates": candidates,
+                "candidates": torch.tensor(item_idx, dtype=torch.long).unsqueeze(0),
                 "mask": mask,
-                "target": targets,
+                "target": torch.tensor(target, dtype=torch.float32),
             }
+
+        neg_itms = self._sample_negatives(user_idx)
+
+        candidates = torch.tensor(
+            np.concatenate([[item_idx], neg_itms]), dtype=torch.long
+        )  # [1 + n_neg]
+
+        targets = torch.zeros(len(candidates), dtype=torch.float32)  # [1 + n_neg]
+        targets[0] = target
+
+        perm = torch.randperm(len(candidates))
+        shuffled_candidates = candidates[perm]
+        shuffled_targets = targets[perm]
+
+        positive_position = (perm == 0).nonzero(as_tuple=True)[0].item()
 
         return {
             "query_id": query_id,
             "user_id": torch.tensor(user_idx, dtype=torch.long),
             "history_items": hist_items,
             "history_ctx": hist_ctx,
-            "candidates": torch.tensor(item_idx, dtype=torch.long),
+            "candidates": shuffled_candidates,
             "mask": mask,
-            "target": torch.tensor(target, dtype=torch.float32),
+            "target": shuffled_targets,
+            "positive_position": torch.tensor(positive_position, dtype=torch.long),
         }
 
     def _sample_negatives(self, user_idx: int) -> np.ndarray:

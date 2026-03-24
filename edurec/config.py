@@ -35,6 +35,7 @@ NUM_BLOCKS: int = 2
 FF_DIM: int = 256
 DROPOUT: float = 0.1
 MAX_HISTORY_LEN: int = 50
+NUM_SCORES: int = 1
 
 
 # Training
@@ -55,7 +56,7 @@ N_NEG_TEST: int = 100
 SAVE_DATA: bool = False
 MONITOR: str = f"val/Ndcg@{TOP_K}"
 ADAPTIVE_K: bool = False
-ALPHA: float = 0.05
+ALPHA: float = 0.5
 
 # Eval
 SEEDS: list[int] = [0, 1, 42]

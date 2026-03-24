@@ -16,27 +16,10 @@ class LossReduction(StrEnum):
 
 
 @dataclass
-class GCLConfig:
-    """
-    Configuration container for the GHOST graph contrastive learning module.
-
-    Attributes:
-        dim_user (int): Dimensionality of the input user feature vectors.
-        dim_item (int): Dimensionality of the input item feature vectors.
-        dim_hidden (int): Dimensionality of the latent structural embeddings
-            produced after projection and graph propagation.
-        drop_edges_p (float): Probability of dropping edges when generating
-            stochastic graph views for contrastive learning.
-        tau (float): Temperature parameter used in the InfoNCE loss.
-        max_samples_u (int): Maximum number of user nodes used to compute.
-        max_samples_i (int): Maximum number of item nodes used to compute.
-        loss_reduc (LossReduction): Strategy used to combine the user and
-            item losses.
-    """
-
-    dim_user: int
-    dim_item: int
-    dim_hidden: int
+class GnnEncoderConfig:
+    num_users: int
+    num_items: int
+    embed_dim: int
     drop_edges_p: float = config.DROP_EDGES_P
     tau: float = config.TAU
     max_samples_u: int = config.MAX_SAMPLES_U
@@ -45,90 +28,37 @@ class GCLConfig:
     num_layers: int = config.GNN_LAYERS
 
 
-class GCL(nn.Module):
-    """
-    Graph Contrastive Learning encoder for the GHOST recommendation architecture.
-
-    This module learns structural user and item embeddings from a bipartite
-    user-item interaction graph represented as a homogeneous PyG `Data` object
-    with a unified node index space.
-
-    The encoder operates in two main stages:
-
-        1. User and item raw features are independently projected into a shared
-        latent space of dimension `dim_hidden`.
-        2. The projected features are propagated through multiple Light Graph
-        Convolution (LGConv) layers, aggregating representations from each
-        propagation step in the LightGCN style.
-
-    Contrastive view generation is intentionally kept outside this module so
-    the training loop can control when stochastic graph augmentations are
-    applied. The encoder itself always produces structural embeddings from the
-    provided graph.
-
-    Expected graph layout:
-        - Nodes [0, ..., num_users - 1] correspond to users.
-        - Nodes [num_users, ..., num_users + num_items - 1] correspond to items.
-
-    Expected input `Data` object attributes:
-        - `u_x` (torch.Tensor): User feature matrix of shape
-          [num_users, dim_user].
-        - `i_x` (torch.Tensor): Item feature matrix of shape
-          [num_items, dim_item].
-        - `edge_index` (torch.Tensor): Bipartite interaction graph in COO
-          format with unified node indexing and shape [2, num_edges].
-        - `num_nodes` (int): Total number of nodes in the graph.
-        - optionally `num_users` and `num_items`, although this implementation
-          derives them from `u_x` and `i_x`.
-
-    Returns:
-        tuple[torch.Tensor, torch.Tensor]:
-            A tuple containing:
-                - `u_struct`: Structural user embeddings of shape
-                  [num_users, dim_hidden].
-                - `i_struct`: Structural item embeddings of shape
-                  [num_items, dim_hidden].
-    """
-
-    def __init__(self, cfg: GCLConfig):
+class GnnEncoder(nn.Module):
+    def __init__(self, cfg: GnnEncoderConfig):
         super().__init__()
+        self.num_users = cfg.num_users
+        self.num_items = cfg.num_items
         self.drop_edges_p = cfg.drop_edges_p
 
-        self.u_proj = nn.Linear(cfg.dim_user, cfg.dim_hidden)
-        self.i_proj = nn.Linear(cfg.dim_item, cfg.dim_hidden)
+        self.user_emb = nn.Embedding(self.num_users, cfg.embed_dim)
+        self.item_emb = nn.Embedding(self.num_items, cfg.embed_dim)
 
         self.convs = nn.ModuleList(LGConv() for _ in range(cfg.num_layers))
 
     def forward(self, data: Data) -> tuple[torch.Tensor, torch.Tensor]:
-        num_users = data.u_x.shape[0]
-        num_items = data.i_x.shape[0]
-        z = self.encode(data)
-        return self.split_embeddings(z, num_users, num_items)
+        assert data.edge_index is not None
 
-    def encode(
-        self, data: Data, edge_index: torch.Tensor | None = None
-    ) -> torch.Tensor:
-        assert data.edge_index is not None or edge_index is not None
+        all_embs = torch.cat(
+            [self.user_emb.weight, self.item_emb.weight], dim=0
+        )  # [num_users + num_items, embed_dim]
 
-        edge_index = data.edge_index if edge_index is None else edge_index
+        layer_embs = [all_embs]
 
-        u = self.u_proj(data.u_x)
-        i = self.i_proj(data.i_x)
-        x = torch.cat([u, i], dim=0)
-
-        layer_outputs = [x]
         for conv in self.convs:
-            x = conv(x, edge_index)
-            layer_outputs.append(x)
+            all_embs = conv(all_embs, data.edge_index)
+            layer_embs.append(all_embs)
 
-        return torch.stack(layer_outputs, dim=0).mean(dim=0)
+        final_embs = torch.stack(layer_embs, dim=1).mean(dim=1)
 
-    def split_embeddings(
-        self, z: torch.Tensor, num_users: int, num_items: int
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        u_struct = z[:num_users]
-        i_struct = z[num_users : num_users + num_items]
-        return u_struct, i_struct
+        user_embs = final_embs[: self.num_users]
+        course_embs = final_embs[self.num_users :]
+
+        return user_embs, course_embs
 
 
 class InfoNCELoss(nn.Module):
@@ -203,9 +133,7 @@ class InfoNCELoss(nn.Module):
         max_samples: int = 0,
     ) -> torch.Tensor:
         h1, h2 = self._sample_nodes(h1, h2, max_samples)
-        return 0.5 * (
-            self._directional_loss(h1, h2) + self._directional_loss(h2, h1)
-        )
+        return 0.5 * (self._directional_loss(h1, h2) + self._directional_loss(h2, h1))
 
     def _directional_loss(self, h1: torch.Tensor, h2: torch.Tensor) -> torch.Tensor:
         logits = self._similarity(h1, h2) / self.tau

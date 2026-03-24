@@ -1,7 +1,7 @@
 import lightning.pytorch as L
 import torch
+import torch.nn.functional as F
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
-from torch import nn
 from torch_geometric.data import Data
 from torch_geometric.utils import dropout_edge
 from torchmetrics import Metric, MetricCollection
@@ -36,9 +36,7 @@ class RecSys(L.LightningModule):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
         self.cfg = cfg
-        self.inter_graph = inter_graph.to(
-            "cuda" if config.state["device"] == "auto" else config.state["device"]
-        )
+        self.inter_graph = inter_graph.to(self._resolve_graph_device())
         self.lr = lr
         self.weight_decay = weight_decay
         self.monitor = monitor
@@ -48,12 +46,11 @@ class RecSys(L.LightningModule):
         self.register_buffer("u_static", u_static)
         self.register_buffer("i_static", i_static)
 
-        self.ranker_loss = nn.BCEWithLogitsLoss()
         self.gcl_loss = InfoNCELoss(
-            tau=cfg.gcl.tau,
-            max_samples_u=cfg.gcl.max_samples_u,
-            max_samples_i=cfg.gcl.max_samples_i,
-            reduction=cfg.gcl.loss_reduc,
+            tau=cfg.gnn.tau,
+            max_samples_u=cfg.gnn.max_samples_u,
+            max_samples_i=cfg.gnn.max_samples_i,
+            reduction=cfg.gnn.loss_reduc,
         )
 
         self.val_ranking_metrics = MetricCollection(
@@ -62,7 +59,9 @@ class RecSys(L.LightningModule):
 
         self.test_ranking_metrics = MetricCollection(
             {
-                f"Precision@{top_k}": RetrievalPrecision(top_k=top_k, adaptive_k=adaptive_k),
+                f"Precision@{top_k}": RetrievalPrecision(
+                    top_k=top_k, adaptive_k=adaptive_k
+                ),
                 f"Recall@{top_k}": RetrievalRecall(top_k=top_k),
                 f"Ndcg@{top_k}": RetrievalNormalizedDCG(top_k=top_k),
                 f"Hit@{top_k}": RetrievalHitRate(top_k=top_k),
@@ -79,19 +78,24 @@ class RecSys(L.LightningModule):
         self.model = Ghost(cfg)
         self.model_name = self.model.__class__.__name__
 
-    def forward(
-        self, batch: dict[str, torch.Tensor]
-    ) -> torch.Tensor:
-        return self.model(
-            u_id=batch["user_id"],
+    def _resolve_graph_device(self) -> str:
+        if config.state["device"] != "auto":
+            return config.state["device"]
+
+        return "cuda" if torch.cuda.is_available() else "cpu"
+
+    def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+        scores, _, _ = self.model(
+            u_ids=batch["user_id"],
             h_ids=batch["history_items"],
             h_ctx=batch["history_ctx"],
+            h_mask=batch["mask"],
             c_ids=batch["candidates"],
             inter_graph=self.inter_graph,
             u_static_global=self.u_static,
             i_static_global=self.i_static,
-            hist_mask=batch["mask"],
         )
+        return self._prepare_scores(scores)
 
     def training_step(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         return self._step(batch, "train")
@@ -119,8 +123,12 @@ class RecSys(L.LightningModule):
         scores = self(batch)
         targets = batch["target"].float()
 
-        rank_loss = self._compute_rank_loss(scores, targets)
-        gcl_loss = self._compute_gcl_loss() if prefix == "train" else rank_loss.new_zeros(())
+        rank_loss = self._compute_rank_loss(
+            scores, targets, batch.get("positive_position")
+        )
+        gcl_loss = (
+            self._compute_gcl_loss() if prefix == "train" else rank_loss.new_zeros(())
+        )
         loss = self._compute_loss(rank_loss, gcl_loss)
 
         self.log(
@@ -128,7 +136,7 @@ class RecSys(L.LightningModule):
             rank_loss,
             on_step=(prefix == "train"),
             on_epoch=True,
-            prog_bar=(prefix != "train"),
+            prog_bar=(prefix == "train"),
             batch_size=targets.size(0),
         )
         self.log(
@@ -136,7 +144,7 @@ class RecSys(L.LightningModule):
             gcl_loss,
             on_step=(prefix == "train"),
             on_epoch=True,
-            prog_bar=(prefix != "train"),
+            prog_bar=(prefix == "train"),
             batch_size=targets.size(0),
         )
         self.log(
@@ -169,14 +177,28 @@ class RecSys(L.LightningModule):
 
         return loss
 
+    def _prepare_scores(self, scores: torch.Tensor) -> torch.Tensor:
+        if scores.ndim == 3:
+            if scores.size(-1) != 1:
+                raise RuntimeError("Ranker must return a single logit per candidate.")
+            return scores.squeeze(-1)
+
+        return scores
+
     def _compute_rank_loss(
-        self, scores: torch.Tensor, targets: torch.Tensor
+        self,
+        scores: torch.Tensor,
+        targets: torch.Tensor,
+        positive_position: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if scores.ndim == 2 and targets.ndim == 2:
-            pos_idx = targets.argmax(dim=1)  # [B]
-            return self.ranker_loss(scores, pos_idx)
+            if positive_position is None:
+                positive_position = targets.argmax(dim=1)
 
-        return nn.functional.binary_cross_entropy_with_logits(scores, targets.float())
+            return F.cross_entropy(scores, positive_position.long())
+
+        scores = scores.reshape_as(targets)
+        return F.binary_cross_entropy_with_logits(scores, targets.float())
 
     def _compute_loss(
         self, rank_loss: torch.Tensor, gcl_loss: torch.Tensor
@@ -188,11 +210,21 @@ class RecSys(L.LightningModule):
         edge_index_1 = self._create_graph_view(self.inter_graph.edge_index)
         edge_index_2 = self._create_graph_view(self.inter_graph.edge_index)
 
-        z1 = self.model.gcl.encode(self.inter_graph, edge_index_1)
-        z2 = self.model.gcl.encode(self.inter_graph, edge_index_2)
+        graph_view_1 = Data(
+            edge_index=edge_index_1, num_nodes=self.inter_graph.num_nodes
+        )
+        graph_view_2 = Data(
+            edge_index=edge_index_2, num_nodes=self.inter_graph.num_nodes
+        )
 
-        num_users = self.inter_graph.u_x.shape[0]
-        num_items = self.inter_graph.i_x.shape[0]
+        z1_u, z1_i = self.model.gnn(graph_view_1)
+        z2_u, z2_i = self.model.gnn(graph_view_2)
+
+        z1 = torch.cat([z1_u, z1_i], dim=0)
+        z2 = torch.cat([z2_u, z2_i], dim=0)
+
+        num_users = getattr(self.inter_graph, "num_users", self.cfg.num_users)
+        num_items = getattr(self.inter_graph, "num_items", self.cfg.num_items)
 
         return self.gcl_loss(z1, z2, num_users, num_items)
 
@@ -214,7 +246,9 @@ class RecSys(L.LightningModule):
         if half_edges == 0:
             return edge_index
 
-        keep_mask = torch.rand(half_edges, device=edge_index.device) >= self.cfg.edge_dropout
+        keep_mask = (
+            torch.rand(half_edges, device=edge_index.device) >= self.cfg.edge_dropout
+        )
         if not torch.any(keep_mask):
             keep_mask[torch.randint(half_edges, (1,), device=edge_index.device)] = True
 
