@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch_geometric.data import Data
 from torch_geometric.nn import LGConv
+from torch_geometric.utils import dropout_edge
 
 from ... import config
 
@@ -43,59 +44,27 @@ class GnnEncoder(nn.Module):
     def forward(self, data: Data) -> tuple[torch.Tensor, torch.Tensor]:
         assert data.edge_index is not None
 
-        all_embs = torch.cat(
-            [self.user_emb.weight, self.item_emb.weight], dim=0
-        )  # [num_users + num_items, embed_dim]
+        edge_index = data.edge_index
 
-        layer_embs = [all_embs]
+        if self.training:
+            edge_index, _ = dropout_edge(edge_index, p=self.drop_edges_p)
 
+        x = torch.cat([self.user_emb.weight, self.item_emb.weight], dim=0)
+
+        layer_embeddings = [x]
         for conv in self.convs:
-            all_embs = conv(all_embs, data.edge_index)
-            layer_embs.append(all_embs)
+            x = conv(x, edge_index)
+            layer_embeddings.append(x)
 
-        final_embs = torch.stack(layer_embs, dim=1).mean(dim=1)
+        all_embs = torch.mean(torch.stack(layer_embeddings, dim=0), dim=0)
 
-        user_embs = final_embs[: self.num_users]
-        course_embs = final_embs[self.num_users :]
+        user_final = all_embs[: self.num_users]
+        item_final = all_embs[self.num_users :]
 
-        return user_embs, course_embs
+        return user_final, item_final
 
 
 class InfoNCELoss(nn.Module):
-    """
-    InfoNCE contrastive loss for node representations learned from a
-    homogeneous graph that represents a bipartite user–item graph.
-
-    The unified node space is assumed to follow the convention:
-
-        - User nodes: [0, ..., num_users - 1]
-        - Item nodes: [num_users, ..., num_users + num_items - 1]
-
-    The loss is computed independently for users and items using two aligned
-    embedding sets (e.g. obtained from two graph augmentations in Graph
-    Contrastive Learning). The final loss is obtained by combining the user
-    and item losses according to the selected reduction strategy.
-
-    To keep memory usage manageable on large graphs, the loss optionally
-    samples a subset of nodes before computing the pairwise similarity
-    matrix.
-
-    This implementation is inspired by the InfoNCE formulation used in the
-    PyGCL library (https://github.com/PyGCL/PyGCL/blob/main/GCL/losses/infonce.py).
-
-    Args:
-        tau (float): Temperature parameter used to scale similarity scores
-            before the softmax. Lower values make the distribution sharper.
-        max_samples_u (int): Maximum number of user nodes used to compute
-            the contrastive loss. If the number of users exceeds this value,
-            a random subset is sampled.
-        max_samples_i (int): Maximum number of item nodes used to compute
-            the contrastive loss. If the number of items exceeds this value,
-            a random subset is sampled.
-        reduction (LossReduction): Strategy used to combine the user and
-            item losses. Supported options are MEAN and SUM.
-    """
-
     def __init__(
         self,
         tau: float = 0.1,
@@ -110,16 +79,14 @@ class InfoNCELoss(nn.Module):
         self.reduction = reduction
 
     def forward(
-        self, h1: torch.Tensor, h2: torch.Tensor, num_users: int, num_items: int
+        self,
+        u_emb1: torch.Tensor,
+        i_emb1: torch.Tensor,
+        u_emb2: torch.Tensor,
+        i_emb2: torch.Tensor,
     ) -> torch.Tensor:
-        h1_u = h1[:num_users]
-        h2_u = h2[:num_users]
-
-        h1_i = h1[num_users : num_users + num_items]
-        h2_i = h2[num_users : num_users + num_items]
-
-        loss_u = self._compute_loss(h1_u, h2_u, self.max_samples_u)
-        loss_i = self._compute_loss(h1_i, h2_i, self.max_samples_i)
+        loss_u = self._compute_loss(u_emb1, u_emb2, self.max_samples_u)
+        loss_i = self._compute_loss(i_emb1, i_emb2, self.max_samples_i)
 
         if self.reduction == LossReduction.SUM:
             return loss_u + loss_i

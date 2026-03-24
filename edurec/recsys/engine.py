@@ -207,26 +207,13 @@ class RecSys(L.LightningModule):
 
     def _compute_gcl_loss(self) -> torch.Tensor:
         assert self.inter_graph.edge_index is not None
-        edge_index_1 = self._create_graph_view(self.inter_graph.edge_index)
-        edge_index_2 = self._create_graph_view(self.inter_graph.edge_index)
 
-        graph_view_1 = Data(
-            edge_index=edge_index_1, num_nodes=self.inter_graph.num_nodes
-        )
-        graph_view_2 = Data(
-            edge_index=edge_index_2, num_nodes=self.inter_graph.num_nodes
-        )
+        u_emb1, i_emb1 = self.model.gnn(self.inter_graph)
+        u_emb2, i_emb2 = self.model.gnn(self.inter_graph)
 
-        z1_u, z1_i = self.model.gnn(graph_view_1)
-        z2_u, z2_i = self.model.gnn(graph_view_2)
+        gcl_loss = self.gcl_loss(u_emb1, i_emb1, u_emb2, i_emb2)
 
-        z1 = torch.cat([z1_u, z1_i], dim=0)
-        z2 = torch.cat([z2_u, z2_i], dim=0)
-
-        num_users = getattr(self.inter_graph, "num_users", self.cfg.num_users)
-        num_items = getattr(self.inter_graph, "num_items", self.cfg.num_items)
-
-        return self.gcl_loss(z1, z2, num_users, num_items)
+        return gcl_loss
 
     def _create_graph_view(self, edge_index: torch.Tensor) -> torch.Tensor:
         if self.cfg.edge_dropout <= 0:

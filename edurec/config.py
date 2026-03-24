@@ -38,7 +38,7 @@ MAX_HISTORY_LEN: int = 50
 NUM_SCORES: int = 1
 
 # Model
-EMB_DIM: int = 256
+EMB_DIM: int = 64
 
 # Training
 LR: float = 0.001

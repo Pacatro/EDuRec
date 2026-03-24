@@ -58,6 +58,8 @@ class DataProcessor:
         self.handle_unknown_ohe = handle_unknown_ohe
         self.ct_sparse_threshold = ct_sparse_threshold
 
+        # TODO: Hacer que los indices de los usuarios empiecen en 1
+        # para evitar problemas de indexación en el ranker
         self.user_encoder = OrdinalEncoder(
             handle_unknown="use_encoded_value", unknown_value=-1
         )

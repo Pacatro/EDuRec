@@ -72,6 +72,7 @@ class Ghost(nn.Module):
 
         self.u_static_proj = nn.Linear(cfg.num_user_feats, cfg.emb_dim, bias=False)
         self.i_static_proj = nn.Linear(cfg.num_item_feats, cfg.emb_dim, bias=False)
+        self.norm = nn.LayerNorm(cfg.emb_dim)
         self.gnn = GnnEncoder(cfg.gnn)
         self.ranker = Ranker(cfg.ranker)
 
@@ -105,11 +106,13 @@ class Ghost(nn.Module):
         hist_feats = self.i_static_proj(i_static_global[h_ids])  # [B, H, D]
         candidate_feats = self.i_static_proj(i_static_global[c_ids])  # [B, C, D]
 
-        user_emb = user_emb + user_feats
-        hist_emb = hist_emb + hist_feats
-        candidate_emb = candidate_emb + candidate_feats
+        user_emb = self.norm(user_emb + user_feats)
+        hist_emb = self.norm(hist_emb + hist_feats)
+        candidate_emb = self.norm(candidate_emb + candidate_feats)
 
-        scores = self.ranker(user_emb, hist_emb, candidate_emb)  # [B, C, num_scores]
+        scores = self.ranker(
+            user_emb, hist_emb, candidate_emb, h_mask
+        )  # [B, C, num_scores]
 
         return scores, user_emb, item_embs
 

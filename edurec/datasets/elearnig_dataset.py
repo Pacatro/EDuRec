@@ -85,11 +85,11 @@ class ElearningDataset(Dataset):
                 "mask": mask,
                 "target": torch.tensor(target, dtype=torch.float32),
             }
-
-        neg_itms = self._sample_negatives(user_idx)
+        
+        neg_items = self._sample_negatives(user_idx)
 
         candidates = torch.tensor(
-            np.concatenate([[item_idx], neg_itms]), dtype=torch.long
+            np.concatenate([[item_idx], neg_items]), dtype=torch.long
         )  # [1 + n_neg]
 
         targets = torch.zeros(len(candidates), dtype=torch.float32)  # [1 + n_neg]

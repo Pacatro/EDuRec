@@ -3,6 +3,8 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
+from edurec import config
+
 
 @dataclass
 class RankerConfig:
@@ -13,6 +15,7 @@ class RankerConfig:
     num_scores: int = 1
     dropout: float = 0.1
     norm_first: bool = True
+    max_histoy_len: int = config.MAX_HISTORY_LEN
 
 
 class Ranker(nn.Module):
@@ -41,6 +44,8 @@ class Ranker(nn.Module):
             enable_nested_tensor=not cfg.norm_first,
         )
 
+        self.pos_emb = nn.Embedding(cfg.max_histoy_len, cfg.embed_dim)
+
         self.scorer = Scorer(cfg.embed_dim, cfg.num_scores, cfg.dropout)
 
     def forward(
@@ -48,12 +53,21 @@ class Ranker(nn.Module):
         user_emb: torch.Tensor,  # [B, D]
         history_emb: torch.Tensor,  # [B, H, D]
         candidate_emb: torch.Tensor,  # [B, C, D]
+        history_mask: torch.Tensor,  # [B, H]
     ) -> torch.Tensor:
-        H = history_emb.shape[1]
+        B, H, _ = history_emb.shape
+        C = candidate_emb.shape[1]
 
         user_token = self.user_proj(user_emb).unsqueeze(1)  # [B, 1, D]
         history_tokens = self.history_proj(history_emb)  # [B, H, D]
         candidate_tokens = self.candidate_proj(candidate_emb)  # [B, C, D]
+
+        # Positional Ecoding
+        pos_emb = self.pos_emb(
+            torch.arange(H, device=history_emb.device).unsqueeze(0).repeat(B, 1)
+        )  # [B, H, D]
+
+        history_tokens = history_tokens + pos_emb
 
         seq = torch.cat(
             [user_token, history_tokens, candidate_tokens], dim=1
@@ -63,8 +77,10 @@ class Ranker(nn.Module):
         candidate_start_offset = 1 + H
 
         attn_mask = self._make_attn_mask(T, candidate_start_offset, seq.device)
+        padding_mask = torch.zeros((B, 1 + H + C), dtype=torch.bool, device=seq.device)
+        padding_mask[:, 1 : 1 + H] = history_mask
 
-        out = self.transformer(seq, mask=attn_mask)
+        out = self.transformer(seq, mask=attn_mask, src_key_padding_mask=padding_mask)
 
         candidate_out = out[:, candidate_start_offset:, :]  # [B, C, D]
         scores = self.scorer(candidate_out)  # [B, C, num_scores]
