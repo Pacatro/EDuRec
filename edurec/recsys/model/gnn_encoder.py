@@ -19,7 +19,7 @@ class LossReduction(StrEnum):
 class GnnEncoderConfig:
     num_users: int
     num_items: int
-    embed_dim: int
+    emb_dim: int
     drop_edges_p: float = config.DROP_EDGES_P
     tau: float = config.TAU
     max_samples_u: int = config.MAX_SAMPLES_U
@@ -35,8 +35,8 @@ class GnnEncoder(nn.Module):
         self.num_items = cfg.num_items
         self.drop_edges_p = cfg.drop_edges_p
 
-        self.user_emb = nn.Embedding(self.num_users, cfg.embed_dim)
-        self.item_emb = nn.Embedding(self.num_items, cfg.embed_dim)
+        self.user_emb = nn.Embedding(self.num_users, cfg.emb_dim)
+        self.item_emb = nn.Embedding(self.num_items, cfg.emb_dim)
 
         self.convs = nn.ModuleList(LGConv() for _ in range(cfg.num_layers))
 

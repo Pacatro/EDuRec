@@ -37,7 +37,7 @@ DROPOUT: float = 0.1
 MAX_HISTORY_LEN: int = 50
 NUM_SCORES: int = 1
 
-# Model
+# Ghost model
 EMB_DIM: int = 64
 
 # Training

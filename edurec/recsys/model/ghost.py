@@ -40,7 +40,7 @@ class GhostConfig:
         return GnnEncoderConfig(
             num_users=self.num_users,
             num_items=self.num_items,
-            embed_dim=self.emb_dim,
+            emb_dim=self.emb_dim,
             drop_edges_p=self.edge_dropout,
             tau=self.temperature,
             max_samples_u=self.max_user_samples,
@@ -52,7 +52,7 @@ class GhostConfig:
     @property
     def ranker(self) -> RankerConfig:
         return RankerConfig(
-            embed_dim=self.emb_dim,
+            emb_dim=self.emb_dim,
             n_heads=self.n_heads,
             n_blocks=self.n_blocks,
             ff_dim=self.ff_dim,

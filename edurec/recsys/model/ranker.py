@@ -8,7 +8,7 @@ from edurec import config
 
 @dataclass
 class RankerConfig:
-    embed_dim: int
+    emb_dim: int
     n_heads: int
     n_blocks: int
     ff_dim: int
@@ -23,12 +23,12 @@ class Ranker(nn.Module):
         super().__init__()
         self.cfg = cfg
 
-        self.user_proj = nn.Linear(cfg.embed_dim, cfg.embed_dim, bias=False)
-        self.history_proj = nn.Linear(cfg.embed_dim, cfg.embed_dim, bias=False)
-        self.candidate_proj = nn.Linear(cfg.embed_dim, cfg.embed_dim, bias=False)
+        self.user_proj = nn.Linear(cfg.emb_dim, cfg.emb_dim, bias=False)
+        self.history_proj = nn.Linear(cfg.emb_dim, cfg.emb_dim, bias=False)
+        self.candidate_proj = nn.Linear(cfg.emb_dim, cfg.emb_dim, bias=False)
 
         encoder_layer = nn.TransformerEncoderLayer(
-            cfg.embed_dim,
+            cfg.emb_dim,
             cfg.n_heads,
             cfg.ff_dim,
             cfg.dropout,
@@ -40,13 +40,18 @@ class Ranker(nn.Module):
         self.transformer = nn.TransformerEncoder(
             encoder_layer,
             num_layers=cfg.n_blocks,
-            norm=nn.LayerNorm(cfg.embed_dim),
+            norm=nn.LayerNorm(cfg.emb_dim),
             enable_nested_tensor=not cfg.norm_first,
         )
 
-        self.pos_emb = nn.Embedding(cfg.max_histoy_len, cfg.embed_dim)
+        self.pos_emb = nn.Embedding(cfg.max_histoy_len, cfg.emb_dim)
 
-        self.scorer = Scorer(cfg.embed_dim, cfg.num_scores, cfg.dropout)
+        self.scorer = nn.Sequential(
+            nn.Linear(cfg.emb_dim, cfg.emb_dim // 2),
+            nn.GELU(),
+            nn.Dropout(cfg.dropout),
+            nn.Linear(cfg.emb_dim // 2, cfg.num_scores),
+        )
 
     def forward(
         self,
@@ -102,28 +107,20 @@ class Ranker(nn.Module):
     def _make_attn_mask(
         self, seq_len: int, candidate_start_offset: int, device: torch.device
     ) -> torch.Tensor:
-        mask = torch.zeros((seq_len, seq_len), dtype=torch.bool, device=device)
-        mask[:candidate_start_offset, candidate_start_offset:] = True
+        mask = torch.ones((seq_len, seq_len), dtype=torch.bool, device=device)
+
+        causal_mask = torch.triu(
+            torch.ones(candidate_start_offset, candidate_start_offset, device=device),
+            diagonal=1,
+        ).bool()
+        mask[:candidate_start_offset, :candidate_start_offset] = causal_mask
+
+        mask[candidate_start_offset:, :candidate_start_offset] = False
 
         if candidate_start_offset < seq_len:
-            mask[candidate_start_offset:, candidate_start_offset:] = True
             candidate_indices = torch.arange(
                 candidate_start_offset, seq_len, device=device
             )
             mask[candidate_indices, candidate_indices] = False
 
         return mask
-
-
-class Scorer(nn.Module):
-    def __init__(self, emb_dim: int, num_scores: int, dropout: float):
-        super().__init__()
-        self.scorer = nn.Sequential(
-            nn.Linear(emb_dim, emb_dim // 2),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(emb_dim // 2, num_scores),
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.scorer(x)
