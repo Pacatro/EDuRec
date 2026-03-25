@@ -326,6 +326,7 @@ class ElearningDataModule(L.LightningDataModule):
             case "test":
                 self.test_ds = self._make_dataset("test", self.n_neg_test)
 
+    # TODO: IMPLEMENT TEMPORAL GLOBAL SPLITTING
     def _split_data(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
         Splits global interactions into Train/Val/Test sets.
