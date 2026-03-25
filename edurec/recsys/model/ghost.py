@@ -86,7 +86,7 @@ class Ghost(nn.Module):
         self.gnn = GnnEncoder(cfg.gnn)
         self.ranker = Ranker(cfg.ranker)
 
-        self.register_buffer("edge_index", None)
+        self.register_buffer("edge_index", None, persistent=False)
 
     def forward(
         self,

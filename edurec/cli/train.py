@@ -8,9 +8,9 @@ from lightning.pytorch.loggers import WandbLogger
 
 from .. import config
 from ..datasets import DatasetName, ElearningDataModule
-from ..recsys.model import GhostConfig
 from ..recsys.engine import RecSys
 from ..recsys.io import save_model
+from ..recsys.model import GhostConfig
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -100,9 +100,10 @@ def train(
         print(f"[TRAIN] Dataset {dataset.value} sparsity: {dm.sparsity}")
         print(f"[TRAIN] Number of users: {dm.num_users}")
         print(f"[TRAIN] Number of items: {dm.num_items}")
+        print(f"[TRAIN] Number of interactions: {dm.num_interactions}")
         print(f"[TRAIN] Number of user features: {dm.num_user_feats}")
         print(f"[TRAIN] Number of item features: {dm.num_item_feats}")
-        print(f"[TRAIN] Number of interactions: {dm.num_interactions}")
+        print(f"[TRAIN] Number of interactions context features: {dm.num_ctx_feats}")
         print(f"[TRAIN] Number of negatives for training: {n_neg_train}")
         print(f"[TRAIN] Number of negatives for validation: {n_neg_val}")
         print(f"[TRAIN] Number of negatives for testing: {n_neg_test}")
@@ -135,7 +136,11 @@ def train(
 
     model_name = recsys.model_name
 
-    recsys = cast(RecSys, torch.compile(recsys)) if not debug and config.COMPILE_MODEL else recsys
+    recsys = (
+        cast(RecSys, torch.compile(recsys))
+        if not debug and config.COMPILE_MODEL
+        else recsys
+    )
 
     resolved_monitor = monitor if "Loss" in monitor else f"{monitor}@{top_k}"
     mode = "min" if "Loss" in monitor else "max"
@@ -184,7 +189,7 @@ def train(
     )[0]
 
     if save:
-        save_model(
+        model_file_path, model_config_path, metrics_path = save_model(
             model_name,
             cfg,
             checkpoint.best_model_path,
@@ -192,3 +197,8 @@ def train(
             dataset.value,
             cast(dict[str, float], test_results),
         )
+
+        if config.state["verbose"]:
+            print(f"Model weights saved in: {model_file_path}")
+            print(f"Model config saved in: {model_config_path}")
+            print(f"Metrics saved in: {metrics_path}")

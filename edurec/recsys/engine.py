@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from torch_geometric.data import Data
 from torch_geometric.utils import dropout_edge
-from torchmetrics import Metric, MetricCollection
+from torchmetrics import MetricCollection
 from torchmetrics.retrieval import (
     RetrievalHitRate,
     RetrievalMAP,
@@ -66,15 +66,17 @@ class RecSys(L.LightningModule):
                 f"Hit@{top_k}": RetrievalHitRate(top_k=top_k),
                 f"Map@{top_k}": RetrievalMAP(top_k=top_k),
                 f"Mrr@{top_k}": RetrievalMRR(top_k=top_k),
-                f"F1@{top_k}": RetrievalFBetaScore(
-                    top_k=top_k, beta=1.0, adaptive_k=adaptive_k
-                ),
             },
             prefix="test/",
         )
 
         self.model = Ghost(cfg)
         self.model_name = self.model.__class__.__name__
+
+    def on_load_checkpoint(self, checkpoint: dict) -> None:
+        state_dict = checkpoint.get("state_dict")
+        if isinstance(state_dict, dict):
+            state_dict.pop("model.edge_index", None)
 
     def _resolve_graph_device(self) -> str:
         if config.state["device"] != "auto":
@@ -305,31 +307,3 @@ class RecSys(L.LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": {"scheduler": scheduler, "monitor": self.monitor},
         }
-
-
-class RetrievalFBetaScore(Metric):
-    def __init__(
-        self, top_k: int = 10, beta: float = 1.0, adaptive_k: bool = False, **kwargs
-    ):
-        super().__init__(**kwargs)
-        self.beta = beta
-        self.top_k = top_k
-
-        self.precision = RetrievalPrecision(top_k=top_k, adaptive_k=adaptive_k)
-        self.recall = RetrievalRecall(top_k=top_k)
-
-    def update(self, preds: torch.Tensor, target: torch.Tensor, indexes: torch.Tensor):
-        self.precision.update(preds, target, indexes=indexes)
-        self.recall.update(preds, target, indexes=indexes)
-
-    def compute(self):
-        precision = self.precision.compute()
-        recall = self.recall.compute()
-
-        return ((1 + self.beta**2) * precision * recall) / (
-            (self.beta**2 * precision) + recall
-        )
-
-    def reset(self):
-        self.precision.reset()
-        self.recall.reset()
