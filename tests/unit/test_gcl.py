@@ -1,13 +1,16 @@
-import pytest
 import torch
 from torch_geometric.data import Data
 
-from edurec.datasets.loaders import DatasetName
-from edurec.recsys.arquitecture import GnnEncoderConfig, GnnEncoder
-from edurec.datasets import ElearningDataModule
+from edurec.recsys.arquitecture import (
+    GnnEncoder,
+    GnnEncoderConfig,
+    InfoNCELoss,
+    GhostConfig,
+)
+from edurec.recsys.engine import RecSys
 
 
-def test_gcl():
+def test_gnn_encoder_shapes():
     cfg = GnnEncoderConfig(
         num_users=10,
         num_items=5,
@@ -17,61 +20,66 @@ def test_gcl():
         num_layers=2,
     )
 
-    num_users = 10
-    num_items = 5
-
-    u_x = torch.randn(num_users, cfg.embed_dim)
-    i_x = torch.randn(num_items, cfg.embed_dim)
-
     edge_index = torch.tensor(
         [
-            [0, 1, 2, 3],
-            [10, 11, 12, 13],
+            [0, 1, 2, 10, 11, 12],
+            [10, 11, 12, 0, 1, 2],
         ],
         dtype=torch.long,
     )
-
-    data = Data(edge_index=edge_index)
-    data.u_x = u_x
-    data.i_x = i_x
-    data.num_users = num_users
+    data = Data(edge_index=edge_index, num_nodes=cfg.num_users + cfg.num_items)
 
     model = GnnEncoder(cfg)
 
-    eu_struct, ei_struct = model(data)
+    user_embs, item_embs = model(data)
 
-    assert eu_struct.shape == (num_users, cfg.dim_hidden)
-    assert ei_struct.shape == (num_items, cfg.dim_hidden)
+    assert user_embs.shape == (cfg.num_users, cfg.embed_dim)
+    assert item_embs.shape == (cfg.num_items, cfg.embed_dim)
     assert len(model.convs) == cfg.num_layers
 
 
-def test_gcl_mars():
-    dm = ElearningDataModule(
-        DatasetName.MARS, batch_size=1, val_ratio=0.2, test_ratio=0.2
+def test_info_nce_loss_is_finite():
+    torch.manual_seed(0)
+
+    loss_fn = InfoNCELoss(tau=0.1, max_samples_u=16, max_samples_i=16)
+    u_emb1 = torch.randn(8, 16)
+    i_emb1 = torch.randn(6, 16)
+    u_emb2 = torch.randn(8, 16)
+    i_emb2 = torch.randn(6, 16)
+
+    loss = loss_fn(u_emb1, i_emb1, u_emb2, i_emb2)
+
+    assert torch.isfinite(loss)
+    assert loss.item() > 0
+
+
+def test_graph_view_preserves_bidirectional_pairs():
+    cfg = GhostConfig(num_users=4, num_items=3, num_ctx_feats=0, edge_dropout=0.5)
+    graph = Data(
+        edge_index=torch.tensor(
+            [
+                [0, 1, 2, 4, 5, 6],
+                [4, 5, 6, 0, 1, 2],
+            ],
+            dtype=torch.long,
+        ),
+        num_nodes=7,
+    )
+    recsys = RecSys(
+        cfg=cfg,
+        inter_graph=graph,
+        u_static=torch.zeros(cfg.num_users, 0),
+        i_static=torch.zeros(cfg.num_items, 0),
     )
 
-    dm.setup()
+    assert graph.edge_index is not None
+    view = recsys._create_graph_view(graph.edge_index)
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    assert view.size(1) % 2 == 0
 
-    graph = dm.create_inter_graph().to(device)
+    half_edges = view.size(1) // 2
+    u2i = view[:, :half_edges]
+    i2u = view[:, half_edges:]
 
-    cfg = GCLConfig(
-        dim_user=graph.u_x.shape[1],
-        dim_item=graph.i_x.shape[1],
-        dim_hidden=32,
-        drop_edges_p=0.2,
-        tau=0.1,
-        num_layers=2,
-    )
-
-    model = GCL(cfg).to(device)
-
-    u_struct, i_struct = model(graph)
-
-    assert u_struct.shape == (dm.num_users, cfg.dim_hidden)
-    assert i_struct.shape == (dm.num_items, cfg.dim_hidden)
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+    assert torch.equal(u2i[0], i2u[1])
+    assert torch.equal(u2i[1], i2u[0])

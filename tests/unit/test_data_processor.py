@@ -169,6 +169,11 @@ def test_data_processor():
     assert -1 in test_processed.interactions.values
 
     assert train_processed.items.shape[1] > 2
+    assert processor.feature_metadata["users"].numeric_cols == ["age"]
+    assert processor.feature_metadata["users"].categorical_cols == ["job"]
+    assert processor.feature_metadata["items"].numeric_cols == ["nb_views"]
+    assert processor.feature_metadata["items"].categorical_cols == ["language"]
+    assert processor.feature_metadata["users"].categorical_cardinalities["job"] >= 1
 
 
 if __name__ == "__main__":

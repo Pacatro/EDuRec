@@ -1,7 +1,7 @@
 import pytest
 
-from edurec.datasets import DatasetName, ElearningDataModule
 from edurec import config
+from edurec.datasets import DatasetName, ElearningDataModule
 
 
 @pytest.fixture
@@ -22,50 +22,34 @@ def test_split_mars(dm: ElearningDataModule):
 
 def test_setup(dm: ElearningDataModule):
     dm.setup()
+
     assert dm.is_processed
+    assert dm.data_processor is not None
+    assert len(dm.user_positive_items) > 0
 
 
 def test_create_inter_graph(dm: ElearningDataModule):
     dm.setup()
 
     train_raw = dm._processed_data["train"]
-
     assert train_raw is not None
 
     num_pos_inter = len(train_raw[train_raw[config.RELEVANT_COL] > 0])
-
     graph = dm.create_inter_graph()
 
     assert graph.num_edges == 2 * num_pos_inter
-
-    num_users = graph.num_users
-
     assert graph.edge_index is not None
-
-    item_indices = graph.edge_index[1, :num_pos_inter]
-
-    assert item_indices.min().item() >= num_users
-
-    assert hasattr(graph, "u_x")
-    assert hasattr(graph, "i_x")
-    assert graph.u_x.shape[0] == num_users
+    assert graph.edge_index[1, :num_pos_inter].min().item() >= graph.num_users
+    assert graph.u_x.shape[0] == graph.num_users
+    assert graph.i_x.shape[0] == graph.num_items
 
 
-def test_generate_global_history(dm: ElearningDataModule):
+def test_feature_metadata_and_static_shapes(dm: ElearningDataModule):
     dm.setup()
 
-    global_history = dm._generate_global_history()
-
-    assert global_history is not None
-    assert len(global_history) > 0
-
-
-def test_num_static_feats(dm: ElearningDataModule):
-    dm.setup()
-
+    assert dm.num_user_numeric_feats == 0
+    assert dm.num_item_numeric_feats == 2
+    assert dm.user_cat_cardinalities
+    assert dm.item_cat_cardinalities
     assert dm.num_user_feats == 1
-    assert dm.num_item_feats == 6
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+    assert dm.num_item_feats == 5

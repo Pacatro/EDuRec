@@ -7,28 +7,25 @@ from edurec.recsys.arquitecture import Ranker, RankerConfig
 @pytest.fixture
 def cfg():
     return RankerConfig(
-        dim_model=16,
+        embed_dim=16,
         n_heads=4,
         n_blocks=2,
         ff_dim=32,
-        dropout=0.1,
-        max_history_len=5,
+        dropout=0.0,
+        max_histoy_len=5,
     )
 
 
 def test_ranker_forward_multi_candidate(cfg):
     torch.manual_seed(0)
 
-    model = Ranker(cfg)
+    model = Ranker(cfg).eval()
 
-    B, L, K, D = 3, 5, 4, cfg.dim_model
-
-    token_u = torch.randn(B, 1, D)
-    tokens_i = torch.randn(B, L, D)
-    tokens_c = torch.randn(B, K, D)
-
-    # True = posición válida en el historial
-    hist_mask = torch.tensor(
+    B, H, C, D = 3, 5, 4, cfg.embed_dim
+    user_emb = torch.randn(B, D)
+    history_emb = torch.randn(B, H, D)
+    candidate_emb = torch.randn(B, C, D)
+    history_valid_mask = torch.tensor(
         [
             [True, True, True, False, False],
             [True, True, True, True, False],
@@ -37,92 +34,77 @@ def test_ranker_forward_multi_candidate(cfg):
         dtype=torch.bool,
     )
 
-    scores = model(
-        token_u=token_u,
-        tokens_i=tokens_i,
-        tokens_c=tokens_c,
-        hist_mask=hist_mask,
-    )
+    scores = model(user_emb, history_emb, candidate_emb, history_valid_mask)
 
-    assert scores.shape == (B, K)
+    assert scores.shape == (B, C, 1)
     assert torch.isfinite(scores).all()
 
 
 def test_ranker_forward_single_candidate(cfg):
     torch.manual_seed(0)
 
-    model = Ranker(cfg)
+    model = Ranker(cfg).eval()
 
-    B, L, D = 2, 5, cfg.dim_model
+    B, H, D = 2, 5, cfg.embed_dim
+    user_emb = torch.randn(B, D)
+    history_emb = torch.randn(B, H, D)
+    candidate_emb = torch.randn(B, D)
+    history_valid_mask = torch.ones(B, H, dtype=torch.bool)
 
-    token_u = torch.randn(B, 1, D)
-    tokens_i = torch.randn(B, L, D)
-    tokens_c = torch.randn(B, D)  # caso soportado: un solo candidato sin eje K
-    hist_mask = torch.ones(B, L, dtype=torch.bool)
-
-    scores = model(
-        token_u=token_u,
-        tokens_i=tokens_i,
-        tokens_c=tokens_c,
-        hist_mask=hist_mask,
-    )
+    scores = model(user_emb, history_emb, candidate_emb, history_valid_mask)
 
     assert scores.shape == (B,)
     assert torch.isfinite(scores).all()
 
 
-def test_ranker_backward(cfg):
+def test_ranker_padding_does_not_affect_scores(cfg):
     torch.manual_seed(0)
 
-    model = Ranker(cfg)
+    model = Ranker(cfg).eval()
 
-    B, L, K, D = 2, 5, 3, cfg.dim_model
-
-    token_u = torch.randn(B, 1, D, requires_grad=True)
-    tokens_i = torch.randn(B, L, D, requires_grad=True)
-    tokens_c = torch.randn(B, K, D, requires_grad=True)
-    hist_mask = torch.tensor(
+    B, H, C, D = 2, 5, 3, cfg.embed_dim
+    user_emb = torch.randn(B, D)
+    base_history = torch.randn(B, H, D)
+    candidate_emb = torch.randn(B, C, D)
+    history_valid_mask = torch.tensor(
         [
             [True, True, False, False, False],
-            [True, True, True, True, False],
+            [True, True, True, False, False],
         ],
         dtype=torch.bool,
     )
 
-    scores = model(
-        token_u=token_u,
-        tokens_i=tokens_i,
-        tokens_c=tokens_c,
-        hist_mask=hist_mask,
+    perturbed_history = base_history.clone()
+    perturbed_history[~history_valid_mask] = torch.randn_like(
+        perturbed_history[~history_valid_mask]
     )
 
-    loss = scores.mean()
-    loss.backward()
+    with torch.no_grad():
+        scores_a = model(user_emb, base_history, candidate_emb, history_valid_mask)
+        scores_b = model(user_emb, perturbed_history, candidate_emb, history_valid_mask)
 
-    assert token_u.grad is not None
-    assert tokens_i.grad is not None
-    assert tokens_c.grad is not None
-
-    has_grad = any(p.grad is not None for p in model.parameters() if p.requires_grad)
-    assert has_grad
+    assert torch.allclose(scores_a, scores_b, atol=1e-6)
 
 
-def test_ranker_without_hist_mask(cfg):
+def test_ranker_candidate_isolation(cfg):
     torch.manual_seed(0)
 
-    model = Ranker(cfg)
+    model = Ranker(cfg).eval()
 
-    B, L, K, D = 2, 5, 2, cfg.dim_model
+    B, H, C, D = 1, 4, 3, cfg.embed_dim
+    user_emb = torch.randn(B, D)
+    history_emb = torch.randn(B, H, D)
+    history_valid_mask = torch.tensor([[True, True, True, False]], dtype=torch.bool)
 
-    token_u = torch.randn(B, 1, D)
-    tokens_i = torch.randn(B, L, D)
-    tokens_c = torch.randn(B, K, D)
+    anchor_candidate = torch.randn(B, 1, D)
+    other_candidates_a = torch.randn(B, C - 1, D)
+    other_candidates_b = torch.randn(B, C - 1, D)
 
-    scores = model(
-        token_u=token_u,
-        tokens_i=tokens_i,
-        tokens_c=tokens_c,
-        hist_mask=None,
-    )
+    candidates_a = torch.cat([anchor_candidate, other_candidates_a], dim=1)
+    candidates_b = torch.cat([anchor_candidate, other_candidates_b], dim=1)
 
-    assert scores.shape == (B, K)
+    with torch.no_grad():
+        scores_a = model(user_emb, history_emb, candidates_a, history_valid_mask)
+        scores_b = model(user_emb, history_emb, candidates_b, history_valid_mask)
+
+    assert torch.allclose(scores_a[:, 0], scores_b[:, 0], atol=1e-6)
