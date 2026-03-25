@@ -24,9 +24,9 @@ class ElearningDataset(Dataset):
         self.num_ctx_feats = num_ctx_feats
 
         if self.n_negatives > 0:
-            interactions = interactions[interactions[config.RELEVANT_COL] > 0].reset_index(
-                drop=True
-            )
+            interactions = interactions[
+                interactions[config.RELEVANT_COL] > 0
+            ].reset_index(drop=True)
 
         self.user_ids = interactions[config.USER_COL].values
         self.item_ids = interactions[config.ITEM_COL].values
@@ -89,7 +89,10 @@ class ElearningDataset(Dataset):
                 "history_items": hist_items,
                 "history_ctx": hist_ctx,
                 "history_valid_mask": history_valid_mask,
-                "candidate_ids": torch.tensor(item_idx + 1, dtype=torch.long).unsqueeze(0),
+                "candidate_ids": torch.tensor(
+                    item_idx + 1,
+                    dtype=torch.long,
+                ).unsqueeze(0),
                 "candidate_labels": torch.tensor(target, dtype=torch.float32),
                 "positive_position": torch.tensor(0, dtype=torch.long),
             }

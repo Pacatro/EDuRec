@@ -47,7 +47,7 @@ EPOCHS: int = 100
 WEIGHT_DECAY: float = 1e-6
 PATIENCE: int = 3
 DELTA: float = 0.001
-TOP_K: int = 10
+TOP_K: int = 20
 NUM_WORKERS: int = 2
 VAL_RATIO: float = 0.1
 TEST_RATIO: float = 0.4
@@ -57,8 +57,9 @@ N_NEG_VAL: int = 99
 N_NEG_TEST: int = 99
 SAVE_DATA: bool = False
 MONITOR: str = "val/Ndcg"
-ADAPTIVE_K: bool = False
+ADAPTIVE_K: bool = True
 ALPHA: float = 0.05
+COMPILE_MODEL: bool = False
 
 # Eval
 SEEDS: list[int] = [0, 1, 42]

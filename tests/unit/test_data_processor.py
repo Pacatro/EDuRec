@@ -173,7 +173,27 @@ def test_data_processor():
     assert processor.feature_metadata["users"].categorical_cols == ["job"]
     assert processor.feature_metadata["items"].numeric_cols == ["nb_views"]
     assert processor.feature_metadata["items"].categorical_cols == ["language"]
+    assert processor.feature_metadata["items"].text_cols == ["description"]
+    assert processor.feature_metadata["items"].list_cols == []
+    assert processor.feature_metadata["items"].pending_cols == ["description"]
+    assert processor.feature_metadata["inter"].time_cols == [config.TIME_COL]
     assert processor.feature_metadata["users"].categorical_cardinalities["job"] >= 1
+
+    items_groups = processor.column_groups["items"]
+    inter_groups = processor.column_groups["inter"]
+
+    assert items_groups["active"] == ["nb_views", "language"]
+    assert items_groups["input"] == ["nb_views", "language"]
+    assert items_groups["text"] == ["description"]
+    assert items_groups["list"] == []
+
+    assert inter_groups["time"] == [config.TIME_COL]
+    assert inter_groups["input"] == ["watch_percentage", "semester", config.TIME_COL]
+    assert config.TIME_COL not in inter_groups["active"]
+    assert config.RATING_COL not in inter_groups["input"]
+    assert config.RELEVANT_COL not in inter_groups["input"]
+    assert config.USER_COL not in inter_groups["input"]
+    assert config.ITEM_COL not in inter_groups["input"]
 
 
 if __name__ == "__main__":

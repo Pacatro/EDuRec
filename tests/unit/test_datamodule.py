@@ -24,6 +24,7 @@ def test_setup(dm: ElearningDataModule):
     dm.setup()
 
     assert dm.is_processed
+    assert dm.artifacts.is_ready
     assert dm.data_processor is not None
     assert len(dm.user_positive_items) > 0
 
@@ -53,3 +54,23 @@ def test_feature_metadata_and_static_shapes(dm: ElearningDataModule):
     assert dm.item_cat_cardinalities
     assert dm.num_user_feats == 1
     assert dm.num_item_feats == 5
+    assert dm.artifacts.train is not None
+    assert dm.artifacts.train.equals(dm._processed_data["train"])
+    assert dm.artifacts.u_static is not None
+    assert dm.artifacts.i_static is not None
+    assert dm.artifacts.u_static.shape[0] == dm.num_users
+    assert dm.artifacts.i_static.shape[0] == dm.num_items
+    assert dm.data_processor is not None
+    assert dm.data_processor.feature_metadata["items"].text_cols == ["name", "description"]
+    assert dm.data_processor.feature_metadata["items"].list_cols == [
+        "job",
+        "software",
+        "theme",
+    ]
+    assert dm.data_processor.feature_metadata["items"].pending_cols == [
+        "name",
+        "description",
+        "job",
+        "software",
+        "theme",
+    ]

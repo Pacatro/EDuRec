@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from pathlib import Path
 
 import lightning as L
@@ -11,7 +12,28 @@ from torch_geometric.data import Data
 from .. import config
 from .data_processor import DataProcessor
 from .elearnig_dataset import ElearningDataset
-from .loaders import DatasetName, load_raw_data
+from .loaders import DatasetName, RawDataset, Schema, load_raw_data
+
+
+@dataclass
+class ProcessedArtifacts:
+    train: pd.DataFrame | None = None
+    val: pd.DataFrame | None = None
+    test: pd.DataFrame | None = None
+    u_static: torch.Tensor | None = None
+    i_static: torch.Tensor | None = None
+    data_processor: DataProcessor | None = None
+
+    @property
+    def is_ready(self) -> bool:
+        return (
+            self.train is not None
+            and self.val is not None
+            and self.test is not None
+            and self.u_static is not None
+            and self.i_static is not None
+            and self.data_processor is not None
+        )
 
 
 class ElearningDataModule(L.LightningDataModule):
@@ -63,48 +85,84 @@ class ElearningDataModule(L.LightningDataModule):
 
         self.processed_folder = Path(config.PROCESSED_FOLDER) / self.dataset_name.value
 
-        self.u_static: torch.Tensor | None = None
-        self.i_static: torch.Tensor | None = None
-
-        self.data_processor: DataProcessor | None = None
-        self._processed_data: dict[str, pd.DataFrame | None] = {
-            "train": None,
-            "val": None,
-            "test": None,
-        }
-
+        self.raw_dataset: RawDataset | None = None
+        self.artifacts = ProcessedArtifacts()
         self.global_history = {}
         self.user_positive_items: dict[int, set[int]] = {}
 
         self._load_data()
 
     @property
+    def interactions(self) -> pd.DataFrame:
+        if self.raw_dataset is None:
+            raise RuntimeError("Raw interactions are not available.")
+        return self.raw_dataset.interactions
+
+    @property
+    def users_feats(self) -> pd.DataFrame:
+        if self.raw_dataset is None:
+            raise RuntimeError("Raw user features are not available.")
+        return self.raw_dataset.u_feats
+
+    @property
+    def items_feats(self) -> pd.DataFrame:
+        if self.raw_dataset is None:
+            raise RuntimeError("Raw item features are not available.")
+        return self.raw_dataset.i_feats
+
+    @property
+    def schema(self) -> Schema:
+        if self.raw_dataset is not None:
+            return self.raw_dataset.schema
+        if self.data_processor is not None:
+            return self.data_processor.schema
+        raise RuntimeError("Schema is not available.")
+
+    @property
+    def u_static(self) -> torch.Tensor | None:
+        return self.artifacts.u_static
+
+    @property
+    def i_static(self) -> torch.Tensor | None:
+        return self.artifacts.i_static
+
+    @property
+    def data_processor(self) -> DataProcessor | None:
+        return self.artifacts.data_processor
+
+    @property
+    def _processed_data(self) -> dict[str, pd.DataFrame | None]:
+        return {
+            "train": self.artifacts.train,
+            "val": self.artifacts.val,
+            "test": self.artifacts.test,
+        }
+
+    @property
     def is_processed(self) -> bool:
         """Whether processed splits and static features are available."""
-        return self.u_static is not None and self._processed_data["train"] is not None
+        return self.artifacts.is_ready
 
     @property
     def num_users(self) -> int:
         """Return total number of users from processed or raw features."""
         if self.u_static is not None:
             return self.u_static.shape[0]
-        return len(self.users_feats) if hasattr(self, "users_feats") else 0
+        return len(self.raw_dataset.u_feats) if self.raw_dataset is not None else 0
 
     @property
     def num_items(self) -> int:
         """Return total number of items from processed or raw features."""
         if self.i_static is not None:
             return self.i_static.shape[0]
-        return len(self.items_feats) if hasattr(self, "items_feats") else 0
+        return len(self.raw_dataset.i_feats) if self.raw_dataset is not None else 0
 
     @property
     def num_interactions(self) -> int:
         """Return interaction count across all splits or raw interactions."""
         if self.is_processed:
-            return sum(
-                len(df) for df in self._processed_data.values() if df is not None
-            )
-        return len(self.interactions) if hasattr(self, "interactions") else 0
+            return sum(len(df) for df in self._processed_data.values() if df is not None)
+        return len(self.raw_dataset.interactions) if self.raw_dataset is not None else 0
 
     @property
     def sparsity(self) -> float:
@@ -182,15 +240,15 @@ class ElearningDataModule(L.LightningDataModule):
             self._load_processed_data()
             return
 
-        print("[DATA] Loading raw data")
-        raw_dataset = load_raw_data(self.dataset_name)
-        self.interactions = raw_dataset.interactions
-        self.users_feats = raw_dataset.u_feats
-        self.items_feats = raw_dataset.i_feats
-        self.schema = raw_dataset.schema
-        self.data_processor = DataProcessor(schema=self.schema)
+        self._load_raw_dataset()
 
-    def _load_processed_data(self):
+    def _load_raw_dataset(self) -> None:
+        self.raw_dataset = load_raw_data(self.dataset_name)
+        self.artifacts = ProcessedArtifacts(
+            data_processor=DataProcessor(schema=self.raw_dataset.schema)
+        )
+
+    def _load_processed_data(self) -> None:
         """Load cached splits, static features, and fitted preprocessor."""
         assert self.processed_folder is not None and self.processed_folder.exists()
 
@@ -198,28 +256,36 @@ class ElearningDataModule(L.LightningDataModule):
             f"[CACHE] Loading processed data and preprocessor from {self.processed_folder}"
         )
 
-        for split in ["train", "val", "test"]:
-            self._processed_data[split] = pd.read_csv(
-                self.processed_folder / f"{split}.csv"
-            )
+        processed_splits = {
+            split: pd.read_csv(self.processed_folder / f"{split}.csv")
+            for split in ["train", "val", "test"]
+        }
 
         static_feats = load_file(self.processed_folder / "static_feats.safetensors")
-
-        self.u_static = static_feats["u_static"]
-        self.i_static = static_feats["i_static"]
-
-        self.data_processor = DataProcessor.load(
-            self.processed_folder / "processor.joblib"
+        self.artifacts = ProcessedArtifacts(
+            train=processed_splits["train"],
+            val=processed_splits["val"],
+            test=processed_splits["test"],
+            u_static=static_feats["u_static"],
+            i_static=static_feats["i_static"],
+            data_processor=DataProcessor.load(
+                self.processed_folder / "processor.joblib"
+            ),
         )
 
     def setup(self, stage: str | None = None) -> None:
         """Prepare processed datasets for training/validation/testing stages."""
         if not self.is_processed:
             train_raw, val_raw, test_raw = self._split_data()
-            self._preprocess(train_raw, val_raw, test_raw)
+            self.artifacts = self._prepare_processed_artifacts(
+                train_raw=train_raw,
+                val_raw=val_raw,
+                test_raw=test_raw,
+            )
+            if not self.use_processed_data:
+                self._save_processed_data()
 
-        self.global_history = self._generate_global_history()
-        self.user_positive_items = self._generate_user_positive_items()
+        self._build_runtime_state()
 
         match stage:
             case "fit" | None:
@@ -290,48 +356,50 @@ class ElearningDataModule(L.LightningDataModule):
 
         return train_df, val_df, test_df
 
-    def _preprocess(
+    def _prepare_processed_artifacts(
         self,
         train_raw: pd.DataFrame,
         val_raw: pd.DataFrame,
         test_raw: pd.DataFrame,
-    ):
+    ) -> ProcessedArtifacts:
         """
         Fits the `DataProcessor` on training data and transforms all splits.
         Also generates static feature matrices and persists results to the cache.
         """
-        assert self.data_processor is not None
-        self.data_processor.fit(
+        data_processor = self._require_data_processor()
+        data_processor.fit(
             users_train=self.users_feats,
             items_train=self.items_feats,
             interactions_train=train_raw,
         )
 
-        processed_all = self.data_processor.transform(
+        processed_all = data_processor.transform(
             users=self.users_feats, items=self.items_feats
         )
         assert processed_all.users is not None and processed_all.items is not None
 
-        self.u_static = self._generate_static_feats(
-            processed_all.users, config.USER_COL
+        u_static = self._generate_static_feats(processed_all.users, config.USER_COL)
+        i_static = self._generate_static_feats(processed_all.items, config.ITEM_COL)
+
+        p_train = data_processor.transform(interactions=train_raw)
+        p_val = data_processor.transform(interactions=val_raw)
+        p_test = data_processor.transform(interactions=test_raw)
+
+        return ProcessedArtifacts(
+            train=p_train.interactions,
+            val=p_val.interactions,
+            test=p_test.interactions,
+            u_static=u_static,
+            i_static=i_static,
+            data_processor=data_processor,
         )
-        self.i_static = self._generate_static_feats(
-            processed_all.items, config.ITEM_COL
-        )
 
-        p_train = self.data_processor.transform(interactions=train_raw)
-        p_val = self.data_processor.transform(interactions=val_raw)
-        p_test = self.data_processor.transform(interactions=test_raw)
-
-        self._processed_data["train"] = p_train.interactions
-        self._processed_data["val"] = p_val.interactions
-        self._processed_data["test"] = p_test.interactions
-
-        if not self.use_processed_data:
-            self._save_processed_data()
+    def _build_runtime_state(self) -> None:
+        self.global_history = self._generate_global_history()
+        self.user_positive_items = self._generate_user_positive_items()
 
     def _generate_global_history(self) -> dict[int, list]:
-        train_p = self._processed_data["train"]
+        train_p = self.artifacts.train
 
         assert train_p is not None
 
@@ -385,17 +453,14 @@ class ElearningDataModule(L.LightningDataModule):
         of features.
         """
         df_sorted = df.sort_values(id_col)
-        assert self.data_processor is not None
-
+        data_processor = self._require_data_processor()
         prefix = "users" if id_col == config.USER_COL else "items"
-        metadata = self.data_processor.feature_metadata[prefix]
+        metadata = data_processor.feature_metadata[prefix]
         feat_cols = metadata.numeric_cols + metadata.categorical_cols
         return torch.tensor(df_sorted[feat_cols].values, dtype=torch.float32)
 
-    def _save_processed_data(self):
+    def _save_processed_data(self) -> None:
         """Persist processed splits, static tensors, and preprocessing artifacts."""
-        print("[CACHE] Saving processed data")
-
         self.processed_folder.mkdir(parents=True, exist_ok=True)
 
         for split, df in self._processed_data.items():
@@ -413,12 +478,11 @@ class ElearningDataModule(L.LightningDataModule):
             self.processed_folder / "static_feats.safetensors",
         )
 
-        assert self.data_processor is not None
-        self.data_processor.save(self.processed_folder / "processor.joblib")
+        self._require_data_processor().save(self.processed_folder / "processor.joblib")
 
     def _make_dataset(self, split: str, n_negatives: int) -> ElearningDataset:
         """Create an `ElearningDataset` for a processed split."""
-        df = self._processed_data.get(split)
+        df = self._get_processed_split(split)
 
         if df is None:
             raise RuntimeError(
@@ -433,6 +497,14 @@ class ElearningDataModule(L.LightningDataModule):
             all_item_ids=np.arange(self.num_items, dtype=np.int64),
             n_negatives=n_negatives,
         )
+
+    def _get_processed_split(self, split: str) -> pd.DataFrame | None:
+        return getattr(self.artifacts, split)
+
+    def _require_data_processor(self) -> DataProcessor:
+        if self.data_processor is None:
+            raise RuntimeError("Data processor is not available.")
+        return self.data_processor
 
     def _num_inter_feats(self, df: pd.DataFrame) -> int:
         excluded_cols = [
@@ -475,7 +547,7 @@ class ElearningDataModule(L.LightningDataModule):
         Raises:
             RuntimeError: If called before data/features are processed and cached.
         """
-        df_train = self._processed_data["train"]
+        df_train = self.artifacts.train
 
         if df_train is None or self.u_static is None:
             raise RuntimeError("Data must be processed before creating the graph")

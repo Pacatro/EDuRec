@@ -1,6 +1,7 @@
 from typing import Annotated, cast
 
 import lightning as L
+import torch
 import typer
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
@@ -107,6 +108,9 @@ def train(
         print(f"[TRAIN] Number of negatives for testing: {n_neg_test}")
         print(f"[TRAIN] Using adaptive k: {adaptive_k}")
 
+        if use_procesed_data:
+            print(f"[TRAIN] Using saved processed data from {config.PROCESSED_FOLDER}")
+
     cfg = GhostConfig(
         num_users=dm.num_users,
         num_items=dm.num_items,
@@ -116,13 +120,12 @@ def train(
         user_cat_cardinalities=dm.user_cat_cardinalities,
         item_cat_cardinalities=dm.item_cat_cardinalities,
     )
-    assert dm.u_static is not None and dm.i_static is not None
 
-    graph = dm.create_inter_graph()
+    assert dm.u_static is not None and dm.i_static is not None
 
     recsys = RecSys(
         cfg=cfg,
-        inter_graph=graph,
+        inter_graph=dm.create_inter_graph(),
         u_static=dm.u_static,
         i_static=dm.i_static,
         lr=lr,
@@ -130,29 +133,33 @@ def train(
         adaptive_k=adaptive_k,
     )
 
-    # recsys = torch.compile(recsys) if not debug else recsys
+    model_name = recsys.model_name
 
-    # Callbacks y Loggers
-    early_stop_model = EarlyStopping(
-        monitor=monitor if "Loss" in monitor else f"{monitor}@{top_k}",
+    recsys = cast(RecSys, torch.compile(recsys)) if not debug and config.COMPILE_MODEL else recsys
+
+    resolved_monitor = monitor if "Loss" in monitor else f"{monitor}@{top_k}"
+    mode = "min" if "Loss" in monitor else "max"
+
+    early_stopping = EarlyStopping(
+        monitor=resolved_monitor,
         patience=patience,
-        mode="min" if "Loss" in monitor else "max",
+        mode=mode,
         min_delta=config.DELTA,
         verbose=True,
     )
-
-    checkpoint_model = ModelCheckpoint(
-        monitor=monitor if "Loss" in monitor else f"{monitor}@{top_k}",
-        mode="min" if "Loss" in monitor else "max",
+    checkpoint = ModelCheckpoint(
+        monitor=resolved_monitor,
+        mode=mode,
         save_top_k=1,
-        filename=f"best_{recsys.model_name}",
+        filename=f"best_{model_name}",
     )
 
-    train_logger = (
-        WandbLogger(project=config.EXPERIMENT_NAME, name=f"train_{recsys.model_name}")
-        if use_logger and not debug
-        else None
-    )
+    train_logger = None
+    if use_logger and not debug:
+        train_logger = WandbLogger(
+            project=config.EXPERIMENT_NAME,
+            name=f"train_{model_name}",
+        )
 
     trainer = L.Trainer(
         logger=train_logger,
@@ -160,7 +167,7 @@ def train(
         accelerator=config.state["device"],
         devices="auto",
         log_every_n_steps=10,
-        callbacks=[early_stop_model, checkpoint_model],
+        callbacks=[early_stopping, checkpoint],
         fast_dev_run=debug,
     )
 
@@ -170,13 +177,17 @@ def train(
         print("[TRAIN] Debug mode: Skipping evaluation")
         return
 
-    test_results = trainer.test(ckpt_path="best", datamodule=dm, weights_only=False)[0]
+    test_results = trainer.test(
+        ckpt_path="best",
+        datamodule=dm,
+        weights_only=False,
+    )[0]
 
     if save:
         save_model(
-            recsys.model_name,
+            model_name,
             cfg,
-            checkpoint_model.best_model_path,
+            checkpoint.best_model_path,
             models_folder,
             dataset.value,
             cast(dict[str, float], test_results),
