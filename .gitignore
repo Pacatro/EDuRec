@@ -29,6 +29,7 @@ data/processed/
 
 # Models files
 saved_models/
+models/
 saved/
 *.pt
 

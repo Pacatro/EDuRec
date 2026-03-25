@@ -57,7 +57,7 @@ N_NEG_VAL: int = 99
 N_NEG_TEST: int = 99
 SAVE_DATA: bool = False
 MONITOR: str = "val/Ndcg"
-ADAPTIVE_K: bool = True
+ADAPTIVE_K: bool = False
 ALPHA: float = 0.05
 COMPILE_MODEL: bool = False
 
