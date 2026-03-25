@@ -53,8 +53,12 @@ class Ranker(nn.Module):
         user_emb: torch.Tensor,  # [B, D]
         history_emb: torch.Tensor,  # [B, H, D]
         candidate_emb: torch.Tensor,  # [B, C, D]
-        history_mask: torch.Tensor,  # [B, H]
+        history_mask: torch.Tensor | None,  # [B, H]
     ) -> torch.Tensor:
+        single_candidate = candidate_emb.ndim == 2
+        if single_candidate:
+            candidate_emb = candidate_emb.unsqueeze(1)
+
         B, H, _ = history_emb.shape
         C = candidate_emb.shape[1]
 
@@ -62,12 +66,17 @@ class Ranker(nn.Module):
         history_tokens = self.history_proj(history_emb)  # [B, H, D]
         candidate_tokens = self.candidate_proj(candidate_emb)  # [B, C, D]
 
+        if history_mask is None:
+            history_mask = torch.ones(
+                (B, H), dtype=torch.bool, device=history_emb.device
+            )
+
         # Positional Ecoding
         pos_emb = self.pos_emb(
             torch.arange(H, device=history_emb.device).unsqueeze(0).repeat(B, 1)
         )  # [B, H, D]
 
-        history_tokens = history_tokens + pos_emb
+        history_tokens = (history_tokens + pos_emb) * history_mask.unsqueeze(-1).float()
 
         seq = torch.cat(
             [user_token, history_tokens, candidate_tokens], dim=1
@@ -78,22 +87,31 @@ class Ranker(nn.Module):
 
         attn_mask = self._make_attn_mask(T, candidate_start_offset, seq.device)
         padding_mask = torch.zeros((B, 1 + H + C), dtype=torch.bool, device=seq.device)
-        padding_mask[:, 1 : 1 + H] = history_mask
+        padding_mask[:, 1 : 1 + H] = ~history_mask
 
         out = self.transformer(seq, mask=attn_mask, src_key_padding_mask=padding_mask)
 
         candidate_out = out[:, candidate_start_offset:, :]  # [B, C, D]
         scores = self.scorer(candidate_out)  # [B, C, num_scores]
 
+        if single_candidate:
+            return scores.squeeze(1).squeeze(-1)
+
         return scores
 
     def _make_attn_mask(
         self, seq_len: int, candidate_start_offset: int, device: torch.device
     ) -> torch.Tensor:
-        mask = torch.tril(torch.ones((seq_len, seq_len), device=device)) == 0
-        mask[candidate_start_offset:, candidate_start_offset:] = True
-        candidate_indices = torch.arange(candidate_start_offset, seq_len, device=device)
-        mask[candidate_indices, candidate_indices] = False
+        mask = torch.zeros((seq_len, seq_len), dtype=torch.bool, device=device)
+        mask[:candidate_start_offset, candidate_start_offset:] = True
+
+        if candidate_start_offset < seq_len:
+            mask[candidate_start_offset:, candidate_start_offset:] = True
+            candidate_indices = torch.arange(
+                candidate_start_offset, seq_len, device=device
+            )
+            mask[candidate_indices, candidate_indices] = False
+
         return mask
 
 

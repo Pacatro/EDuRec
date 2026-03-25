@@ -53,12 +53,12 @@ VAL_RATIO: float = 0.1
 TEST_RATIO: float = 0.4
 MIN_INTERACTIONS: int = 3
 N_NEG_TRAIN: int = 4
-N_NEG_VAL: int = 100
-N_NEG_TEST: int = 100
+N_NEG_VAL: int = 99
+N_NEG_TEST: int = 99
 SAVE_DATA: bool = False
-MONITOR: str = f"val/Ndcg@{TOP_K}"
+MONITOR: str = "val/Ndcg"
 ADAPTIVE_K: bool = False
-ALPHA: float = 0.5
+ALPHA: float = 0.05
 
 # Eval
 SEEDS: list[int] = [0, 1, 42]

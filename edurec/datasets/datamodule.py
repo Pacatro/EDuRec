@@ -74,6 +74,7 @@ class ElearningDataModule(L.LightningDataModule):
         }
 
         self.global_history = {}
+        self.user_positive_items: dict[int, set[int]] = {}
 
         self._load_data()
 
@@ -117,15 +118,51 @@ class ElearningDataModule(L.LightningDataModule):
 
     @property
     def num_user_feats(self) -> int:
+        if self.data_processor is not None:
+            metadata = self.data_processor.feature_metadata["users"]
+            return len(metadata.numeric_cols) + len(metadata.categorical_cols)
         if self.u_static is not None:
             return self.u_static.shape[1]
-        return len(self.users_feats.columns) - 1 if hasattr(self, "users_feats") else 0
+        return 0
 
     @property
     def num_item_feats(self) -> int:
+        if self.data_processor is not None:
+            metadata = self.data_processor.feature_metadata["items"]
+            return len(metadata.numeric_cols) + len(metadata.categorical_cols)
         if self.i_static is not None:
             return self.i_static.shape[1]
-        return len(self.items_feats.columns) - 1 if hasattr(self, "items_feats") else 0
+        return 0
+
+    @property
+    def num_user_numeric_feats(self) -> int:
+        if self.data_processor is None:
+            return 0
+        return len(self.data_processor.feature_metadata["users"].numeric_cols)
+
+    @property
+    def num_item_numeric_feats(self) -> int:
+        if self.data_processor is None:
+            return 0
+        return len(self.data_processor.feature_metadata["items"].numeric_cols)
+
+    @property
+    def user_cat_cardinalities(self) -> list[int]:
+        if self.data_processor is None:
+            return []
+        metadata = self.data_processor.feature_metadata["users"]
+        return [
+            metadata.categorical_cardinalities[col] for col in metadata.categorical_cols
+        ]
+
+    @property
+    def item_cat_cardinalities(self) -> list[int]:
+        if self.data_processor is None:
+            return []
+        metadata = self.data_processor.feature_metadata["items"]
+        return [
+            metadata.categorical_cardinalities[col] for col in metadata.categorical_cols
+        ]
 
     def _load_data(self):
         """Load raw inputs or processed cache depending on configuration."""
@@ -182,6 +219,7 @@ class ElearningDataModule(L.LightningDataModule):
             self._preprocess(train_raw, val_raw, test_raw)
 
         self.global_history = self._generate_global_history()
+        self.user_positive_items = self._generate_user_positive_items()
 
         match stage:
             case "fit" | None:
@@ -323,6 +361,23 @@ class ElearningDataModule(L.LightningDataModule):
 
         return global_history
 
+    def _generate_user_positive_items(self) -> dict[int, set[int]]:
+        positives: dict[int, set[int]] = {}
+
+        for split in ["train", "val", "test"]:
+            df = self._processed_data[split]
+            if df is None:
+                continue
+
+            pos_df = df[df[config.RELEVANT_COL] > 0]
+            for u_id, group in pos_df.groupby(config.USER_COL):
+                u_id = int(u_id)  # type: ignore
+                positives.setdefault(u_id, set()).update(
+                    int(item_id) for item_id in group[config.ITEM_COL].tolist()
+                )
+
+        return positives
+
     def _generate_static_feats(self, df: pd.DataFrame, id_col: str) -> torch.Tensor:
         """
         Convert sorted entity features into a 2D tensor matrix with
@@ -330,7 +385,11 @@ class ElearningDataModule(L.LightningDataModule):
         of features.
         """
         df_sorted = df.sort_values(id_col)
-        feat_cols = [c for c in df_sorted.columns if c != id_col]
+        assert self.data_processor is not None
+
+        prefix = "users" if id_col == config.USER_COL else "items"
+        metadata = self.data_processor.feature_metadata[prefix]
+        feat_cols = metadata.numeric_cols + metadata.categorical_cols
         return torch.tensor(df_sorted[feat_cols].values, dtype=torch.float32)
 
     def _save_processed_data(self):
@@ -369,7 +428,9 @@ class ElearningDataModule(L.LightningDataModule):
         return ElearningDataset(
             interactions=df,
             global_history=self.global_history,
+            user_positive_items=self.user_positive_items,
             num_ctx_feats=self._num_inter_feats(df),
+            all_item_ids=np.arange(self.num_items, dtype=np.int64),
             n_negatives=n_negatives,
         )
 
@@ -439,6 +500,8 @@ class ElearningDataModule(L.LightningDataModule):
 
         data.num_users = self.num_users
         data.num_items = self.num_items
+        data.u_x = self.u_static
+        data.i_x = self.i_static
         data.node_type = torch.cat(
             [
                 torch.zeros(self.num_users, dtype=torch.long),

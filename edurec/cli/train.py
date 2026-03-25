@@ -110,9 +110,11 @@ def train(
     cfg = GhostConfig(
         num_users=dm.num_users,
         num_items=dm.num_items,
-        num_user_feats=dm.num_user_feats,
-        num_item_feats=dm.num_item_feats,
         num_ctx_feats=dm.train_ds.num_ctx_feats,
+        num_user_numeric_feats=dm.num_user_numeric_feats,
+        num_item_numeric_feats=dm.num_item_numeric_feats,
+        user_cat_cardinalities=dm.user_cat_cardinalities,
+        item_cat_cardinalities=dm.item_cat_cardinalities,
     )
     assert dm.u_static is not None and dm.i_static is not None
 
@@ -132,7 +134,7 @@ def train(
 
     # Callbacks y Loggers
     early_stop_model = EarlyStopping(
-        monitor=monitor,
+        monitor=monitor if "Loss" in monitor else f"{monitor}@{top_k}",
         patience=patience,
         mode="min" if "Loss" in monitor else "max",
         min_delta=config.DELTA,
@@ -140,7 +142,7 @@ def train(
     )
 
     checkpoint_model = ModelCheckpoint(
-        monitor=monitor,
+        monitor=monitor if "Loss" in monitor else f"{monitor}@{top_k}",
         mode="min" if "Loss" in monitor else "max",
         save_top_k=1,
         filename=f"best_{recsys.model_name}",
@@ -168,7 +170,7 @@ def train(
         print("[TRAIN] Debug mode: Skipping evaluation")
         return
 
-    test_results = trainer.test(ckpt_path="best", datamodule=dm, weights_only=False)
+    test_results = trainer.test(ckpt_path="best", datamodule=dm, weights_only=False)[0]
 
     if save:
         save_model(
@@ -177,5 +179,5 @@ def train(
             checkpoint_model.best_model_path,
             models_folder,
             dataset.value,
-            cast(dict[str, float], test_results[0]),
+            cast(dict[str, float], test_results),
         )

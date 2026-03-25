@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import torch
 from torch import nn
@@ -13,10 +13,12 @@ from .ranker import Ranker, RankerConfig
 class GhostConfig:
     num_users: int
     num_items: int
-    num_user_feats: int
-    num_item_feats: int
     num_ctx_feats: int
     emb_dim: int = config.EMB_DIM
+    num_user_numeric_feats: int = 0
+    num_item_numeric_feats: int = 0
+    user_cat_cardinalities: list[int] = field(default_factory=list)
+    item_cat_cardinalities: list[int] = field(default_factory=list)
 
     # GCL Defaults
     edge_dropout: float = config.DROP_EDGES_P
@@ -70,8 +72,16 @@ class Ghost(nn.Module):
             else None
         )
 
-        self.u_static_proj = nn.Linear(cfg.num_user_feats, cfg.emb_dim, bias=False)
-        self.i_static_proj = nn.Linear(cfg.num_item_feats, cfg.emb_dim, bias=False)
+        self.user_static_encoder = StaticFeatureEncoder(
+            cfg.num_user_numeric_feats,
+            cfg.user_cat_cardinalities,
+            cfg.emb_dim,
+        )
+        self.item_static_encoder = StaticFeatureEncoder(
+            cfg.num_item_numeric_feats,
+            cfg.item_cat_cardinalities,
+            cfg.emb_dim,
+        )
         self.norm = nn.LayerNorm(cfg.emb_dim)
         self.gnn = GnnEncoder(cfg.gnn)
         self.ranker = Ranker(cfg.ranker)
@@ -88,33 +98,37 @@ class Ghost(nn.Module):
         inter_graph: Data,
         u_static_global: torch.Tensor,  # [B, num_users_feats]
         i_static_global: torch.Tensor,  # [B, num_items_feats]
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> torch.Tensor:
         self.edge_index = inter_graph.edge_index
 
         user_embs, item_embs = self.gnn(inter_graph)
+        padded_item_embs = torch.cat(
+            [item_embs.new_zeros(1, item_embs.size(1)), item_embs], dim=0
+        )
+        padded_item_static = self._pad_item_static_features(i_static_global)
 
         user_emb = user_embs[u_ids]  # [B, D]
-        hist_emb = self._build_hist_emb(item_embs, h_ids, h_ctx, h_mask)  # [B, H, D]
-        candidate_emb = item_embs[c_ids]  # [B, C, D]
+        hist_emb = self._build_hist_emb(
+            padded_item_embs, h_ids, h_ctx, h_mask
+        )  # [B, H, D]
+        candidate_emb = padded_item_embs[c_ids]  # [B, C, D]
 
-        # TODO: Dado que usamos ordinal encoder para las categóricas, lo ideal sería
-        # separar las proyecciones de la siguiente manera:
-        # - numericas -> linear
-        # - categóricas -> embedding
-        # y concatenar las dos proyecciones en un unico embedding final.
-        user_feats = self.u_static_proj(u_static_global[u_ids])  # [B, D]
-        hist_feats = self.i_static_proj(i_static_global[h_ids])  # [B, H, D]
-        candidate_feats = self.i_static_proj(i_static_global[c_ids])  # [B, C, D]
+        user_feats = self.user_static_encoder(u_static_global[u_ids])  # [B, D]
+        hist_feats = self.item_static_encoder(padded_item_static[h_ids])  # [B, H, D]
+        candidate_feats = self.item_static_encoder(
+            padded_item_static[c_ids]
+        )  # [B, C, D]
 
         user_emb = self.norm(user_emb + user_feats)
         hist_emb = self.norm(hist_emb + hist_feats)
+        hist_emb = hist_emb * h_mask.unsqueeze(-1).float()
         candidate_emb = self.norm(candidate_emb + candidate_feats)
 
         scores = self.ranker(
             user_emb, hist_emb, candidate_emb, h_mask
         )  # [B, C, num_scores]
 
-        return scores, user_emb, item_embs
+        return scores
 
     def _build_hist_emb(
         self,
@@ -133,3 +147,55 @@ class Ghost(nn.Module):
             hist_emb = hist_emb + ctx_emb
 
         return hist_emb
+
+    def _pad_item_static_features(self, item_static: torch.Tensor) -> torch.Tensor:
+        if item_static.ndim != 2:
+            raise RuntimeError("Item static features must be a 2D tensor.")
+
+        pad_row = item_static.new_zeros((1, item_static.size(1)))
+        num_numeric = self.cfg.num_item_numeric_feats
+        num_cats = len(self.cfg.item_cat_cardinalities)
+
+        if num_cats > 0:
+            pad_row[:, num_numeric : num_numeric + num_cats] = -1
+
+        return torch.cat([pad_row, item_static], dim=0)
+
+
+class StaticFeatureEncoder(nn.Module):
+    def __init__(
+        self,
+        num_numeric_features: int,
+        categorical_cardinalities: list[int],
+        emb_dim: int,
+    ):
+        super().__init__()
+        self.num_numeric_features = num_numeric_features
+        self.num_categorical_features = len(categorical_cardinalities)
+        self.emb_dim = emb_dim
+
+        self.numeric_proj = (
+            nn.Linear(num_numeric_features, emb_dim, bias=False)
+            if num_numeric_features > 0
+            else None
+        )
+        self.cat_embeddings = nn.ModuleList(
+            nn.Embedding(cardinality, emb_dim, padding_idx=0)
+            for cardinality in categorical_cardinalities
+        )
+        self.norm = nn.LayerNorm(emb_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out = x.new_zeros((*x.shape[:-1], self.emb_dim))
+
+        if self.numeric_proj is not None:
+            numeric_feats = x[..., : self.num_numeric_features].float()
+            out = out + self.numeric_proj(numeric_feats)
+
+        if self.cat_embeddings:
+            cat_feats = x[..., self.num_numeric_features :].long() + 1
+            cat_feats = cat_feats.clamp(min=0)
+            for idx, embedding in enumerate(self.cat_embeddings):
+                out = out + embedding(cat_feats[..., idx])
+
+        return self.norm(out)

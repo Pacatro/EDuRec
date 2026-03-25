@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Self
 
@@ -33,6 +33,13 @@ class ProcessedFeatures:
     items: pd.DataFrame | None
     interactions: pd.DataFrame | None
     preprocessors: dict[str, ColumnTransformer | None]
+
+
+@dataclass
+class FeatureMetadata:
+    numeric_cols: list[str] = field(default_factory=list)
+    categorical_cols: list[str] = field(default_factory=list)
+    categorical_cardinalities: dict[str, int] = field(default_factory=dict)
 
 
 class DataProcessor:
@@ -72,6 +79,16 @@ class DataProcessor:
             "items": None,
             "inter": None,
         }
+        self.feature_metadata: dict[str, FeatureMetadata] = {
+            "users": FeatureMetadata(),
+            "items": FeatureMetadata(),
+            "inter": FeatureMetadata(),
+        }
+        self.feature_columns: dict[str, list[str]] = {
+            "users": [],
+            "items": [],
+            "inter": [],
+        }
 
     def fit(
         self,
@@ -108,22 +125,46 @@ class DataProcessor:
 
     def _fit_ct_feats(self, df: pd.DataFrame, prefix: str) -> None:
         """Helper to build and fit a specific ColumnTransformer based on the schema prefix."""
-        _, num_cols, cat_cols, text_cols, list_cols = _get_column_types(
+        bin_cols, num_cols, cat_cols, _, _ = _get_column_types(
             self.schema, prefix
         )
         time_col = config.TIME_COL if config.TIME_COL in df.columns else None
+        reserved_cols = {
+            config.USER_COL,
+            config.ITEM_COL,
+            config.RATING_COL,
+            config.RELEVANT_COL,
+        }
 
-        # WARNING: THIS IS ONLY FOR TESTING, REMOVE WHEN THE LIST AND TEXT COLS PROCESSING ARE IMPLEMENTED
-        df = df.drop(columns=list_cols + text_cols)
+        categorical_input_cols = [
+            c for c in (bin_cols + cat_cols) if c in df.columns and c not in reserved_cols
+        ]
+        numeric_input_cols = [
+            c for c in num_cols if c in df.columns and c not in reserved_cols
+        ]
+
+        if time_col is not None and time_col not in reserved_cols:
+            numeric_input_cols = [c for c in numeric_input_cols if c != time_col]
+            feature_cols = numeric_input_cols + categorical_input_cols + [time_col]
+        else:
+            feature_cols = numeric_input_cols + categorical_input_cols
+
+        df_features = df[feature_cols].copy() if feature_cols else pd.DataFrame(index=df.index)
 
         preprocessor = self._build_ct(
-            num_cols=num_cols,
-            cat_cols=cat_cols,
+            num_cols=numeric_input_cols,
+            cat_cols=categorical_input_cols,
             text_cols=[],
             time_col=time_col,
         )
-        preprocessor.fit(df)
+        preprocessor.fit(df_features)
         self.preprocessors[prefix] = preprocessor
+        self.feature_columns[prefix] = feature_cols
+        self.feature_metadata[prefix] = self._build_feature_metadata(
+            prefix=prefix,
+            numeric_cols=numeric_input_cols,
+            categorical_cols=categorical_input_cols,
+        )
 
     def _build_ct(
         self,
@@ -194,7 +235,7 @@ class DataProcessor:
 
         return ColumnTransformer(
             transformers=transformers,
-            remainder="passthrough",
+            remainder="drop",
             sparse_threshold=self.ct_sparse_threshold,
             verbose_feature_names_out=False,
         )
@@ -237,21 +278,75 @@ class DataProcessor:
         if ct is None:
             raise RuntimeError(f"DataProcessor not fitted for {key}")
 
-        processed_df = ct.transform(df)
+        if df is None:
+            raise RuntimeError(f"Input dataframe for {key} cannot be None")
+
+        feature_cols = self.feature_columns[key]
+        df_features = df[feature_cols].copy() if feature_cols else pd.DataFrame(index=df.index)
+        processed_df = ct.transform(df_features)
 
         assert isinstance(processed_df, pd.DataFrame)
 
-        if config.USER_COL in processed_df.columns:
-            processed_df[config.USER_COL] = self.user_encoder.transform(
-                processed_df[[config.USER_COL]]
+        passthrough_cols = self._get_passthrough_cols(key, df.columns)
+        output_df = pd.concat([df[passthrough_cols].copy(), processed_df], axis=1)
+
+        if config.USER_COL in output_df.columns:
+            output_df[config.USER_COL] = self.user_encoder.transform(
+                output_df[[config.USER_COL]]
             ).astype("int64")
 
-        if config.ITEM_COL in processed_df.columns:
-            processed_df[config.ITEM_COL] = self.item_encoder.transform(
-                processed_df[[config.ITEM_COL]]
+        if config.ITEM_COL in output_df.columns:
+            output_df[config.ITEM_COL] = self.item_encoder.transform(
+                output_df[[config.ITEM_COL]]
             ).astype("int64")
 
-        return processed_df
+        return output_df
+
+    def _build_feature_metadata(
+        self,
+        prefix: str,
+        numeric_cols: list[str],
+        categorical_cols: list[str],
+    ) -> FeatureMetadata:
+        metadata = FeatureMetadata(
+            numeric_cols=list(numeric_cols),
+            categorical_cols=list(categorical_cols),
+        )
+
+        preprocessor = self.preprocessors[prefix]
+        if preprocessor is None or not categorical_cols:
+            return metadata
+
+        ct_named = dict(preprocessor.named_transformers_)
+        cat_pipe = ct_named.get("cat")
+        if cat_pipe is None:
+            return metadata
+
+        encoder = cat_pipe.named_steps["encoder"]
+        metadata.categorical_cardinalities = {
+            col: len(categories) + 1
+            for col, categories in zip(categorical_cols, encoder.categories_, strict=True)
+        }
+        return metadata
+
+    def _get_passthrough_cols(
+        self, key: str, columns: pd.Index | list[str]
+    ) -> list[str]:
+        cols = set(columns)
+
+        if key == "users":
+            return [config.USER_COL]
+
+        if key == "items":
+            return [config.ITEM_COL]
+
+        passthrough = [
+            config.USER_COL,
+            config.ITEM_COL,
+            config.RATING_COL,
+            config.RELEVANT_COL,
+        ]
+        return [col for col in passthrough if col in cols]
 
     def save(self, path: str | Path) -> None:
         """

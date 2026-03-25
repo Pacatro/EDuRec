@@ -6,7 +6,6 @@ import torch.nn.functional as F
 from torch import nn
 from torch_geometric.data import Data
 from torch_geometric.nn import LGConv
-from torch_geometric.utils import dropout_edge
 
 from ... import config
 
@@ -45,9 +44,6 @@ class GnnEncoder(nn.Module):
         assert data.edge_index is not None
 
         edge_index = data.edge_index
-
-        if self.training:
-            edge_index, _ = dropout_edge(edge_index, p=self.drop_edges_p)
 
         x = torch.cat([self.user_emb.weight, self.item_emb.weight], dim=0)
 
