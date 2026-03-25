@@ -91,6 +91,7 @@ class ElearningDataModule(L.LightningDataModule):
         self.user_positive_items: dict[int, set[int]] = {}
 
         self._load_data()
+        self.excluded_cols = self._get_excluded_cols()
 
     @property
     def interactions(self) -> pd.DataFrame:
@@ -161,8 +162,24 @@ class ElearningDataModule(L.LightningDataModule):
     def num_interactions(self) -> int:
         """Return interaction count across all splits or raw interactions."""
         if self.is_processed:
-            return sum(len(df) for df in self._processed_data.values() if df is not None)
+            return sum(
+                len(df) for df in self._processed_data.values() if df is not None
+            )
         return len(self.raw_dataset.interactions) if self.raw_dataset is not None else 0
+
+    @property
+    def num_ctx_feats(self) -> int:
+        """Return number of context features."""
+        if self.is_processed:
+            df = self._processed_data["train"]
+            if df is not None:
+                return len([c for c in df.columns if c not in self.excluded_cols])
+
+        return (
+            len(self.raw_dataset.interactions.columns) - len(self.excluded_cols)
+            if self.raw_dataset is not None
+            else 0
+        )
 
     @property
     def sparsity(self) -> float:
@@ -222,6 +239,25 @@ class ElearningDataModule(L.LightningDataModule):
             metadata.categorical_cardinalities[col] for col in metadata.categorical_cols
         ]
 
+    def _get_excluded_cols(self) -> list[str]:
+        excluded_ctx_cols = [
+            config.USER_COL,
+            config.ITEM_COL,
+            config.RELEVANT_COL,
+            config.RATING_COL,
+        ]
+
+        if self.is_processed:
+            df = self._processed_data["train"]
+            if df is not None and config.TIME_COL in df.columns:
+                excluded_ctx_cols.append(config.TIME_COL)
+        elif self.raw_dataset is not None:
+            df = self.raw_dataset.interactions
+            if config.TIME_COL in df.columns:
+                excluded_ctx_cols.append(config.TIME_COL)
+
+        return excluded_ctx_cols
+
     def _load_data(self):
         """Load raw inputs or processed cache depending on configuration."""
         required_files = [
@@ -251,10 +287,6 @@ class ElearningDataModule(L.LightningDataModule):
     def _load_processed_data(self) -> None:
         """Load cached splits, static features, and fitted preprocessor."""
         assert self.processed_folder is not None and self.processed_folder.exists()
-
-        print(
-            f"[CACHE] Loading processed data and preprocessor from {self.processed_folder}"
-        )
 
         processed_splits = {
             split: pd.read_csv(self.processed_folder / f"{split}.csv")
@@ -403,17 +435,7 @@ class ElearningDataModule(L.LightningDataModule):
 
         assert train_p is not None
 
-        excluded_cols = [
-            config.USER_COL,
-            config.ITEM_COL,
-            config.RELEVANT_COL,
-            config.RATING_COL,
-        ]
-
-        if config.TIME_COL in train_p.columns:
-            excluded_cols.append(config.TIME_COL)
-
-        ctx_cols = [c for c in train_p.columns if c not in excluded_cols]
+        ctx_cols = [c for c in train_p.columns if c not in self.excluded_cols]
 
         if config.TIME_COL in train_p.columns:
             train_p = train_p.sort_values(config.TIME_COL)
@@ -493,7 +515,7 @@ class ElearningDataModule(L.LightningDataModule):
             interactions=df,
             global_history=self.global_history,
             user_positive_items=self.user_positive_items,
-            num_ctx_feats=self._num_inter_feats(df),
+            num_ctx_feats=self.num_ctx_feats,
             all_item_ids=np.arange(self.num_items, dtype=np.int64),
             n_negatives=n_negatives,
         )
@@ -505,17 +527,6 @@ class ElearningDataModule(L.LightningDataModule):
         if self.data_processor is None:
             raise RuntimeError("Data processor is not available.")
         return self.data_processor
-
-    def _num_inter_feats(self, df: pd.DataFrame) -> int:
-        excluded_cols = [
-            config.USER_COL,
-            config.ITEM_COL,
-            config.RELEVANT_COL,
-            config.RATING_COL,
-            config.TIME_COL,
-        ]
-
-        return len([c for c in df.columns if c not in excluded_cols])
 
     def create_inter_graph(self) -> Data:
         """
