@@ -14,8 +14,8 @@ def save_model(
     best_model_path: str,
     models_folder: str,
     dataset_name: str,
-    metrics: dict[str, float],
-) -> None:
+    metrics: dict[str, float] | None = None,
+) -> tuple[Path, Path, Path | None]:
     """Save the best model to the specified folder."""
     out_model = f"{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     saving_models_folder = Path(models_folder) / dataset_name / out_model
@@ -23,7 +23,6 @@ def save_model(
 
     model_file_path = saving_models_folder / f"{out_model}.pt"
     model_config_path = saving_models_folder / f"{out_model}.json"
-    model_metrics_path = saving_models_folder / f"{out_model}_metrics.csv"
     Path(best_model_path).rename(model_file_path)
 
     model_config_path.write_text(
@@ -31,10 +30,18 @@ def save_model(
         encoding="utf-8",
     )
 
-    metrics_df = pd.DataFrame.from_dict(metrics, orient="index")
-    metrics_df.to_csv(model_metrics_path, index=True)
+    metrics_path = (
+        save_metrics(metrics, saving_models_folder) if metrics is not None else None
+    )
 
-    print(f"Model metadata saved in: {saving_models_folder}")
+    return model_file_path, model_config_path, metrics_path
+
+
+def save_metrics(metrics: dict[str, float], saving_models_folder: str | Path) -> Path:
+    file_path = Path(saving_models_folder) / "metrics.csv"
+    metrics_df = pd.DataFrame.from_dict(metrics, orient="index")
+    metrics_df.to_csv(file_path, index=True)
+    return file_path
 
 
 def load_model(
@@ -62,8 +69,14 @@ def load_model(
     model_file = latest_dir / f"{latest_dir.name}.pt"
     config_file = latest_dir / f"{latest_dir.name}.json"
 
-    if latest_dir.suffix != ".pt":
-        raise ValueError(f"Model {latest_dir} is not a pytorch model")
+    if not model_file.exists():
+        raise FileNotFoundError(f"Model file {model_file} does not exist")
+
+    if model_file.suffix != ".pt":
+        raise ValueError(f"Model file {model_file} is not a pytorch model")
+
+    if not config_file.exists():
+        raise FileNotFoundError(f"Model config {config_file} does not exist")
 
     config_data = json.loads(config_file.read_text(encoding="utf-8"))
     model_config = GhostConfig(**config_data)
