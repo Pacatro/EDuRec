@@ -1,7 +1,7 @@
 import torch
 from torch_geometric.data import Data
 
-from edurec.recsys.arquitecture import (
+from edurec.recsys.model import (
     GnnEncoder,
     GnnEncoderConfig,
     InfoNCELoss,

@@ -15,7 +15,7 @@ from torchmetrics.retrieval import (
 )
 
 from .. import config
-from .arquitecture import Ghost, GhostConfig, InfoNCELoss
+from .model import Ghost, GhostConfig, InfoNCELoss
 
 
 class RecSys(L.LightningModule):

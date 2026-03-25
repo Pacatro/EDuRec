@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .arquitecture import GhostConfig
+from .model import GhostConfig
 
 
 def save_model(

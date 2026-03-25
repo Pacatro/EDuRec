@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from edurec.recsys.arquitecture import Ranker, RankerConfig
+from edurec.recsys.model import Ranker, RankerConfig
 
 
 @pytest.fixture

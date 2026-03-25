@@ -7,7 +7,7 @@ from lightning.pytorch.loggers import WandbLogger
 
 from .. import config
 from ..datasets import DatasetName, ElearningDataModule
-from ..recsys.arquitecture import GhostConfig
+from ..recsys.model import GhostConfig
 from ..recsys.engine import RecSys
 from ..recsys.io import save_model
 
