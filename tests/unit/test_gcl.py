@@ -14,7 +14,7 @@ def test_gnn_encoder_shapes():
     cfg = GnnEncoderConfig(
         num_users=10,
         num_items=5,
-        embed_dim=32,
+        emb_dim=32,
         drop_edges_p=0.2,
         tau=0.1,
         num_layers=2,
@@ -33,8 +33,8 @@ def test_gnn_encoder_shapes():
 
     user_embs, item_embs = model(data)
 
-    assert user_embs.shape == (cfg.num_users, cfg.embed_dim)
-    assert item_embs.shape == (cfg.num_items, cfg.embed_dim)
+    assert user_embs.shape == (cfg.num_users, cfg.emb_dim)
+    assert item_embs.shape == (cfg.num_items, cfg.emb_dim)
     assert len(model.convs) == cfg.num_layers
 
 

@@ -7,7 +7,7 @@ from edurec.recsys.model import Ranker, RankerConfig
 @pytest.fixture
 def cfg():
     return RankerConfig(
-        embed_dim=16,
+        emb_dim=16,
         n_heads=4,
         n_blocks=2,
         ff_dim=32,
@@ -21,7 +21,7 @@ def test_ranker_forward_multi_candidate(cfg):
 
     model = Ranker(cfg).eval()
 
-    B, H, C, D = 3, 5, 4, cfg.embed_dim
+    B, H, C, D = 3, 5, 4, cfg.emb_dim
     user_emb = torch.randn(B, D)
     history_emb = torch.randn(B, H, D)
     candidate_emb = torch.randn(B, C, D)
@@ -45,7 +45,7 @@ def test_ranker_forward_single_candidate(cfg):
 
     model = Ranker(cfg).eval()
 
-    B, H, D = 2, 5, cfg.embed_dim
+    B, H, D = 2, 5, cfg.emb_dim
     user_emb = torch.randn(B, D)
     history_emb = torch.randn(B, H, D)
     candidate_emb = torch.randn(B, D)
@@ -62,7 +62,7 @@ def test_ranker_padding_does_not_affect_scores(cfg):
 
     model = Ranker(cfg).eval()
 
-    B, H, C, D = 2, 5, 3, cfg.embed_dim
+    B, H, C, D = 2, 5, 3, cfg.emb_dim
     user_emb = torch.randn(B, D)
     base_history = torch.randn(B, H, D)
     candidate_emb = torch.randn(B, C, D)
@@ -91,7 +91,7 @@ def test_ranker_candidate_isolation(cfg):
 
     model = Ranker(cfg).eval()
 
-    B, H, C, D = 1, 4, 3, cfg.embed_dim
+    B, H, C, D = 1, 4, 3, cfg.emb_dim
     user_emb = torch.randn(B, D)
     history_emb = torch.randn(B, H, D)
     history_valid_mask = torch.tensor([[True, True, True, False]], dtype=torch.bool)
