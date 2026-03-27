@@ -30,6 +30,9 @@ def test_setup(dm: ElearningDataModule):
     assert dm.artifacts.is_ready
     assert dm.data_processor is not None
     assert len(dm.user_positive_items) > 0
+    assert config.RELEVANT_COL in dm.interactions.columns
+    assert dm.interactions.groupby(config.USER_COL).size().min() >= dm.min_interactions
+    assert set(dm.users_feats[config.USER_COL]) == set(dm.interactions[config.USER_COL])
 
 
 def test_create_inter_graph(dm: ElearningDataModule):

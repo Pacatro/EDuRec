@@ -56,6 +56,22 @@ def train(
         int,
         typer.Option("--n_neg_test", help="Number of negatives to sample for testing"),
     ] = config.N_NEG_TEST,
+    remove_sparse_users: Annotated[
+        bool,
+        typer.Option(
+            "--remove_sparse_users",
+            "-R",
+            help="Remove users with less than MIN_INTERACTIONS interactions",
+        ),
+    ] = config.REMOVE_SPARSE_USERS,
+    min_interactions: Annotated[
+        int,
+        typer.Option(
+            "--min_interactions",
+            "-I",
+            help="Minimum number of interactions per user",
+        ),
+    ] = config.MIN_INTERACTIONS,
     monitor: Annotated[
         str, typer.Option("--monitor", "-m", help="Monitor metric")
     ] = config.MONITOR,
@@ -92,6 +108,8 @@ def train(
         n_neg_train=n_neg_train,
         n_neg_val=n_neg_val,
         n_neg_test=n_neg_test,
+        min_interactions=min_interactions,
+        remove_sparse_users=remove_sparse_users,
     )
 
     dm.setup()
@@ -108,6 +126,8 @@ def train(
         print(f"[TRAIN] Number of negatives for validation: {n_neg_val}")
         print(f"[TRAIN] Number of negatives for testing: {n_neg_test}")
         print(f"[TRAIN] Using adaptive k: {adaptive_k}")
+        print(f"[TRAIN] Removing sparse users: {remove_sparse_users}")
+        print(f"[TRAIN] Minimum interactions per user: {min_interactions}")
 
         if use_procesed_data:
             print(f"[TRAIN] Using saved processed data from {config.PROCESSED_FOLDER}")

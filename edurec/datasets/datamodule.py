@@ -63,10 +63,11 @@ class ElearningDataModule(L.LightningDataModule):
         batch_size: int,
         test_ratio: float,
         val_ratio: float,
-        min_interactions: int = config.MIN_INTERACTIONS,
         n_neg_train: int = config.N_NEG_TRAIN,
         n_neg_val: int = config.N_NEG_VAL,
         n_neg_test: int = config.N_NEG_TEST,
+        min_interactions: int = config.MIN_INTERACTIONS,
+        remove_sparse_users: bool = config.REMOVE_SPARSE_USERS,
         use_processed_data: bool = False,
         random_state: int | None = None,
     ) -> None:
@@ -80,6 +81,7 @@ class ElearningDataModule(L.LightningDataModule):
         self.n_neg_train = n_neg_train
         self.n_neg_val = n_neg_val
         self.n_neg_test = n_neg_test
+        self.remove_sparse_users = remove_sparse_users
         self.use_processed_data = use_processed_data
         self.random_state = random_state
 
@@ -279,10 +281,79 @@ class ElearningDataModule(L.LightningDataModule):
         self._load_raw_dataset()
 
     def _load_raw_dataset(self) -> None:
-        self.raw_dataset = load_raw_data(self.dataset_name)
+        raw_dataset = load_raw_data(self.dataset_name)
+        self.raw_dataset = self._prepare_raw_dataset(raw_dataset)
         self.artifacts = ProcessedArtifacts(
             data_processor=DataProcessor(schema=self.raw_dataset.schema)
         )
+
+    def _prepare_raw_dataset(self, raw_dataset: RawDataset) -> RawDataset:
+        interactions = self._clean_df(raw_dataset.interactions)
+        items = self._clean_df(raw_dataset.i_feats)
+        users = self._clean_df(raw_dataset.u_feats)
+
+        if self.remove_sparse_users:
+            interactions, users = self._filter_sparse_users(interactions, users)
+
+        interactions = self._add_relevant_col(interactions)
+
+        return RawDataset(
+            interactions=interactions,
+            i_feats=items,
+            u_feats=users,
+            schema=raw_dataset.schema,
+        )
+
+    def _clean_df(self, df: pd.DataFrame) -> pd.DataFrame:
+        cleaned = df.copy()
+        cleaned.columns = (
+            cleaned.columns.str.lower()
+            .str.strip()
+            .str.replace(" ", "_")
+            .str.replace(r"[^\w]", "", regex=True)
+        )
+        return cleaned
+
+    def _add_relevant_col(self, interactions: pd.DataFrame) -> pd.DataFrame:
+        if (
+            config.RELEVANT_COL in interactions.columns
+            or config.RATING_COL not in interactions.columns
+        ):
+            return interactions
+
+        interactions = interactions.copy()
+        global_threshold = interactions[config.RATING_COL].mean()
+        user_stats = interactions.groupby(config.USER_COL)[config.RATING_COL]
+        mean_user_ratings = user_stats.transform("mean")
+        count_user_ratings = user_stats.transform("count")
+
+        thresholds = np.where(
+            count_user_ratings < self.min_interactions,
+            global_threshold,
+            mean_user_ratings,
+        )
+        interactions[config.RELEVANT_COL] = (
+            interactions[config.RATING_COL] >= thresholds
+        )
+
+        return interactions
+
+    def _filter_sparse_users(
+        self,
+        interactions: pd.DataFrame,
+        user_features: pd.DataFrame,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        user_counts = interactions[config.USER_COL].value_counts(sort=False)
+        valid_user_ids = user_counts[user_counts >= self.min_interactions].index
+
+        filtered_interactions = interactions[
+            interactions[config.USER_COL].isin(valid_user_ids)
+        ].reset_index(drop=True)
+        filtered_user_features = user_features[
+            user_features[config.USER_COL].isin(valid_user_ids)
+        ].reset_index(drop=True)
+
+        return filtered_interactions, filtered_user_features
 
     def _load_processed_data(self) -> None:
         """Load cached splits, static features, and fitted preprocessor."""

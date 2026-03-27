@@ -3,7 +3,6 @@ from enum import StrEnum
 from functools import wraps
 from typing import Callable
 
-import numpy as np
 import pandas as pd
 
 from .. import config
@@ -29,52 +28,6 @@ class RawDataset:
 type ExportFn = Callable[[], RawDataset]
 
 dataset_loaders: dict[DatasetName, ExportFn] = {}
-
-
-def add_relevant_col(df: pd.DataFrame) -> None:
-    """
-    Add a boolean column to the dataframe indicating if an item is relevant.
-
-    Relevance is determined by comparing each interaction's rating against a
-    dynamic threshold:
-
-    1. For users with enough activity (>= config.MIN_INTERACTIONS), the
-       threshold is the user's mean rating.
-    2. For users with fewer interactions, the threshold defaults to the
-       global mean rating of the entire dataset.
-
-    Args:
-        df (pd.DataFrame): The interactions dataframe. It must contain the
-            columns defined in config.USER_COL and config.RATING_COL.
-    """
-    if config.RELEVANT_COL in df.columns or config.RATING_COL not in df.columns:
-        return
-
-    global_thershold = df[config.RATING_COL].mean()
-    user_stats = df.groupby(config.USER_COL)[config.RATING_COL]
-
-    mean_user_ratings = user_stats.transform("mean")
-    count_user_raings = user_stats.transform("count")
-
-    thresholds = np.where(
-        count_user_raings < config.MIN_INTERACTIONS,
-        global_thershold,
-        mean_user_ratings,
-    )
-
-    df[config.RELEVANT_COL] = df[config.RATING_COL] >= thresholds
-
-
-def clean_df(df: pd.DataFrame) -> None:
-    """
-    Cleans and standardizes column names of the DataFrame.
-    """
-    df.columns = (
-        df.columns.str.lower()
-        .str.strip()
-        .str.replace(" ", "_")
-        .str.replace(r"[^\w]", "", regex=True)
-    )
 
 
 def register_dataset(ds_name: DatasetName) -> Callable[[ExportFn], ExportFn]:
@@ -110,11 +63,11 @@ def register_dataset(ds_name: DatasetName) -> Callable[[ExportFn], ExportFn]:
 
 @register_dataset(DatasetName.MARS)
 def load_mars() -> RawDataset:
-    """Load and preprocess the MARS dataset.
+    """Load the MARS dataset.
 
     This loader combines English and French rating files and merges them with
-    item metadata. It also standardizes column names and ensures consistent
-    schema across sources.
+    item metadata. Dataset-wide cleaning and filtering happen later in the
+    datamodule preprocessing phase.
 
     Returns:
         pd.DataFrame: The MARS dataset.
@@ -145,13 +98,7 @@ def load_mars() -> RawDataset:
         inplace=True,
     )
 
-    df_users.rename(columns={"user_id": config.USER_COL})
-
-    clean_df(df_interactions)
-    clean_df(df_items)
-    clean_df(df_users)
-
-    add_relevant_col(df_interactions)
+    df_users.rename(columns={"user_id": config.USER_COL}, inplace=True)
 
     schema = {
         "users": {
@@ -184,10 +131,11 @@ def load_mars() -> RawDataset:
 
 @register_dataset(DatasetName.ITM)
 def load_itm() -> RawDataset:
-    """Load and preprocess the ITM dataset.
+    """Load the ITM dataset.
 
     This loader merges ratings, items, and user information into a unified
-    DataFrame and normalizes column names for consistency.
+    DataFrame. Dataset-wide cleaning and filtering happen later in the
+    datamodule preprocessing phase.
 
     Returns:
         pd.DataFrame: The ITM dataset.
@@ -208,12 +156,6 @@ def load_itm() -> RawDataset:
     users_df.rename(columns={"UserID": config.USER_COL}, inplace=True)
 
     items_df = items_df.drop(["URL"], axis=1)
-
-    clean_df(ratings_df)
-    clean_df(items_df)
-    clean_df(users_df)
-
-    add_relevant_col(ratings_df)
 
     schema = {
         "users": {

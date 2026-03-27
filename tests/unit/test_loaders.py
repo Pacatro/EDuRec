@@ -18,6 +18,7 @@ def test_data_loaders_mars():
     assert len(raw_dataset.u_feats) == n_users
     assert len(raw_dataset.i_feats) == n_items
     assert len(raw_dataset.interactions) == n_interactions
+    assert config.RELEVANT_COL not in raw_dataset.interactions.columns
 
     # Check dataset features
     assert set(raw_dataset.u_feats.columns) == set(["user_id", "job"])
@@ -29,10 +30,10 @@ def test_data_loaders_mars():
             "nb_views",
             "description",
             "created_at",
-            "difficulty",
-            "job",
-            "software",
-            "theme",
+            "Difficulty",
+            "Job",
+            "Software",
+            "Theme",
             "duration",
             "item_type",
         ]
@@ -44,7 +45,6 @@ def test_data_loaders_mars():
             "watch_percentage",
             config.TIME_COL,
             config.RATING_COL,
-            config.RELEVANT_COL,
         ]
     )
 
@@ -62,26 +62,26 @@ def test_data_loaders_itm():
     assert len(raw_dataset.u_feats) == n_users
     assert len(raw_dataset.i_feats) == n_items
     assert len(raw_dataset.interactions) == n_interactions
+    assert config.RELEVANT_COL not in raw_dataset.interactions.columns
 
     # Check dataset features
     assert set(raw_dataset.u_feats.columns) == set(
-        [config.USER_COL, "gender", "age", "married"]
+        [config.USER_COL, " Gender", " Age", "Married"]
     )
     assert set(raw_dataset.i_feats.columns) == set(
-        [config.ITEM_COL, "title", "descriptions"]
+        [config.ITEM_COL, "Title", "Descriptions"]
     )
     assert set(raw_dataset.interactions.columns) == set(
         [
             config.USER_COL,
             config.ITEM_COL,
             config.RATING_COL,
-            config.RELEVANT_COL,
-            "class",
-            "lockdown",
-            "data",
-            "ease",
-            "app",
-            "semester",
+            "Class",
+            "Lockdown",
+            "Data",
+            "Ease",
+            "App",
+            "Semester",
         ]
     )
 
