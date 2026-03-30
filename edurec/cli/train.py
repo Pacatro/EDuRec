@@ -112,6 +112,19 @@ def train(
         remove_sparse_users=remove_sparse_users,
     )
 
+    if config.state["verbose"]:
+        print(f"[TRAIN] Number of negatives for training: {n_neg_train}")
+        print(f"[TRAIN] Number of negatives for validation: {n_neg_val}")
+        print(f"[TRAIN] Number of negatives for testing: {n_neg_test}")
+        print(f"[TRAIN] Using adaptive k: {adaptive_k}")
+        print(f"[TRAIN] Removing sparse users: {remove_sparse_users}")
+        print(f"[TRAIN] Minimum interactions per user: {min_interactions}")
+
+        if use_procesed_data:
+            print(f"[TRAIN] Using saved processed data from {config.PROCESSED_FOLDER}")
+        else:
+            print(f"[TRAIN] Using raw data from {config.DATA_FOLDER}/{dataset.value}")
+
     dm.setup()
 
     if config.state["verbose"]:
@@ -122,15 +135,6 @@ def train(
         print(f"[TRAIN] Number of user features: {dm.num_user_feats}")
         print(f"[TRAIN] Number of item features: {dm.num_item_feats}")
         print(f"[TRAIN] Number of interactions context features: {dm.num_ctx_feats}")
-        print(f"[TRAIN] Number of negatives for training: {n_neg_train}")
-        print(f"[TRAIN] Number of negatives for validation: {n_neg_val}")
-        print(f"[TRAIN] Number of negatives for testing: {n_neg_test}")
-        print(f"[TRAIN] Using adaptive k: {adaptive_k}")
-        print(f"[TRAIN] Removing sparse users: {remove_sparse_users}")
-        print(f"[TRAIN] Minimum interactions per user: {min_interactions}")
-
-        if use_procesed_data:
-            print(f"[TRAIN] Using saved processed data from {config.PROCESSED_FOLDER}")
 
     cfg = GhostConfig(
         num_users=dm.num_users,

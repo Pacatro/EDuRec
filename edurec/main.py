@@ -11,7 +11,6 @@ from .cli import train_app, test_app
 # Ignore pandas future warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-# Set a default seed for reproducibility
 torch.manual_seed(config.state["random_state"])
 
 app = typer.Typer(

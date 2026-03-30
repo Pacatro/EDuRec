@@ -81,8 +81,6 @@ class DataProcessor:
         self.ct_sparse_threshold = ct_sparse_threshold
         self.tfidf_max_features = tfidf_max_features
 
-        # TODO: Hacer que los indices de los usuarios empiecen en 1
-        # para evitar problemas de indexación en el ranker
         self.user_encoder = OrdinalEncoder(
             handle_unknown="use_encoded_value", unknown_value=-1
         )
@@ -158,7 +156,9 @@ class DataProcessor:
             self.feature_metadata[prefix] = self._build_feature_metadata(
                 prefix=prefix,
                 groups=groups,
-                categorical_cardinalities=self.feature_metadata[prefix].categorical_cardinalities,
+                categorical_cardinalities=self.feature_metadata[
+                    prefix
+                ].categorical_cardinalities,
             )
 
     def _normalize_schema(self, prefix: str) -> SchemaColumns:
@@ -186,7 +186,9 @@ class DataProcessor:
 
     def _fit_ct_feats(self, df: pd.DataFrame, prefix: str) -> None:
         """Build and fit feature preprocessors for one feature group."""
-        groups = self._resolve_column_groups(prefix=prefix, available_columns=df.columns)
+        groups = self._resolve_column_groups(
+            prefix=prefix, available_columns=df.columns
+        )
         df_features = (
             df[groups["input"]].copy()
             if groups["input"]
@@ -225,7 +227,9 @@ class DataProcessor:
         }
 
         binary_cols = [
-            col for col in declared.binary_cols if col in available and col not in reserved
+            col
+            for col in declared.binary_cols
+            if col in available and col not in reserved
         ]
         numeric_cols = [
             col
@@ -233,13 +237,19 @@ class DataProcessor:
             if col in available and col not in reserved and col != config.TIME_COL
         ]
         categorical_cols = [
-            col for col in declared.categorical_cols if col in available and col not in reserved
+            col
+            for col in declared.categorical_cols
+            if col in available and col not in reserved
         ]
         text_cols = [
-            col for col in declared.text_cols if col in available and col not in reserved
+            col
+            for col in declared.text_cols
+            if col in available and col not in reserved
         ]
         list_cols = [
-            col for col in declared.list_cols if col in available and col not in reserved
+            col
+            for col in declared.list_cols
+            if col in available and col not in reserved
         ]
         time_cols = (
             [config.TIME_COL]
@@ -290,10 +300,14 @@ class DataProcessor:
             transformers.append(("cat", self._build_categorical_pipeline(), cat_cols))
 
         if text_cols and self._uses_feature_type("text"):
-            transformers.append(("text", self._build_text_pipeline(text_cols), text_cols))
+            transformers.append(
+                ("text", self._build_text_pipeline(text_cols), text_cols)
+            )
 
         if list_cols and self._uses_feature_type("list"):
-            transformers.append(("list", self._build_list_pipeline(list_cols), list_cols))
+            transformers.append(
+                ("list", self._build_list_pipeline(list_cols), list_cols)
+            )
 
         if time_col:
             transformers.append(("time", self._build_time_pipeline(), [time_col]))
@@ -619,15 +633,15 @@ def _coerce_list_tokens(value: object) -> list[str]:
             except (SyntaxError, ValueError):
                 parsed = None
             if isinstance(parsed, (list, tuple, set)):
-                return [
-                    str(item).strip()
-                    for item in parsed
-                    if str(item).strip()
-                ]
+                return [str(item).strip() for item in parsed if str(item).strip()]
         separators = [",", ";", "|"]
         for separator in separators:
             if separator in stripped:
-                return [token.strip() for token in stripped.split(separator) if token.strip()]
+                return [
+                    token.strip()
+                    for token in stripped.split(separator)
+                    if token.strip()
+                ]
         return [stripped]
 
     return [str(value).strip()]
