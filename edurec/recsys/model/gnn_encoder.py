@@ -22,8 +22,6 @@ class GnnEncoderConfig:
     emb_dim: int
     drop_edges_p: float = config.DROP_EDGES_P
     tau: float = config.TAU
-    max_samples_u: int = config.MAX_SAMPLES_U
-    max_samples_i: int = config.MAX_SAMPLES_I
     loss_reduc: LossReduction = LossReduction(config.LOSS_REDUCTION)
     num_layers: int = config.GNN_LAYERS
 
@@ -61,17 +59,9 @@ class GnnEncoder(nn.Module):
 
 
 class InfoNCELoss(nn.Module):
-    def __init__(
-        self,
-        tau: float = 0.1,
-        max_samples_u: int = 2048,
-        max_samples_i: int = 2048,
-        reduction: LossReduction = LossReduction.MEAN,
-    ):
+    def __init__(self, tau: float = 0.1, reduction: LossReduction = LossReduction.MEAN):
         super().__init__()
         self.tau = tau
-        self.max_samples_u = max_samples_u
-        self.max_samples_i = max_samples_i
         self.reduction = reduction
 
     def forward(
@@ -81,43 +71,24 @@ class InfoNCELoss(nn.Module):
         u_emb2: torch.Tensor,
         i_emb2: torch.Tensor,
     ) -> torch.Tensor:
-        loss_u = self._compute_loss(u_emb1, u_emb2, self.max_samples_u)
-        loss_i = self._compute_loss(i_emb1, i_emb2, self.max_samples_i)
+        loss_u = self._loss(u_emb1, u_emb2)
+        loss_i = self._loss(i_emb1, i_emb2)
 
         if self.reduction == LossReduction.SUM:
             return loss_u + loss_i
 
         return 0.5 * (loss_u + loss_i)
 
-    def _compute_loss(
-        self,
-        h1: torch.Tensor,
-        h2: torch.Tensor,
-        max_samples: int = 0,
-    ) -> torch.Tensor:
-        h1, h2 = self._sample_nodes(h1, h2, max_samples)
-        return 0.5 * (self._directional_loss(h1, h2) + self._directional_loss(h2, h1))
-
-    def _directional_loss(self, h1: torch.Tensor, h2: torch.Tensor) -> torch.Tensor:
-        logits = self._similarity(h1, h2) / self.tau
-        labels = torch.arange(logits.size(0), device=logits.device)
-        return F.cross_entropy(logits, labels)
-
-    def _sample_nodes(
-        self,
-        h1: torch.Tensor,
-        h2: torch.Tensor,
-        max_samples: int,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        n = h1.shape[0]
-
-        if max_samples <= 0 or n <= max_samples:
-            return h1, h2
-
-        idx = torch.randperm(n, device=h1.device)[:max_samples]
-        return h1[idx], h2[idx]
-
-    def _similarity(self, h1: torch.Tensor, h2: torch.Tensor) -> torch.Tensor:
+    def _loss(self, h1: torch.Tensor, h2: torch.Tensor) -> torch.Tensor:
         h1 = F.normalize(h1, dim=1)
         h2 = F.normalize(h2, dim=1)
-        return h1 @ h2.t()
+
+        logits_12 = h1 @ h2.T / self.tau
+        logits_21 = h2 @ h1.T / self.tau
+
+        labels = torch.arange(h1.size(0), device=h1.device)
+
+        loss_12 = F.cross_entropy(logits_12, labels)
+        loss_21 = F.cross_entropy(logits_21, labels)
+
+        return 0.5 * (loss_12 + loss_21)

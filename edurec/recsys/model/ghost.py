@@ -23,8 +23,6 @@ class GhostConfig:
     # GCL Defaults
     edge_dropout: float = config.DROP_EDGES_P
     temperature: float = config.TAU
-    max_user_samples: int = config.MAX_SAMPLES_U
-    max_item_samples: int = config.MAX_SAMPLES_I
     loss_reduction: str = config.LOSS_REDUCTION
     gnn_layers: int = config.GNN_LAYERS
 
@@ -43,8 +41,6 @@ class GhostConfig:
             emb_dim=self.emb_dim,
             drop_edges_p=self.edge_dropout,
             tau=self.temperature,
-            max_samples_u=self.max_user_samples,
-            max_samples_i=self.max_item_samples,
             loss_reduc=LossReduction(self.loss_reduction),
             num_layers=self.gnn_layers,
         )

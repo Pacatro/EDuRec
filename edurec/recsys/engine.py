@@ -45,12 +45,7 @@ class RecSys(L.LightningModule):
         self.register_buffer("u_static", u_static, persistent=False)
         self.register_buffer("i_static", i_static, persistent=False)
 
-        self.gcl_loss = InfoNCELoss(
-            tau=cfg.gnn.tau,
-            max_samples_u=cfg.gnn.max_samples_u,
-            max_samples_i=cfg.gnn.max_samples_i,
-            reduction=cfg.gnn.loss_reduc,
-        )
+        self.gcl_loss = InfoNCELoss(tau=cfg.gnn.tau, reduction=cfg.gnn.loss_reduc)
 
         self.val_ranking_metrics = MetricCollection(
             {f"Ndcg@{top_k}": RetrievalNormalizedDCG(top_k=top_k)}, prefix="val/"

@@ -15,8 +15,7 @@ USER_COL: str = "user_id"
 TIME_COL: str = "timestamp"
 RATING_COL: str = "rating"
 RELEVANT_COL: str = "relevant"
-MIN_INTERACTIONS: int = 10
-MAX_SEQUENCE_LENGTH: int = 50
+MIN_INTERACTIONS: int = 3
 
 # Preprocessing
 PROCESSED_FOLDER: str = f"{DATA_FOLDER}/processed"
@@ -24,35 +23,32 @@ REMOVE_SPARSE_USERS: bool = True
 
 # GCL
 DROP_EDGES_P: float = 0.2
-TAU: float = 0.1
-MAX_SAMPLES_U: int = 2048
-MAX_SAMPLES_I: int = 2048
+TAU: float = 0.2
 LOSS_REDUCTION: str = "mean"
 GNN_LAYERS: int = 2
 
 # Ranker
 NUM_HEADS: int = 4
 NUM_BLOCKS: int = 2
-FF_DIM: int = 256
+FF_DIM: int = 512
 DROPOUT: float = 0.1
 MAX_HISTORY_LEN: int = 50
 NUM_SCORES: int = 1
 
 # Ghost model
-EMB_DIM: int = 64
+EMB_DIM: int = 128
 
 # Training
 LR: float = 0.001
-BATCH_SIZE: int = 128
+BATCH_SIZE: int = 256
 EPOCHS: int = 100
-WEIGHT_DECAY: float = 1e-6
-PATIENCE: int = 3
+WEIGHT_DECAY: float = 1e-5
+PATIENCE: int = 10
 DELTA: float = 0.001
 TOP_K: int = 20
-NUM_WORKERS: int = 2
+NUM_WORKERS: int = 4
 VAL_RATIO: float = 0.1
-TEST_RATIO: float = 0.4
-MIN_INTERACTIONS: int = 3
+TEST_RATIO: float = 0.2
 N_NEG_TRAIN: int = 4
 N_NEG_VAL: int = 99
 N_NEG_TEST: int = 99
