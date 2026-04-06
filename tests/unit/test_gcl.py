@@ -41,7 +41,7 @@ def test_gnn_encoder_shapes():
 def test_info_nce_loss_is_finite():
     torch.manual_seed(0)
 
-    loss_fn = InfoNCELoss(tau=0.1, max_samples_u=16, max_samples_i=16)
+    loss_fn = InfoNCELoss(tau=0.1)
     u_emb1 = torch.randn(8, 16)
     i_emb1 = torch.randn(6, 16)
     u_emb2 = torch.randn(8, 16)
