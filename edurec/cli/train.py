@@ -125,6 +125,8 @@ def train(
         else:
             print(f"[TRAIN] Using raw data from {config.DATA_FOLDER}/{dataset.value}")
 
+        print(f"[TRAIN] Dataset:\n{dm.interactions}")
+
     dm.setup()
 
     if config.state["verbose"]:

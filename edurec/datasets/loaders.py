@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from pathlib import Path
 from enum import StrEnum
 from functools import wraps
 from typing import Callable
@@ -6,6 +7,8 @@ from typing import Callable
 import pandas as pd
 
 from .. import config
+
+RAW_DATA_FOLDER = Path(config.DATA_FOLDER) / "raw"
 
 
 class DatasetName(StrEnum):
@@ -72,12 +75,13 @@ def load_mars() -> RawDataset:
     Returns:
         pd.DataFrame: The MARS dataset.
     """
-    items_en = pd.read_csv(f"{config.DATA_FOLDER}/raw/mars/items_en.csv")
-    items_fr = pd.read_csv(f"{config.DATA_FOLDER}/raw/mars/items_fr.csv")
-    users_en = pd.read_csv(f"{config.DATA_FOLDER}/raw/mars/users_en.csv")
-    users_fr = pd.read_csv(f"{config.DATA_FOLDER}/raw/mars/users_fr.csv")
-    ratings_en = pd.read_csv(f"{config.DATA_FOLDER}/raw/mars/explicit_ratings_en.csv")
-    ratings_fr = pd.read_csv(f"{config.DATA_FOLDER}/raw/mars/explicit_ratings_fr.csv")
+    mars_folder = RAW_DATA_FOLDER / DatasetName.MARS.value
+    items_en = pd.read_csv(mars_folder / "items_en.csv")
+    items_fr = pd.read_csv(mars_folder / "items_fr.csv")
+    users_en = pd.read_csv(mars_folder / "users_en.csv")
+    users_fr = pd.read_csv(mars_folder / "users_fr.csv")
+    ratings_en = pd.read_csv(mars_folder / "explicit_ratings_en.csv")
+    ratings_fr = pd.read_csv(mars_folder / "explicit_ratings_fr.csv")
 
     df_interactions = pd.concat([ratings_en, ratings_fr], ignore_index=True)
     df_items = pd.concat([items_en, items_fr], ignore_index=True)
@@ -140,9 +144,10 @@ def load_itm() -> RawDataset:
     Returns:
         pd.DataFrame: The ITM dataset.
     """
-    ratings_df = pd.read_csv(f"{config.DATA_FOLDER}/raw/itm/ratings.csv")
-    items_df = pd.read_csv(f"{config.DATA_FOLDER}/raw/itm/items.csv")
-    users_df = pd.read_csv(f"{config.DATA_FOLDER}/raw/itm/users.csv")
+    itm_folder = RAW_DATA_FOLDER / DatasetName.ITM.value
+    ratings_df = pd.read_csv(itm_folder / "ratings.csv")
+    items_df = pd.read_csv(itm_folder / "items.csv")
+    users_df = pd.read_csv(itm_folder / "users.csv")
 
     ratings_df.rename(
         columns={
@@ -177,6 +182,58 @@ def load_itm() -> RawDataset:
             "num": ["app", "data", "ease"],
             "cat": ["class", "semester", "lockdown"],
             "text": [],
+            "list": [],
+        },
+    }
+
+    return RawDataset(
+        interactions=ratings_df,
+        i_feats=items_df,
+        u_feats=users_df,
+        schema=schema,
+    )
+
+
+@register_dataset(DatasetName.DORIS)
+def load_doris() -> RawDataset:
+    doris_folder = RAW_DATA_FOLDER / DatasetName.DORIS.value
+    ratings_df = pd.read_excel(doris_folder / "CourseSelectionTable.xlsx")
+    items_df = pd.read_excel(doris_folder / "CourseInformationTable.xlsx")
+    users_df = pd.read_excel(doris_folder / "StudentInformationTable.xlsx")
+
+    ratings_df.rename(
+        columns={
+            "StudedntId": config.USER_COL,
+            "CourseId": config.ITEM_COL,
+            "Score": config.RATING_COL,
+        },
+        inplace=True,
+    )
+    items_df.rename(
+        columns={"CourseId": config.ITEM_COL, "type": "item_type"}, inplace=True
+    )
+    users_df.rename(columns={"StudentId": config.USER_COL}, inplace=True)
+
+    schema = {
+        "users": {
+            "bin": [],
+            "num": [],
+            "cat": ["enrollmentyear", "education", "major"],
+            "text": [],
+            "list": [],
+        },
+        "items": {
+            "bin": [],
+            "num": [],
+            "cat": ["item_type", "grade", "prerequisite"],
+            "text": ["introduction"],
+            "list": [],
+        },
+        "inter": {
+            "bin": [],
+            "num": [],
+            "cat": ["academicyear", "semester", "coursecollage"],
+            "text": ["coursename"],
             "list": [],
         },
     }
