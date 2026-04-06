@@ -68,8 +68,8 @@ def test_graph_view_preserves_bidirectional_pairs():
     recsys = RecSys(
         cfg=cfg,
         inter_graph=graph,
-        u_static=torch.zeros(cfg.num_users, 0),
-        i_static=torch.zeros(cfg.num_items, 0),
+        u_static_feats=torch.zeros(cfg.num_users, 0),
+        i_static_feats=torch.zeros(cfg.num_items, 0),
     )
 
     assert graph.edge_index is not None

@@ -23,8 +23,8 @@ class RecSys(L.LightningModule):
         self,
         cfg: GhostConfig,
         inter_graph: Data,
-        u_static: torch.Tensor,
-        i_static: torch.Tensor,
+        u_static_feats: torch.Tensor,
+        i_static_feats: torch.Tensor,
         lr: float = config.LR,
         weight_decay: float = config.WEIGHT_DECAY,
         top_k: int = config.TOP_K,
@@ -33,7 +33,9 @@ class RecSys(L.LightningModule):
         monitor: str = config.MONITOR,
     ):
         super().__init__()
-        self.save_hyperparameters(ignore=["inter_graph", "u_static", "i_static"])
+        self.save_hyperparameters(
+            ignore=["inter_graph", "u_static_feats", "i_static_feats"]
+        )
         self.cfg = cfg
         self.inter_graph = inter_graph.to(self._resolve_graph_device())
         self.lr = lr
@@ -42,8 +44,8 @@ class RecSys(L.LightningModule):
         self.alpha = alpha
         self.top_k = top_k
 
-        self.register_buffer("u_static", u_static, persistent=False)
-        self.register_buffer("i_static", i_static, persistent=False)
+        self.register_buffer("u_static_feats", u_static_feats, persistent=False)
+        self.register_buffer("i_static_feats", i_static_feats, persistent=False)
 
         self.gcl_loss = InfoNCELoss(tau=cfg.gnn.tau, reduction=cfg.gnn.loss_reduc)
 
@@ -87,8 +89,8 @@ class RecSys(L.LightningModule):
             h_mask=batch["history_valid_mask"],
             c_ids=batch["candidate_ids"],
             inter_graph=self.inter_graph,
-            u_static_global=self.u_static,
-            i_static_global=self.i_static,
+            u_static_feats=self.u_static_feats,
+            i_static_feats=self.i_static_feats,
         )
         return self._prepare_scores(scores)
 

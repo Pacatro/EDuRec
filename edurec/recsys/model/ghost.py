@@ -92,8 +92,8 @@ class Ghost(nn.Module):
         h_mask: torch.Tensor,  # [B, H]
         c_ids: torch.Tensor,  # [B, C]
         inter_graph: Data,
-        u_static_global: torch.Tensor,  # [B, num_users_feats]
-        i_static_global: torch.Tensor,  # [B, num_items_feats]
+        u_static_feats: torch.Tensor,  # [B, num_users_feats]
+        i_static_feats: torch.Tensor,  # [B, num_items_feats]
     ) -> torch.Tensor:
         self.edge_index = inter_graph.edge_index
 
@@ -101,7 +101,7 @@ class Ghost(nn.Module):
         padded_item_embs = torch.cat(
             [item_embs.new_zeros(1, item_embs.size(1)), item_embs], dim=0
         )
-        padded_item_static = self._pad_item_static_features(i_static_global)
+        padded_item_static = self._pad_item_static_features(i_static_feats)
 
         user_emb = user_embs[u_ids]  # [B, D]
         hist_emb = self._build_hist_emb(
@@ -109,7 +109,7 @@ class Ghost(nn.Module):
         )  # [B, H, D]
         candidate_emb = padded_item_embs[c_ids]  # [B, C, D]
 
-        user_feats = self.user_static_encoder(u_static_global[u_ids])  # [B, D]
+        user_feats = self.user_static_encoder(u_static_feats[u_ids])  # [B, D]
         hist_feats = self.item_static_encoder(padded_item_static[h_ids])  # [B, H, D]
         candidate_feats = self.item_static_encoder(
             padded_item_static[c_ids]
@@ -135,7 +135,7 @@ class Ghost(nn.Module):
     ) -> torch.Tensor:
         history_ids = history_ids.clamp(min=0)
         hist_emb = item_embs[history_ids]  # [B, S, D]
-        hist_emb = hist_emb * history_mask.unsqueeze(-1).float()  # padding → 0
+        hist_emb = hist_emb * history_mask.unsqueeze(-1).float()  # padding -> 0
 
         if self.ctx_proj is not None:
             ctx_emb = self.ctx_proj(history_ctx)  # [B, S, D]

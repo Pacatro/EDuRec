@@ -146,13 +146,13 @@ def train(
         item_cat_cardinalities=dm.item_cat_cardinalities,
     )
 
-    assert dm.u_static is not None and dm.i_static is not None
+    assert dm.u_static_feats is not None and dm.i_static_feats is not None
 
     recsys = RecSys(
         cfg=cfg,
         inter_graph=dm.create_inter_graph(),
-        u_static=dm.u_static,
-        i_static=dm.i_static,
+        u_static_feats=dm.u_static_feats,
+        i_static_feats=dm.i_static_feats,
         lr=lr,
         top_k=top_k,
         adaptive_k=adaptive_k,

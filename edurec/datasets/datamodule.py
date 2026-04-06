@@ -20,8 +20,8 @@ class ProcessedArtifacts:
     train: pd.DataFrame | None = None
     val: pd.DataFrame | None = None
     test: pd.DataFrame | None = None
-    u_static: torch.Tensor | None = None
-    i_static: torch.Tensor | None = None
+    u_static_feats: torch.Tensor | None = None
+    i_static_feats: torch.Tensor | None = None
     data_processor: DataProcessor | None = None
 
     @property
@@ -30,8 +30,8 @@ class ProcessedArtifacts:
             self.train is not None
             and self.val is not None
             and self.test is not None
-            and self.u_static is not None
-            and self.i_static is not None
+            and self.u_static_feats is not None
+            and self.i_static_feats is not None
             and self.data_processor is not None
         )
 
@@ -122,12 +122,12 @@ class ElearningDataModule(L.LightningDataModule):
         raise RuntimeError("Schema is not available.")
 
     @property
-    def u_static(self) -> torch.Tensor | None:
-        return self.artifacts.u_static
+    def u_static_feats(self) -> torch.Tensor | None:
+        return self.artifacts.u_static_feats
 
     @property
-    def i_static(self) -> torch.Tensor | None:
-        return self.artifacts.i_static
+    def i_static_feats(self) -> torch.Tensor | None:
+        return self.artifacts.i_static_feats
 
     @property
     def data_processor(self) -> DataProcessor | None:
@@ -149,15 +149,15 @@ class ElearningDataModule(L.LightningDataModule):
     @property
     def num_users(self) -> int:
         """Return total number of users from processed or raw features."""
-        if self.u_static is not None:
-            return self.u_static.shape[0]
+        if self.u_static_feats is not None:
+            return self.u_static_feats.shape[0]
         return len(self.raw_dataset.u_feats) if self.raw_dataset is not None else 0
 
     @property
     def num_items(self) -> int:
         """Return total number of items from processed or raw features."""
-        if self.i_static is not None:
-            return self.i_static.shape[0]
+        if self.i_static_feats is not None:
+            return self.i_static_feats.shape[0]
         return len(self.raw_dataset.i_feats) if self.raw_dataset is not None else 0
 
     @property
@@ -198,8 +198,8 @@ class ElearningDataModule(L.LightningDataModule):
         if self.data_processor is not None:
             metadata = self.data_processor.feature_metadata["users"]
             return len(metadata.numeric_cols) + len(metadata.categorical_cols)
-        if self.u_static is not None:
-            return self.u_static.shape[1]
+        if self.u_static_feats is not None:
+            return self.u_static_feats.shape[1]
         return 0
 
     @property
@@ -207,8 +207,8 @@ class ElearningDataModule(L.LightningDataModule):
         if self.data_processor is not None:
             metadata = self.data_processor.feature_metadata["items"]
             return len(metadata.numeric_cols) + len(metadata.categorical_cols)
-        if self.i_static is not None:
-            return self.i_static.shape[1]
+        if self.i_static_feats is not None:
+            return self.i_static_feats.shape[1]
         return 0
 
     @property
@@ -369,8 +369,8 @@ class ElearningDataModule(L.LightningDataModule):
             train=processed_splits["train"],
             val=processed_splits["val"],
             test=processed_splits["test"],
-            u_static=static_feats["u_static"],
-            i_static=static_feats["i_static"],
+            u_static_feats=static_feats["u_static_feats"],
+            i_static_feats=static_feats["i_static_feats"],
             data_processor=DataProcessor.load(
                 self.processed_folder / "processor.joblib"
             ),
@@ -482,8 +482,12 @@ class ElearningDataModule(L.LightningDataModule):
         )
         assert processed_all.users is not None and processed_all.items is not None
 
-        u_static = self._generate_static_feats(processed_all.users, config.USER_COL)
-        i_static = self._generate_static_feats(processed_all.items, config.ITEM_COL)
+        u_static_feats = self._generate_static_feats(
+            processed_all.users, config.USER_COL
+        )
+        i_static_feats = self._generate_static_feats(
+            processed_all.items, config.ITEM_COL
+        )
 
         p_train = data_processor.transform(interactions=train_raw)
         p_val = data_processor.transform(interactions=val_raw)
@@ -493,8 +497,8 @@ class ElearningDataModule(L.LightningDataModule):
             train=p_train.interactions,
             val=p_val.interactions,
             test=p_test.interactions,
-            u_static=u_static,
-            i_static=i_static,
+            u_static_feats=u_static_feats,
+            i_static_feats=i_static_feats,
             data_processor=data_processor,
         )
 
@@ -562,12 +566,12 @@ class ElearningDataModule(L.LightningDataModule):
                 continue
             df.to_csv(self.processed_folder / f"{split}.csv", index=False)
 
-        assert self.u_static is not None and self.i_static is not None
+        assert self.u_static_feats is not None and self.i_static_feats is not None
 
         save_file(
             {
-                "u_static": self.u_static.contiguous(),
-                "i_static": self.i_static.contiguous(),
+                "u_static_feats": self.u_static_feats.contiguous(),
+                "i_static_feats": self.i_static_feats.contiguous(),
             },
             self.processed_folder / "static_feats.safetensors",
         )
@@ -632,7 +636,7 @@ class ElearningDataModule(L.LightningDataModule):
         """
         df_train = self.artifacts.train
 
-        if df_train is None or self.u_static is None:
+        if df_train is None or self.u_static_feats is None:
             raise RuntimeError("Data must be processed before creating the graph")
 
         pos_train = df_train[df_train[config.RELEVANT_COL] > 0]
@@ -655,8 +659,8 @@ class ElearningDataModule(L.LightningDataModule):
 
         data.num_users = self.num_users
         data.num_items = self.num_items
-        data.u_x = self.u_static
-        data.i_x = self.i_static
+        data.u_x = self.u_static_feats
+        data.i_x = self.i_static_feats
         data.node_type = torch.cat(
             [
                 torch.zeros(self.num_users, dtype=torch.long),

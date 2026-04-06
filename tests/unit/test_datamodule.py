@@ -60,10 +60,10 @@ def test_feature_metadata_and_static_shapes(dm: ElearningDataModule):
     assert dm.artifacts.train is not None
     assert dm._processed_data["train"] is not None
     assert dm.artifacts.train.equals(dm._processed_data["train"])
-    assert dm.artifacts.u_static is not None
-    assert dm.artifacts.i_static is not None
-    assert dm.artifacts.u_static.shape[0] == dm.num_users
-    assert dm.artifacts.i_static.shape[0] == dm.num_items
+    assert dm.artifacts.u_static_feats is not None
+    assert dm.artifacts.i_static_feats is not None
+    assert dm.artifacts.u_static_feats.shape[0] == dm.num_users
+    assert dm.artifacts.i_static_feats.shape[0] == dm.num_items
     assert dm.data_processor is not None
     assert dm.data_processor.feature_metadata["items"].text_cols == [
         "name",

@@ -26,16 +26,16 @@ def test_recsys_step_and_metrics():
         item_cat_cardinalities=dm.item_cat_cardinalities,
     )
 
-    assert dm.u_static is not None
-    assert dm.i_static is not None
+    assert dm.u_static_feats is not None
+    assert dm.i_static_feats is not None
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     recsys = RecSys(
         cfg=cfg,
         inter_graph=dm.create_inter_graph(),
-        u_static=dm.u_static,
-        i_static=dm.i_static,
+        u_static_feats=dm.u_static_feats,
+        i_static_feats=dm.i_static_feats,
     ).to(device)
 
     batch = {

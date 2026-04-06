@@ -38,7 +38,7 @@ def test_ghost_forward(cfg: GhostConfig):
     )
     inter_graph = Data(edge_index=edge_index, num_nodes=cfg.num_users + cfg.num_items)
 
-    u_static = torch.tensor(
+    u_static_feats = torch.tensor(
         [
             [0.2, 0.0],
             [0.8, 1.0],
@@ -51,7 +51,7 @@ def test_ghost_forward(cfg: GhostConfig):
         ],
         dtype=torch.float32,
     )
-    i_static = torch.tensor(
+    i_static_feats = torch.tensor(
         [
             [0.1, 0.5, 0.0, 0.0],
             [0.2, 0.3, 1.0, 1.0],
@@ -101,8 +101,8 @@ def test_ghost_forward(cfg: GhostConfig):
             dtype=torch.long,
         ),
         inter_graph=inter_graph,
-        u_static_global=u_static,
-        i_static_global=i_static,
+        u_static_feats=u_static_feats,
+        i_static_feats=i_static_feats,
     )
 
     assert scores.shape == (batch_size, num_candidates, 1)

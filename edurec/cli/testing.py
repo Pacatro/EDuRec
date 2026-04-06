@@ -82,14 +82,14 @@ def test_recsys(
     )
     dm.setup()
 
-    assert dm.u_static is not None and dm.i_static is not None
+    assert dm.u_static_feats is not None and dm.i_static_feats is not None
 
     model = RecSys.load_from_checkpoint(
         checkpoint_path=str(model_path),
         cfg=cfg,
         inter_graph=dm.create_inter_graph(),
-        u_static=dm.u_static,
-        i_static=dm.i_static,
+        u_static_feats=dm.u_static_feats,
+        i_static_feats=dm.i_static_feats,
         top_k=top_k,
         adaptive_k=adaptive_k,
         map_location=torch.device("cpu"),
