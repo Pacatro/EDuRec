@@ -113,6 +113,7 @@ def train(
     )
 
     if config.state["verbose"]:
+        print(f"[TRAIN] Using dataset {dataset.value}")
         print(f"[TRAIN] Number of negatives for training: {n_neg_train}")
         print(f"[TRAIN] Number of negatives for validation: {n_neg_val}")
         print(f"[TRAIN] Number of negatives for testing: {n_neg_test}")
@@ -125,12 +126,10 @@ def train(
         else:
             print(f"[TRAIN] Using raw data from {config.DATA_FOLDER}/{dataset.value}")
 
-        print(f"[TRAIN] Dataset:\n{dm.interactions}")
-
     dm.setup()
 
     if config.state["verbose"]:
-        print(f"[TRAIN] Dataset {dataset.value} sparsity: {dm.sparsity}")
+        print(f"[TRAIN] Dataset sparsity: {dm.sparsity}")
         print(f"[TRAIN] Number of users: {dm.num_users}")
         print(f"[TRAIN] Number of items: {dm.num_items}")
         print(f"[TRAIN] Number of interactions: {dm.num_interactions}")

@@ -4,6 +4,7 @@ from typing import Annotated
 
 import typer
 import torch
+from dotenv import load_dotenv
 
 from . import config
 from .cli import train_app, test_app
@@ -12,6 +13,8 @@ from .cli import train_app, test_app
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 torch.manual_seed(config.state["random_state"])
+
+load_dotenv()
 
 app = typer.Typer(
     rich_markup_mode=None,

@@ -25,6 +25,7 @@ dependencies = [
   "torch-geometric>=2.7.0",
   "safetensors>=0.7.0",
   "joblib>=1.5.3",
+  "dotenv>=0.9.9",
 ]
 
 [dependency-groups]
