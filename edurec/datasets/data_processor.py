@@ -22,6 +22,7 @@ set_config(transform_output="pandas")
 
 PREFIXES = ("users", "items", "inter")
 ACTIVE_FEATURE_TYPES = ("numeric", "categorical")
+INTERACTION_FEATURE_TYPES = (*ACTIVE_FEATURE_TYPES, "text", "list", "time")
 
 
 @dataclass
@@ -196,6 +197,7 @@ class DataProcessor:
         )
 
         preprocessor = self._build_ct(
+            prefix=prefix,
             num_cols=groups["numeric"],
             cat_cols=groups["categorical"],
             text_cols=groups["text"],
@@ -259,10 +261,18 @@ class DataProcessor:
 
         encoded_categorical_cols = [*binary_cols, *categorical_cols]
         active_cols: list[str] = []
-        if "numeric" in ACTIVE_FEATURE_TYPES:
+        if self._uses_feature_type(prefix, "numeric"):
             active_cols.extend(numeric_cols)
-        if "categorical" in ACTIVE_FEATURE_TYPES:
+        if self._uses_feature_type(prefix, "categorical"):
             active_cols.extend(encoded_categorical_cols)
+
+        input_cols = list(active_cols)
+        if self._uses_feature_type(prefix, "text"):
+            input_cols.extend(text_cols)
+        if self._uses_feature_type(prefix, "list"):
+            input_cols.extend(list_cols)
+        if self._uses_feature_type(prefix, "time"):
+            input_cols.extend(time_cols)
 
         return {
             "binary": binary_cols,
@@ -272,12 +282,13 @@ class DataProcessor:
             "list": list_cols,
             "time": time_cols,
             "active": active_cols,
-            "input": [*active_cols, *time_cols],
+            "input": input_cols,
             "passthrough": self._get_passthrough_cols(prefix),
         }
 
     def _build_ct(
         self,
+        prefix: str,
         num_cols: list[str],
         cat_cols: list[str],
         text_cols: list[str],
@@ -293,23 +304,23 @@ class DataProcessor:
         if time_col and time_col in num_cols:
             num_cols = [c for c in num_cols if c != time_col]
 
-        if num_cols and self._uses_feature_type("numeric"):
+        if num_cols and self._uses_feature_type(prefix, "numeric"):
             transformers.append(("num", self._build_numeric_pipeline(), num_cols))
 
-        if cat_cols and self._uses_feature_type("categorical"):
+        if cat_cols and self._uses_feature_type(prefix, "categorical"):
             transformers.append(("cat", self._build_categorical_pipeline(), cat_cols))
 
-        if text_cols and self._uses_feature_type("text"):
+        if text_cols and self._uses_feature_type(prefix, "text"):
             transformers.append(
                 ("text", self._build_text_pipeline(text_cols), text_cols)
             )
 
-        if list_cols and self._uses_feature_type("list"):
+        if list_cols and self._uses_feature_type(prefix, "list"):
             transformers.append(
                 ("list", self._build_list_pipeline(list_cols), list_cols)
             )
 
-        if time_col:
+        if time_col and self._uses_feature_type(prefix, "time"):
             transformers.append(("time", self._build_time_pipeline(), [time_col]))
 
         return ColumnTransformer(
@@ -319,8 +330,11 @@ class DataProcessor:
             verbose_feature_names_out=False,
         )
 
-    def _uses_feature_type(self, feature_type: str) -> bool:
-        return feature_type in ACTIVE_FEATURE_TYPES
+    def _uses_feature_type(self, prefix: str, feature_type: str) -> bool:
+        active_types = (
+            INTERACTION_FEATURE_TYPES if prefix == "inter" else ACTIVE_FEATURE_TYPES
+        )
+        return feature_type in active_types
 
     def _build_numeric_pipeline(self) -> Pipeline:
         return Pipeline(
@@ -466,7 +480,10 @@ class DataProcessor:
             text_cols=list(groups["text"]),
             list_cols=list(groups["list"]),
             time_cols=list(groups["time"]),
-            pending_cols=[*groups["text"], *groups["list"]],
+            pending_cols=[
+                *([] if self._uses_feature_type(prefix, "text") else groups["text"]),
+                *([] if self._uses_feature_type(prefix, "list") else groups["list"]),
+            ],
         )
 
         preprocessor = self.preprocessors[prefix]
@@ -551,26 +568,26 @@ class TimeFeaturesTransformer(BaseEstimator, TransformerMixin):
         # timestamp in secods
         ts = (dt.astype(np.int64) // 10**9).astype("float64")
 
-        # hour = dt.dt.hour.astype("float64")
-        # dow = dt.dt.dayofweek.astype("float64")  # 0=lunes
-        # month = dt.dt.month.astype("float64")
-        #
-        # # Circular features to preserve temporal continuity.
-        # hour_sin = np.sin(2 * np.pi * (hour / 24.0))
-        # hour_cos = np.cos(2 * np.pi * (hour / 24.0))
-        # dow_sin = np.sin(2 * np.pi * (dow / 7.0))
-        # dow_cos = np.cos(2 * np.pi * (dow / 7.0))
+        hour = dt.dt.hour.astype("float64")
+        dow = dt.dt.dayofweek.astype("float64")  # 0=lunes
+        month = dt.dt.month.astype("float64")
+
+        # Circular features to preserve temporal continuity.
+        hour_sin = np.sin(2 * np.pi * (hour / 24.0))
+        hour_cos = np.cos(2 * np.pi * (hour / 24.0))
+        dow_sin = np.sin(2 * np.pi * (dow / 7.0))
+        dow_cos = np.cos(2 * np.pi * (dow / 7.0))
 
         return pd.DataFrame(
             {
-                config.TIME_COL: ts,
-                # "time_hour": hour,
-                # "time_dow": dow,
-                # "time_month": month,
-                # "time_hour_sin": hour_sin,
-                # "time_hour_cos": hour_cos,
-                # "time_dow_sin": dow_sin,
-                # "time_dow_cos": dow_cos,
+                # config.TIME_COL: ts,
+                "time_hour": hour,
+                "time_dow": dow,
+                "time_month": month,
+                "time_hour_sin": hour_sin,
+                "time_hour_cos": hour_cos,
+                "time_dow_sin": dow_sin,
+                "time_dow_cos": dow_cos,
             },
             index=X_df.index,
         )

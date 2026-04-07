@@ -5,10 +5,11 @@ from edurec.datasets import DatasetName, ElearningDataModule
 
 
 @pytest.fixture
-def dm() -> ElearningDataModule:
+def dm(tmp_path) -> ElearningDataModule:
     dm = ElearningDataModule(
         DatasetName.MARS, batch_size=1, test_ratio=0.2, val_ratio=0.2
     )
+    dm.processed_folder = tmp_path / dm.dataset_name.value
     dm.setup()
     return dm
 
@@ -56,7 +57,7 @@ def test_feature_metadata_and_static_shapes(dm: ElearningDataModule):
     assert dm.item_cat_cardinalities
     assert dm.num_user_feats == 1
     assert dm.num_item_feats == 5
-    assert dm.num_ctx_feats == 1
+    assert dm.num_ctx_feats == 8
     assert dm.artifacts.train is not None
     assert dm._processed_data["train"] is not None
     assert dm.artifacts.train.equals(dm._processed_data["train"])
@@ -81,3 +82,5 @@ def test_feature_metadata_and_static_shapes(dm: ElearningDataModule):
         "software",
         "theme",
     ]
+    # assert config.TIME_COL in dm.artifacts.train.columns
+    # assert config.TIME_COL not in dm.excluded_cols

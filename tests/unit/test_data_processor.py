@@ -65,6 +65,20 @@ def test_data_processor():
             config.ITEM_COL: [101, 102, 103, 104, 102],
             "watch_percentage": [0.6, 0.8, 0.5, 0.9, 0.3],
             "semester": ["spring", "fall", "spring", "fall", "spring"],
+            "feedback": [
+                "helpful explanation and examples",
+                "clear structure for the topic",
+                "too short but still useful",
+                "great content and pacing",
+                "needs more practical exercises",
+            ],
+            "skills": [
+                "python, ml",
+                "statistics|visualization",
+                "recsys;evaluation",
+                "python,data",
+                "experiments",
+            ],
             config.TIME_COL: [
                 "2025-01-01T08:00:00Z",
                 "2025-01-02T10:00:00Z",
@@ -82,6 +96,8 @@ def test_data_processor():
             config.ITEM_COL: [105],
             "watch_percentage": [0.7],
             "semester": ["winter"],
+            "feedback": ["solid summary of the lesson"],
+            "skills": ["sql,etl"],
             config.TIME_COL: ["2025-01-06T18:00:00Z"],
             config.RATING_COL: [4],
             config.RELEVANT_COL: [1],
@@ -93,6 +109,8 @@ def test_data_processor():
             config.ITEM_COL: [106],
             "watch_percentage": [0.4],
             "semester": ["summer"],
+            "feedback": ["good but a bit repetitive"],
+            "skills": ["debugging"],
             config.TIME_COL: ["2025-01-07T20:00:00Z"],
             config.RATING_COL: [3],
             config.RELEVANT_COL: [0],
@@ -118,8 +136,8 @@ def test_data_processor():
             "bin": [],
             "num": ["watch_percentage", config.RATING_COL],
             "cat": ["semester"],
-            "text": [],
-            "list": [],
+            "text": ["feedback"],
+            "list": ["skills"],
         },
     }
 
@@ -176,7 +194,10 @@ def test_data_processor():
     assert processor.feature_metadata["items"].text_cols == ["description"]
     assert processor.feature_metadata["items"].list_cols == []
     assert processor.feature_metadata["items"].pending_cols == ["description"]
+    assert processor.feature_metadata["inter"].text_cols == ["feedback"]
+    assert processor.feature_metadata["inter"].list_cols == ["skills"]
     assert processor.feature_metadata["inter"].time_cols == [config.TIME_COL]
+    assert processor.feature_metadata["inter"].pending_cols == []
     assert processor.feature_metadata["users"].categorical_cardinalities["job"] >= 1
 
     items_groups = processor.column_groups["items"]
@@ -188,12 +209,21 @@ def test_data_processor():
     assert items_groups["list"] == []
 
     assert inter_groups["time"] == [config.TIME_COL]
-    assert inter_groups["input"] == ["watch_percentage", "semester", config.TIME_COL]
+    assert inter_groups["text"] == ["feedback"]
+    assert inter_groups["list"] == ["skills"]
+    assert inter_groups["input"] == [
+        "watch_percentage",
+        "semester",
+        "feedback",
+        "skills",
+        config.TIME_COL,
+    ]
     assert config.TIME_COL not in inter_groups["active"]
     assert config.RATING_COL not in inter_groups["input"]
     assert config.RELEVANT_COL not in inter_groups["input"]
     assert config.USER_COL not in inter_groups["input"]
     assert config.ITEM_COL not in inter_groups["input"]
+    assert train_processed.interactions.shape[1] > len(inter_groups["passthrough"])
 
 
 if __name__ == "__main__":

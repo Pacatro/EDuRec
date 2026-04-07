@@ -93,7 +93,6 @@ class ElearningDataModule(L.LightningDataModule):
         self.user_positive_items: dict[int, set[int]] = {}
 
         self._load_data()
-        self.excluded_cols = self._get_excluded_cols()
 
     @property
     def interactions(self) -> pd.DataFrame:
@@ -140,6 +139,10 @@ class ElearningDataModule(L.LightningDataModule):
             "val": self.artifacts.val,
             "test": self.artifacts.test,
         }
+
+    @property
+    def excluded_cols(self) -> list[str]:
+        return self._get_excluded_cols()
 
     @property
     def is_processed(self) -> bool:
@@ -242,23 +245,12 @@ class ElearningDataModule(L.LightningDataModule):
         ]
 
     def _get_excluded_cols(self) -> list[str]:
-        excluded_ctx_cols = [
+        return [
             config.USER_COL,
             config.ITEM_COL,
             config.RELEVANT_COL,
             config.RATING_COL,
         ]
-
-        if self.is_processed:
-            df = self._processed_data["train"]
-            if df is not None and config.TIME_COL in df.columns:
-                excluded_ctx_cols.append(config.TIME_COL)
-        elif self.raw_dataset is not None:
-            df = self.raw_dataset.interactions
-            if config.TIME_COL in df.columns:
-                excluded_ctx_cols.append(config.TIME_COL)
-
-        return excluded_ctx_cols
 
     def _load_data(self):
         """Load raw inputs or processed cache depending on configuration."""
