@@ -6,8 +6,8 @@ List of TODOs for the project.
 
 - [x] Change data prerpocessing
 - [x] GCL
-- [ ] Transformer Ranking Model
-- [ ] Add retrieval model before ranking model (two towers) -> This allows to filter the best items from all the datasets
+- [x] Transformer Ranking Model
+- [ ] Add retrieval model before ranking model (two towers) -> This allows to get candidates for ranker
 - [ ] Add fairness
 - [ ] Add XAI
 
@@ -15,17 +15,16 @@ List of TODOs for the project.
 
 - [x] Separete prerpocessing logic from data management logic
 - [x] Reorganize code
-- [ ] Implement new arquitecture
+- [x] Implement new arquitecture
+- [ ] Add other cols preprocessing
+- [ ] Implement retrieval model
+- [ ] Fix bugs with DORIS dataset
 
 ## Datasets
 
-Posible datasets to use for the project:
+Datasets to use for the project:
 
 - [x] [MARS](https://www.sciencedirect.com/science/article/pii/S2352340923000604)
 - [x] [ITM](https://www.kaggle.com/datasets/irecsys/itmrec?select=items.csv)
 - [ ] [Open MOOC Review](https://www.sciencedirect.com/science/article/pii/S0957417422015081) --> Requests to the authors
 - [ ] [OULAD](https://www.kaggle.com/datasets/rocki37/open-university-learning-analytics-dataset?select=courses.csv) --> No texts
-
-## Improvements
-
-- Añadir un modelo retrieval que filtre los mejores items candidatos del dataset
