@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from edurec import config
@@ -51,13 +53,14 @@ def test_create_inter_graph(dm: ElearningDataModule):
 
 
 def test_feature_metadata_and_static_shapes(dm: ElearningDataModule):
-    assert dm.num_user_numeric_feats == 0
-    assert dm.num_item_numeric_feats == 2
+    assert dm.num_user_dense_feats == len(
+        dm.data_processor.feature_metadata["users"].dense_cols
+    )
+    assert dm.num_item_dense_feats == len(
+        dm.data_processor.feature_metadata["items"].dense_cols
+    )
     assert dm.user_cat_cardinalities
     assert dm.item_cat_cardinalities
-    assert dm.num_user_feats == 1
-    assert dm.num_item_feats == 5
-    assert dm.num_ctx_feats == 8
     assert dm.artifacts.train is not None
     assert dm._processed_data["train"] is not None
     assert dm.artifacts.train.equals(dm._processed_data["train"])
@@ -65,6 +68,8 @@ def test_feature_metadata_and_static_shapes(dm: ElearningDataModule):
     assert dm.artifacts.i_static_feats is not None
     assert dm.artifacts.u_static_feats.shape[0] == dm.num_users
     assert dm.artifacts.i_static_feats.shape[0] == dm.num_items
+    assert dm.artifacts.u_static_feats.shape[1] == dm.num_user_feats
+    assert dm.artifacts.i_static_feats.shape[1] == dm.num_item_feats
     assert dm.data_processor is not None
     assert dm.data_processor.feature_metadata["items"].text_cols == [
         "name",
@@ -75,12 +80,38 @@ def test_feature_metadata_and_static_shapes(dm: ElearningDataModule):
         "software",
         "theme",
     ]
-    assert dm.data_processor.feature_metadata["items"].pending_cols == [
-        "name",
-        "description",
-        "job",
-        "software",
-        "theme",
-    ]
-    # assert config.TIME_COL in dm.artifacts.train.columns
-    # assert config.TIME_COL not in dm.excluded_cols
+    assert dm.num_item_dense_feats > len(
+        dm.data_processor.feature_metadata["items"].numeric_cols
+    )
+
+    ctx_cols = [c for c in dm.artifacts.train.columns if c not in dm.excluded_cols]
+    assert dm.num_ctx_feats == len(ctx_cols)
+    assert config.TIME_COL in dm.artifacts.train.columns
+    assert config.TIME_COL not in ctx_cols
+    assert any(col.startswith("time_") for col in ctx_cols)
+
+
+def test_processed_cache_metadata_compatibility(tmp_path):
+    dm = ElearningDataModule(
+        DatasetName.MARS,
+        batch_size=1,
+        test_ratio=0.2,
+        val_ratio=0.2,
+        use_processed_data=True,
+    )
+    dm.processed_folder = tmp_path / dm.dataset_name.value
+    dm.processed_folder.mkdir(parents=True)
+
+    metadata_path = dm.processed_folder / "preprocess_metadata.json"
+
+    metadata_path.write_text(
+        '{"preprocess_cache_version": 1, "feature_types": ["numeric"]}',
+        encoding="utf-8",
+    )
+    assert not dm._has_compatible_cache()
+
+    metadata_path.write_text(
+        json.dumps(dm._build_cache_metadata()),
+        encoding="utf-8",
+    )
+    assert dm._has_compatible_cache()

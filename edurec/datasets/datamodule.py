@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -91,6 +92,7 @@ class ElearningDataModule(L.LightningDataModule):
         self.artifacts = ProcessedArtifacts()
         self.global_history = {}
         self.user_positive_items: dict[int, set[int]] = {}
+        self._loaded_processed_cache = False
 
         self._load_data()
 
@@ -181,7 +183,13 @@ class ElearningDataModule(L.LightningDataModule):
                 return len([c for c in df.columns if c not in self.excluded_cols])
 
         return (
-            len(self.raw_dataset.interactions.columns) - len(self.excluded_cols)
+            len(
+                [
+                    c
+                    for c in self.raw_dataset.interactions.columns
+                    if c not in self.excluded_cols
+                ]
+            )
             if self.raw_dataset is not None
             else 0
         )
@@ -200,7 +208,7 @@ class ElearningDataModule(L.LightningDataModule):
     def num_user_feats(self) -> int:
         if self.data_processor is not None:
             metadata = self.data_processor.feature_metadata["users"]
-            return len(metadata.numeric_cols) + len(metadata.categorical_cols)
+            return len(metadata.dense_cols) + len(metadata.categorical_cols)
         if self.u_static_feats is not None:
             return self.u_static_feats.shape[1]
         return 0
@@ -209,22 +217,22 @@ class ElearningDataModule(L.LightningDataModule):
     def num_item_feats(self) -> int:
         if self.data_processor is not None:
             metadata = self.data_processor.feature_metadata["items"]
-            return len(metadata.numeric_cols) + len(metadata.categorical_cols)
+            return len(metadata.dense_cols) + len(metadata.categorical_cols)
         if self.i_static_feats is not None:
             return self.i_static_feats.shape[1]
         return 0
 
     @property
-    def num_user_numeric_feats(self) -> int:
+    def num_user_dense_feats(self) -> int:
         if self.data_processor is None:
             return 0
-        return len(self.data_processor.feature_metadata["users"].numeric_cols)
+        return len(self.data_processor.feature_metadata["users"].dense_cols)
 
     @property
-    def num_item_numeric_feats(self) -> int:
+    def num_item_dense_feats(self) -> int:
         if self.data_processor is None:
             return 0
-        return len(self.data_processor.feature_metadata["items"].numeric_cols)
+        return len(self.data_processor.feature_metadata["items"].dense_cols)
 
     @property
     def user_cat_cardinalities(self) -> list[int]:
@@ -250,6 +258,7 @@ class ElearningDataModule(L.LightningDataModule):
             config.ITEM_COL,
             config.RELEVANT_COL,
             config.RATING_COL,
+            config.TIME_COL,
         ]
 
     def _load_data(self):
@@ -260,13 +269,14 @@ class ElearningDataModule(L.LightningDataModule):
             "test.csv",
             "static_feats.safetensors",
             "processor.joblib",
+            "preprocess_metadata.json",
         ]
 
         cache_exists = self.processed_folder.exists() and all(
             (self.processed_folder / f).exists() for f in required_files
         )
 
-        if self.use_processed_data and cache_exists:
+        if self.use_processed_data and cache_exists and self._has_compatible_cache():
             self._load_processed_data()
             return
 
@@ -278,6 +288,24 @@ class ElearningDataModule(L.LightningDataModule):
         self.artifacts = ProcessedArtifacts(
             data_processor=DataProcessor(schema=self.raw_dataset.schema)
         )
+        self._loaded_processed_cache = False
+
+    def _has_compatible_cache(self) -> bool:
+        metadata_path = self.processed_folder / "preprocess_metadata.json"
+        if not metadata_path.exists():
+            return False
+
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        return metadata == self._build_cache_metadata()
+
+    def _build_cache_metadata(self) -> dict[str, int | str | list[str]]:
+        return {
+            "preprocess_cache_version": config.PREPROCESS_CACHE_VERSION,
+            "feature_types": list(config.PREPROCESS_FEATURE_TYPES),
+            "text_preprocess_strategy": config.TEXT_PREPROCESS_STRATEGY,
+            "text_embedding_model": config.TEXT_EMBEDDING_MODEL,
+            "text_embedding_dim": config.TEXT_EMBEDDING_DIM,
+        }
 
     def _prepare_raw_dataset(self, raw_dataset: RawDataset) -> RawDataset:
         interactions = self._clean_df(raw_dataset.interactions)
@@ -367,6 +395,7 @@ class ElearningDataModule(L.LightningDataModule):
                 self.processed_folder / "processor.joblib"
             ),
         )
+        self._loaded_processed_cache = True
 
     def setup(self, stage: str | None = None) -> None:
         """Prepare processed datasets for training/validation/testing stages."""
@@ -377,7 +406,7 @@ class ElearningDataModule(L.LightningDataModule):
                 val_raw=val_raw,
                 test_raw=test_raw,
             )
-            if not self.use_processed_data:
+            if not self._loaded_processed_cache:
                 self._save_processed_data()
 
         self._build_runtime_state()
@@ -546,7 +575,7 @@ class ElearningDataModule(L.LightningDataModule):
         data_processor = self._require_data_processor()
         prefix = "users" if id_col == config.USER_COL else "items"
         metadata = data_processor.feature_metadata[prefix]
-        feat_cols = metadata.numeric_cols + metadata.categorical_cols
+        feat_cols = metadata.dense_cols + metadata.categorical_cols
         return torch.tensor(df_sorted[feat_cols].values, dtype=torch.float32)
 
     def _save_processed_data(self) -> None:
@@ -569,6 +598,10 @@ class ElearningDataModule(L.LightningDataModule):
         )
 
         self._require_data_processor().save(self.processed_folder / "processor.joblib")
+        (self.processed_folder / "preprocess_metadata.json").write_text(
+            json.dumps(self._build_cache_metadata(), indent=2),
+            encoding="utf-8",
+        )
 
     def _make_dataset(self, split: str, n_negatives: int) -> ElearningDataset:
         """Create an `ElearningDataset` for a processed split."""
@@ -651,8 +684,6 @@ class ElearningDataModule(L.LightningDataModule):
 
         data.num_users = self.num_users
         data.num_items = self.num_items
-        data.u_x = self.u_static_feats
-        data.i_x = self.i_static_feats
         data.node_type = torch.cat(
             [
                 torch.zeros(self.num_users, dtype=torch.long),

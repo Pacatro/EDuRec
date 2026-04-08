@@ -1,5 +1,8 @@
 import ast
+import re
 from dataclasses import dataclass, field
+from functools import lru_cache
+from html import unescape
 from pathlib import Path
 from typing import Self
 
@@ -21,8 +24,7 @@ from .. import config
 set_config(transform_output="pandas")
 
 PREFIXES = ("users", "items", "inter")
-ACTIVE_FEATURE_TYPES = ("numeric", "categorical")
-INTERACTION_FEATURE_TYPES = (*ACTIVE_FEATURE_TYPES, "text", "list", "time")
+SUPPORTED_FEATURE_TYPES = ("numeric", "categorical", "text", "list", "time")
 
 
 @dataclass
@@ -42,12 +44,12 @@ class ProcessedFeatures:
 class FeatureMetadata:
     binary_cols: list[str] = field(default_factory=list)
     numeric_cols: list[str] = field(default_factory=list)
+    dense_cols: list[str] = field(default_factory=list)
     categorical_cols: list[str] = field(default_factory=list)
     categorical_cardinalities: dict[str, int] = field(default_factory=dict)
     text_cols: list[str] = field(default_factory=list)
     list_cols: list[str] = field(default_factory=list)
     time_cols: list[str] = field(default_factory=list)
-    pending_cols: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -57,10 +59,6 @@ class SchemaColumns:
     categorical_cols: list[str] = field(default_factory=list)
     text_cols: list[str] = field(default_factory=list)
     list_cols: list[str] = field(default_factory=list)
-
-    @property
-    def declared_categorical_cols(self) -> list[str]:
-        return [*self.binary_cols, *self.categorical_cols]
 
 
 class DataProcessor:
@@ -77,10 +75,21 @@ class DataProcessor:
         schema: Schema,
         ct_sparse_threshold: float = 0.0,
         tfidf_max_features: int = 50_000,
+        text_embedding_model: str = config.TEXT_EMBEDDING_MODEL,
+        text_embedding_dim: int = config.TEXT_EMBEDDING_DIM,
+        text_embedding_batch_size: int = config.TEXT_EMBEDDING_BATCH_SIZE,
+        text_max_tokens: int = config.TEXT_MAX_TOKENS,
     ):
         self.schema = schema
         self.ct_sparse_threshold = ct_sparse_threshold
         self.tfidf_max_features = tfidf_max_features
+        self.text_embedding_model = text_embedding_model
+        self.text_embedding_dim = text_embedding_dim
+        self.text_embedding_batch_size = text_embedding_batch_size
+        self.text_max_tokens = text_max_tokens
+        self.active_feature_types = self._normalize_feature_types(
+            config.PREPROCESS_FEATURE_TYPES
+        )
 
         self.user_encoder = OrdinalEncoder(
             handle_unknown="use_encoded_value", unknown_value=-1
@@ -136,11 +145,6 @@ class DataProcessor:
                 prefix: None for prefix in PREFIXES
             }
 
-        if reset_fitted_state or not hasattr(self, "feature_columns"):
-            self.feature_columns: dict[str, list[str]] = {
-                prefix: [] for prefix in PREFIXES
-            }
-
         if reset_fitted_state or not hasattr(self, "column_groups"):
             self.column_groups: dict[str, dict[str, list[str]]] = {
                 prefix: self._empty_column_groups() for prefix in PREFIXES
@@ -154,12 +158,13 @@ class DataProcessor:
         for prefix in PREFIXES:
             groups = self.column_groups.get(prefix, self._empty_column_groups())
             self.column_groups[prefix] = groups
+            existing_metadata = self.feature_metadata[prefix]
             self.feature_metadata[prefix] = self._build_feature_metadata(
                 prefix=prefix,
                 groups=groups,
-                categorical_cardinalities=self.feature_metadata[
-                    prefix
-                ].categorical_cardinalities,
+                categorical_cardinalities=existing_metadata.categorical_cardinalities,
+                dense_cols=existing_metadata.dense_cols,
+                categorical_cols=existing_metadata.categorical_cols,
             )
 
     def _normalize_schema(self, prefix: str) -> SchemaColumns:
@@ -180,7 +185,6 @@ class DataProcessor:
             "text": [],
             "list": [],
             "time": [],
-            "active": [],
             "input": [],
             "passthrough": [],
         }
@@ -197,7 +201,6 @@ class DataProcessor:
         )
 
         preprocessor = self._build_ct(
-            prefix=prefix,
             num_cols=groups["numeric"],
             cat_cols=groups["categorical"],
             text_cols=groups["text"],
@@ -205,13 +208,28 @@ class DataProcessor:
             time_col=groups["time"][0] if groups["time"] else None,
         )
         preprocessor.fit(df_features)
+        transformed_df = preprocessor.transform(df_features)
+
+        assert isinstance(transformed_df, pd.DataFrame)
+
+        dense_cols = self._get_output_columns(
+            preprocessor,
+            transformed_df.columns.tolist(),
+            ("num", "text", "list", "time"),
+        )
+        categorical_cols = self._get_output_columns(
+            preprocessor,
+            transformed_df.columns.tolist(),
+            ("cat",),
+        )
 
         self.column_groups[prefix] = groups
         self.preprocessors[prefix] = preprocessor
-        self.feature_columns[prefix] = list(groups["active"])
         self.feature_metadata[prefix] = self._build_feature_metadata(
             prefix=prefix,
             groups=groups,
+            dense_cols=dense_cols,
+            categorical_cols=categorical_cols,
         )
 
     def _resolve_column_groups(
@@ -240,7 +258,7 @@ class DataProcessor:
         ]
         categorical_cols = [
             col
-            for col in declared.categorical_cols
+            for col in [*declared.binary_cols, *declared.categorical_cols]
             if col in available and col not in reserved
         ]
         text_cols = [
@@ -259,36 +277,31 @@ class DataProcessor:
             else []
         )
 
-        encoded_categorical_cols = [*binary_cols, *categorical_cols]
-        active_cols: list[str] = []
-        if self._uses_feature_type(prefix, "numeric"):
-            active_cols.extend(numeric_cols)
-        if self._uses_feature_type(prefix, "categorical"):
-            active_cols.extend(encoded_categorical_cols)
-
-        input_cols = list(active_cols)
-        if self._uses_feature_type(prefix, "text"):
+        input_cols: list[str] = []
+        if self._uses_feature_type("numeric"):
+            input_cols.extend(numeric_cols)
+        if self._uses_feature_type("categorical"):
+            input_cols.extend(categorical_cols)
+        if self._uses_feature_type("text"):
             input_cols.extend(text_cols)
-        if self._uses_feature_type(prefix, "list"):
+        if self._uses_feature_type("list"):
             input_cols.extend(list_cols)
-        if self._uses_feature_type(prefix, "time"):
+        if self._uses_feature_type("time"):
             input_cols.extend(time_cols)
 
         return {
             "binary": binary_cols,
             "numeric": numeric_cols,
-            "categorical": encoded_categorical_cols,
+            "categorical": categorical_cols,
             "text": text_cols,
             "list": list_cols,
             "time": time_cols,
-            "active": active_cols,
             "input": input_cols,
             "passthrough": self._get_passthrough_cols(prefix),
         }
 
     def _build_ct(
         self,
-        prefix: str,
         num_cols: list[str],
         cat_cols: list[str],
         text_cols: list[str],
@@ -304,37 +317,34 @@ class DataProcessor:
         if time_col and time_col in num_cols:
             num_cols = [c for c in num_cols if c != time_col]
 
-        if num_cols and self._uses_feature_type(prefix, "numeric"):
+        if num_cols and self._uses_feature_type("numeric"):
             transformers.append(("num", self._build_numeric_pipeline(), num_cols))
 
-        if cat_cols and self._uses_feature_type(prefix, "categorical"):
+        if cat_cols and self._uses_feature_type("categorical"):
             transformers.append(("cat", self._build_categorical_pipeline(), cat_cols))
 
-        if text_cols and self._uses_feature_type(prefix, "text"):
+        if text_cols and self._uses_feature_type("text"):
             transformers.append(
                 ("text", self._build_text_pipeline(text_cols), text_cols)
             )
 
-        if list_cols and self._uses_feature_type(prefix, "list"):
+        if list_cols and self._uses_feature_type("list"):
             transformers.append(
                 ("list", self._build_list_pipeline(list_cols), list_cols)
             )
 
-        if time_col and self._uses_feature_type(prefix, "time"):
+        if time_col and self._uses_feature_type("time"):
             transformers.append(("time", self._build_time_pipeline(), [time_col]))
 
         return ColumnTransformer(
             transformers=transformers,
             remainder="drop",
             sparse_threshold=self.ct_sparse_threshold,
-            verbose_feature_names_out=False,
+            verbose_feature_names_out=True,
         )
 
-    def _uses_feature_type(self, prefix: str, feature_type: str) -> bool:
-        active_types = (
-            INTERACTION_FEATURE_TYPES if prefix == "inter" else ACTIVE_FEATURE_TYPES
-        )
-        return feature_type in active_types
+    def _uses_feature_type(self, feature_type: str) -> bool:
+        return feature_type in self.active_feature_types
 
     def _build_numeric_pipeline(self) -> Pipeline:
         return Pipeline(
@@ -361,32 +371,20 @@ class DataProcessor:
             ]
         )
 
-    def _build_text_pipeline(self, text_cols: list[str]) -> Pipeline:
-        return Pipeline(
-            [
-                ("concat", TextConcatenator(text_cols)),
-                (
-                    "tfidf",
-                    TfidfVectorizer(
-                        max_features=self.tfidf_max_features,
-                        ngram_range=(1, 2),
-                    ),
-                ),
-            ]
+    def _build_text_pipeline(self, text_cols: list[str]) -> BaseEstimator:
+        return SentenceEmbeddingTransformer(
+            text_cols,
+            model_name=self.text_embedding_model,
+            embedding_dim=self.text_embedding_dim,
+            batch_size=self.text_embedding_batch_size,
+            max_tokens=self.text_max_tokens,
         )
 
-    def _build_list_pipeline(self, list_cols: list[str]) -> Pipeline:
-        return Pipeline(
-            [
-                ("concat", ListConcatenator(list_cols)),
-                (
-                    "tfidf",
-                    TfidfVectorizer(
-                        max_features=self.tfidf_max_features,
-                        token_pattern=r"(?u)\b\w+\b",
-                    ),
-                ),
-            ]
+    def _build_list_pipeline(self, list_cols: list[str]) -> BaseEstimator:
+        return ListConcatenator(
+            list_cols,
+            max_features=self.tfidf_max_features,
+            token_pattern=r"(?u)\b\w+\b",
         )
 
     def _build_time_pipeline(self) -> Pipeline:
@@ -471,19 +469,19 @@ class DataProcessor:
         prefix: str,
         groups: dict[str, list[str]],
         categorical_cardinalities: dict[str, int] | None = None,
+        dense_cols: list[str] | None = None,
+        categorical_cols: list[str] | None = None,
     ) -> FeatureMetadata:
+        resolved_categorical_cols = list(categorical_cols or groups["categorical"])
         metadata = FeatureMetadata(
             binary_cols=list(groups["binary"]),
             numeric_cols=list(groups["numeric"]),
-            categorical_cols=list(groups["categorical"]),
+            dense_cols=list(dense_cols or groups["numeric"]),
+            categorical_cols=resolved_categorical_cols,
             categorical_cardinalities=dict(categorical_cardinalities or {}),
             text_cols=list(groups["text"]),
             list_cols=list(groups["list"]),
             time_cols=list(groups["time"]),
-            pending_cols=[
-                *([] if self._uses_feature_type(prefix, "text") else groups["text"]),
-                *([] if self._uses_feature_type(prefix, "list") else groups["list"]),
-            ],
         )
 
         preprocessor = self.preprocessors[prefix]
@@ -499,7 +497,7 @@ class DataProcessor:
         metadata.categorical_cardinalities = {
             col: len(categories) + 1
             for col, categories in zip(
-                groups["categorical"],
+                resolved_categorical_cols,
                 encoder.categories_,
                 strict=True,
             )
@@ -518,7 +516,41 @@ class DataProcessor:
             config.ITEM_COL,
             config.RATING_COL,
             config.RELEVANT_COL,
+            config.TIME_COL,
         ]
+
+    def _normalize_feature_types(
+        self, feature_types: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        invalid_types = [
+            feature_type
+            for feature_type in feature_types
+            if feature_type not in SUPPORTED_FEATURE_TYPES
+        ]
+        if invalid_types:
+            raise ValueError(
+                f"Unsupported preprocess feature types: {', '.join(invalid_types)}"
+            )
+        return tuple(dict.fromkeys(feature_types))
+
+    def _get_output_columns(
+        self,
+        preprocessor: ColumnTransformer,
+        output_cols: list[str],
+        transformer_names: tuple[str, ...],
+    ) -> list[str]:
+        cols: list[str] = []
+
+        for transformer_name in transformer_names:
+            indices = preprocessor.output_indices_.get(transformer_name)
+            if indices is None:
+                continue
+            if isinstance(indices, slice):
+                cols.extend(output_cols[indices])
+                continue
+            cols.extend(output_cols[index] for index in indices)
+
+        return cols
 
     def save(self, path: str | Path) -> None:
         """
@@ -550,6 +582,19 @@ class DataProcessor:
         if not isinstance(processor, cls):
             raise TypeError(f"File at {path} is not a {cls.__name__} object")
 
+        if not hasattr(processor, "active_feature_types"):
+            processor.active_feature_types = processor._normalize_feature_types(
+                config.PREPROCESS_FEATURE_TYPES
+            )
+        if not hasattr(processor, "text_embedding_model"):
+            processor.text_embedding_model = config.TEXT_EMBEDDING_MODEL
+        if not hasattr(processor, "text_embedding_dim"):
+            processor.text_embedding_dim = config.TEXT_EMBEDDING_DIM
+        if not hasattr(processor, "text_embedding_batch_size"):
+            processor.text_embedding_batch_size = config.TEXT_EMBEDDING_BATCH_SIZE
+        if not hasattr(processor, "text_max_tokens"):
+            processor.text_max_tokens = config.TEXT_MAX_TOKENS
+
         processor._initialize_runtime_state()
         return processor
 
@@ -559,6 +604,21 @@ class TimeFeaturesTransformer(BaseEstimator, TransformerMixin):
         _ = X, y
         return self
 
+    def get_feature_names_out(self, input_features=None) -> np.ndarray:
+        _ = input_features
+        return np.array(
+            [
+                "time_hour",
+                "time_dow",
+                "time_month",
+                "time_hour_sin",
+                "time_hour_cos",
+                "time_dow_sin",
+                "time_dow_cos",
+            ],
+            dtype=object,
+        )
+
     def transform(self, X: pd.DataFrame | np.ndarray) -> pd.DataFrame:
         X_df = pd.DataFrame(X)
         s = X_df.iloc[:, 0]
@@ -566,7 +626,7 @@ class TimeFeaturesTransformer(BaseEstimator, TransformerMixin):
         dt = pd.to_datetime(s, errors="coerce", utc=True)
 
         # timestamp in secods
-        ts = (dt.astype(np.int64) // 10**9).astype("float64")
+        # ts = (dt.astype(np.int64) // 10**9).astype("float64")
 
         hour = dt.dt.hour.astype("float64")
         dow = dt.dt.dayofweek.astype("float64")  # 0=lunes
@@ -593,32 +653,113 @@ class TimeFeaturesTransformer(BaseEstimator, TransformerMixin):
         )
 
 
-class TextConcatenator(BaseEstimator, TransformerMixin):
-    def __init__(self, cols: list[str]):
+class SentenceEmbeddingTransformer(BaseEstimator, TransformerMixin):
+    def __init__(
+        self,
+        cols: list[str],
+        model_name: str,
+        embedding_dim: int,
+        batch_size: int,
+        max_tokens: int,
+    ):
         self.cols = cols
+        self.model_name = model_name
+        self.embedding_dim = embedding_dim
+        self.batch_size = batch_size
+        self.max_tokens = max_tokens
 
     def fit(self, X, y=None) -> Self:
         _ = X, y
+        model = _get_sentence_embedding_model(self.model_name)
+        if hasattr(model, "max_seq_length"):
+            model.max_seq_length = self.max_tokens
+        if hasattr(model, "get_sentence_embedding_dimension"):
+            dim = model.get_sentence_embedding_dimension()
+            if dim != self.embedding_dim:
+                raise RuntimeError(
+                    f"Expected text embedding dim {self.embedding_dim}, got {dim}"
+                )
+        self.is_fitted_ = True
         return self
 
+    def get_feature_names_out(self, input_features=None) -> np.ndarray:
+        _ = input_features
+        return np.array(
+            [f"embedding_{idx:03d}" for idx in range(self.embedding_dim)],
+            dtype=object,
+        )
+
     def transform(self, X: pd.DataFrame) -> np.ndarray:
+        if not hasattr(self, "is_fitted_"):
+            raise RuntimeError("SentenceEmbeddingTransformer must be fitted first.")
+
+        texts = self._build_documents(X)
+        model = _get_sentence_embedding_model(self.model_name)
+        if hasattr(model, "max_seq_length"):
+            model.max_seq_length = self.max_tokens
+        embeddings = model.encode(
+            texts.tolist(),
+            batch_size=self.batch_size,
+            show_progress_bar=False,
+            convert_to_numpy=True,
+        )
+        embeddings = np.asarray(embeddings, dtype=np.float32)
+
+        if embeddings.ndim != 2 or embeddings.shape[1] != self.embedding_dim:
+            raise RuntimeError(
+                "Sentence embedding output shape does not match configured dim."
+            )
+
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        norms[norms == 0.0] = 1.0
+        return embeddings / norms
+
+    def _build_documents(self, X: pd.DataFrame) -> np.ndarray:
         Xdf = (
             pd.DataFrame(X, columns=self.cols)
             if not isinstance(X, pd.DataFrame)
             else X[self.cols]
         )
-        return np.array(Xdf.fillna("").astype(str).agg(" ".join, axis=1).values)
+        rows: list[str] = []
+        for _, row in Xdf.iterrows():
+            parts = []
+            for col, value in zip(self.cols, row.tolist(), strict=True):
+                cleaned = _clean_text(value)
+                if cleaned:
+                    parts.append(f"{col}: {cleaned}")
+            text = " [SEP] ".join(parts)
+            rows.append(_truncate_text(text, self.max_tokens))
+        return np.array(rows, dtype=object)
 
 
 class ListConcatenator(BaseEstimator, TransformerMixin):
-    def __init__(self, cols: list[str]):
+    def __init__(
+        self,
+        cols: list[str],
+        max_features: int,
+        token_pattern: str,
+    ):
         self.cols = cols
+        self.max_features = max_features
+        self.token_pattern = token_pattern
 
     def fit(self, X, y=None) -> Self:
-        _ = X, y
+        _ = y
+        self.vectorizer_ = TfidfVectorizer(
+            max_features=self.max_features,
+            token_pattern=self.token_pattern,
+        )
+        self.vectorizer_.fit(self._build_documents(X))
         return self
 
+    def get_feature_names_out(self, input_features=None) -> np.ndarray:
+        _ = input_features
+        return self.vectorizer_.get_feature_names_out()
+
     def transform(self, X: pd.DataFrame) -> np.ndarray:
+        return self.vectorizer_.transform(self._build_documents(X)).toarray()  # type: ignore
+
+    def _build_documents(self, X: pd.DataFrame) -> np.ndarray:
         Xdf = (
             pd.DataFrame(X, columns=self.cols)
             if not isinstance(X, pd.DataFrame)
@@ -662,3 +803,38 @@ def _coerce_list_tokens(value: object) -> list[str]:
         return [stripped]
 
     return [str(value).strip()]
+
+
+@lru_cache(maxsize=None)
+def _get_sentence_embedding_model(model_name: str):
+    try:
+        from sentence_transformers import SentenceTransformer
+    except ImportError as exc:
+        raise ImportError(
+            "sentence-transformers is required for text preprocessing."
+        ) from exc
+
+    model = SentenceTransformer(model_name)
+    return model
+
+
+def _clean_text(value: object) -> str:
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return ""
+
+    text = unescape(str(value)).lower()
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"https?://\S+|www\.\S+", " ", text)
+    text = re.sub(r"[\n\r\t]+", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def _truncate_text(text: str, max_tokens: int) -> str:
+    if not text:
+        return ""
+
+    tokens = text.split()
+    if len(tokens) <= max_tokens:
+        return text
+    return " ".join(tokens[:max_tokens])

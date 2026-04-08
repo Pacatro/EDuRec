@@ -33,9 +33,5 @@ models/
 saved/
 *.pt
 
-# Predict file
-./data/predict_df.csv
-
-# Data
-raw_data/
-
+# Codex files
+.codex

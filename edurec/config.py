@@ -20,6 +20,19 @@ MIN_INTERACTIONS: int = 3
 # Preprocessing
 PROCESSED_FOLDER: str = f"{DATA_FOLDER}/processed"
 REMOVE_SPARSE_USERS: bool = True
+PREPROCESS_FEATURE_TYPES: tuple[str, ...] = (
+    "numeric",
+    "categorical",
+    "text",
+    "list",
+    "time",
+)
+PREPROCESS_CACHE_VERSION: int = 3
+TEXT_EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
+TEXT_EMBEDDING_DIM: int = 384
+TEXT_EMBEDDING_BATCH_SIZE: int = 32
+TEXT_MAX_TOKENS: int = 256
+TEXT_PREPROCESS_STRATEGY: str = "sentence-transformer"
 
 # GCL
 DROP_EDGES_P: float = 0.2

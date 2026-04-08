@@ -15,8 +15,8 @@ class GhostConfig:
     num_items: int
     num_ctx_feats: int
     emb_dim: int = config.EMB_DIM
-    num_user_numeric_feats: int = 0
-    num_item_numeric_feats: int = 0
+    num_user_dense_feats: int = 0
+    num_item_dense_feats: int = 0
     user_cat_cardinalities: list[int] = field(default_factory=list)
     item_cat_cardinalities: list[int] = field(default_factory=list)
 
@@ -69,12 +69,12 @@ class Ghost(nn.Module):
         )
 
         self.user_static_encoder = StaticFeatureEncoder(
-            cfg.num_user_numeric_feats,
+            cfg.num_user_dense_feats,
             cfg.user_cat_cardinalities,
             cfg.emb_dim,
         )
         self.item_static_encoder = StaticFeatureEncoder(
-            cfg.num_item_numeric_feats,
+            cfg.num_item_dense_feats,
             cfg.item_cat_cardinalities,
             cfg.emb_dim,
         )
@@ -149,11 +149,11 @@ class Ghost(nn.Module):
             raise RuntimeError("Item static features must be a 2D tensor.")
 
         pad_row = item_static.new_zeros((1, item_static.size(1)))
-        num_numeric = self.cfg.num_item_numeric_feats
+        num_dense = self.cfg.num_item_dense_feats
         num_cats = len(self.cfg.item_cat_cardinalities)
 
         if num_cats > 0:
-            pad_row[:, num_numeric : num_numeric + num_cats] = -1
+            pad_row[:, num_dense : num_dense + num_cats] = -1
 
         return torch.cat([pad_row, item_static], dim=0)
 
@@ -161,18 +161,18 @@ class Ghost(nn.Module):
 class StaticFeatureEncoder(nn.Module):
     def __init__(
         self,
-        num_numeric_features: int,
+        num_dense_features: int,
         categorical_cardinalities: list[int],
         emb_dim: int,
     ):
         super().__init__()
-        self.num_numeric_features = num_numeric_features
+        self.num_dense_features = num_dense_features
         self.num_categorical_features = len(categorical_cardinalities)
         self.emb_dim = emb_dim
 
-        self.numeric_proj = (
-            nn.Linear(num_numeric_features, emb_dim, bias=False)
-            if num_numeric_features > 0
+        self.dense_proj = (
+            nn.Linear(num_dense_features, emb_dim, bias=False)
+            if num_dense_features > 0
             else None
         )
         self.cat_embeddings = nn.ModuleList(
@@ -184,12 +184,12 @@ class StaticFeatureEncoder(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         out = x.new_zeros((*x.shape[:-1], self.emb_dim))
 
-        if self.numeric_proj is not None:
-            numeric_feats = x[..., : self.num_numeric_features].float()
-            out = out + self.numeric_proj(numeric_feats)
+        if self.dense_proj is not None:
+            dense_feats = x[..., : self.num_dense_features].float()
+            out = out + self.dense_proj(dense_feats)
 
         if self.cat_embeddings:
-            cat_feats = x[..., self.num_numeric_features :].long() + 1
+            cat_feats = x[..., self.num_dense_features :].long() + 1
             cat_feats = cat_feats.clamp(min=0)
             for idx, embedding in enumerate(self.cat_embeddings):
                 out = out + embedding(cat_feats[..., idx])

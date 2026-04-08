@@ -119,7 +119,9 @@ def train(
         if use_procesed_data:
             print(f"[TRAIN] Using saved processed data from {config.PROCESSED_FOLDER}")
         else:
-            print(f"[TRAIN] Using raw data from {config.DATA_FOLDER}/{dataset.value}")
+            print(
+                f"[TRAIN] Processing raw data from {config.DATA_FOLDER}/{dataset.value}"
+            )
 
     dm.setup()
 
@@ -136,8 +138,8 @@ def train(
         num_users=dm.num_users,
         num_items=dm.num_items,
         num_ctx_feats=dm.train_ds.num_ctx_feats,
-        num_user_numeric_feats=dm.num_user_numeric_feats,
-        num_item_numeric_feats=dm.num_item_numeric_feats,
+        num_user_dense_feats=dm.num_user_dense_feats,
+        num_item_dense_feats=dm.num_item_dense_feats,
         user_cat_cardinalities=dm.user_cat_cardinalities,
         item_cat_cardinalities=dm.item_cat_cardinalities,
     )

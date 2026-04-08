@@ -14,7 +14,15 @@ def test_load_model_returns_latest_saved_artifacts(tmp_path: Path):
     older_dir.mkdir(parents=True)
     newer_dir.mkdir(parents=True)
 
-    cfg = GhostConfig(num_users=2, num_items=3, num_ctx_feats=4)
+    cfg = GhostConfig(
+        num_users=2,
+        num_items=3,
+        num_ctx_feats=4,
+        num_user_dense_feats=2,
+        num_item_dense_feats=3,
+        user_cat_cardinalities=[5],
+        item_cat_cardinalities=[7, 11],
+    )
     older_file = older_dir / f"{older_dir.name}.pt"
     newer_file = newer_dir / f"{newer_dir.name}.pt"
     older_cfg = older_dir / f"{older_dir.name}.json"
