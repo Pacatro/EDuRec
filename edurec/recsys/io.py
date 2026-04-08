@@ -11,9 +11,9 @@ from .model import GhostConfig
 def save_model(
     model_name: str,
     model_config: GhostConfig,
-    best_model_path: str,
-    models_folder: str,
     dataset_name: str,
+    best_model_path: str | Path,
+    models_folder: str | Path,
     metrics: dict[str, float] | None = None,
 ) -> tuple[Path, Path, Path | None]:
     """Save the best model to the specified folder."""
