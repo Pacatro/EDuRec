@@ -109,9 +109,9 @@ def train(
 
     if config.state["verbose"]:
         print(f"[TRAIN] Using dataset {dataset.value}")
-        print(f"[TRAIN] Number of negatives for training: {n_neg_train}")
-        print(f"[TRAIN] Number of negatives for validation: {n_neg_val}")
-        print(f"[TRAIN] Number of negatives for testing: {n_neg_test}")
+        print(f"[TRAIN] Requested negatives for training: {dm.n_neg_train}")
+        print(f"[TRAIN] Requested negatives for validation: {dm.n_neg_val}")
+        print(f"[TRAIN] Requested negatives for testing: {dm.n_neg_test}")
         print(f"[TRAIN] Using adaptive k: {adaptive_k}")
         print(f"[TRAIN] Removing sparse users: {remove_sparse_users}")
         print(f"[TRAIN] Minimum interactions per user: {min_interactions}")
@@ -133,6 +133,9 @@ def train(
         print(f"[TRAIN] Number of user features: {dm.num_user_feats}")
         print(f"[TRAIN] Number of item features: {dm.num_item_feats}")
         print(f"[TRAIN] Number of interactions context features: {dm.num_ctx_feats}")
+        print(f"[TRAIN] Effective negatives for training: {dm.n_neg_train}")
+        print(f"[TRAIN] Effective negatives for validation: {dm.n_neg_val}")
+        print(f"[TRAIN] Effective negatives for testing: {dm.n_neg_test}")
 
     cfg = GhostConfig(
         num_users=dm.num_users,

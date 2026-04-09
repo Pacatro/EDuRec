@@ -92,7 +92,9 @@ class ElearningDataModule(L.LightningDataModule):
         self.artifacts = ProcessedArtifacts()
         self.global_history = {}
         self.user_positive_items: dict[int, set[int]] = {}
+        self.max_feasible_negatives: int | None = None
         self._loaded_processed_cache = False
+        self._negative_sampling_checked = False
 
         self._load_data()
 
@@ -410,6 +412,7 @@ class ElearningDataModule(L.LightningDataModule):
                 self._save_processed_data()
 
         self._build_runtime_state()
+        self._ensure_negative_sampling_capacity()
 
         match stage:
             case "fit" | None:
@@ -564,6 +567,34 @@ class ElearningDataModule(L.LightningDataModule):
                 )
 
         return positives
+
+    def _ensure_negative_sampling_capacity(self) -> None:
+        if self._negative_sampling_checked:
+            return
+
+        if not self.user_positive_items:
+            self._negative_sampling_checked = True
+            return
+
+        self.max_feasible_negatives = min(
+            max(self.num_items - len(seen_items), 0)
+            for seen_items in self.user_positive_items.values()
+        )
+
+        adjusted_train = min(self.n_neg_train, self.max_feasible_negatives)
+        adjusted_val = min(self.n_neg_val, self.max_feasible_negatives)
+        adjusted_test = min(self.n_neg_test, self.max_feasible_negatives)
+
+        if (
+            adjusted_train != self.n_neg_train
+            or adjusted_val != self.n_neg_val
+            or adjusted_test != self.n_neg_test
+        ):
+            self.n_neg_train = adjusted_train
+            self.n_neg_val = adjusted_val
+            self.n_neg_test = adjusted_test
+
+        self._negative_sampling_checked = True
 
     def _generate_static_feats(self, df: pd.DataFrame, id_col: str) -> torch.Tensor:
         """
