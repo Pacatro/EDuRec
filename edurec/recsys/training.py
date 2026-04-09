@@ -51,7 +51,7 @@ def train_recsys(
     if use_logger and not debug:
         train_logger = WandbLogger(
             project=config.EXPERIMENT_NAME,
-            name=f"train_{model_name}_top-{top_k}",
+            name=f"train_{dm.dataset_name}_top-{top_k}",
         )
 
     trainer = L.Trainer(
