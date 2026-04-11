@@ -91,10 +91,8 @@ class ElearningDataModule(L.LightningDataModule):
         self.raw_dataset: RawDataset | None = None
         self.artifacts = ProcessedArtifacts()
         self.global_history = {}
-        self.user_positive_items: dict[int, set[int]] = {}
-        self.max_feasible_negatives: int | None = None
+        self.seen_items_by_split: dict[str, dict[int, set[int]]] = {}
         self._loaded_processed_cache = False
-        self._negative_sampling_checked = False
 
         self._load_data()
 
@@ -412,7 +410,6 @@ class ElearningDataModule(L.LightningDataModule):
                 self._save_processed_data()
 
         self._build_runtime_state()
-        self._ensure_negative_sampling_capacity()
 
         match stage:
             case "fit" | None:
@@ -528,7 +525,7 @@ class ElearningDataModule(L.LightningDataModule):
 
     def _build_runtime_state(self) -> None:
         self.global_history = self._generate_global_history()
-        self.user_positive_items = self._generate_user_positive_items()
+        self.seen_items_by_split = self._generate_seen_items_by_split()
 
     def _generate_global_history(self) -> dict[int, list]:
         train_p = self.artifacts.train
@@ -551,50 +548,75 @@ class ElearningDataModule(L.LightningDataModule):
 
         return global_history
 
-    def _generate_user_positive_items(self) -> dict[int, set[int]]:
-        positives: dict[int, set[int]] = {}
+    def _generate_seen_items_by_split(self) -> dict[str, dict[int, set[int]]]:
+        train_seen = self._collect_positive_items(self.artifacts.train)
+        val_seen = self._clone_seen_items(train_seen)
 
-        for split in ["train", "val", "test"]:
-            df = self._processed_data[split]
-            if df is None:
-                continue
+        test_seen = self._clone_seen_items(train_seen)
+        test_seen = self._merge_seen_items(
+            test_seen, self._collect_positive_items(self.artifacts.val)
+        )
 
-            pos_df = df[df[config.RELEVANT_COL] > 0]
-            for u_id, group in pos_df.groupby(config.USER_COL):
-                u_id = int(u_id)  # type: ignore
-                positives.setdefault(u_id, set()).update(
-                    int(item_id) for item_id in group[config.ITEM_COL].tolist()
-                )
+        return {
+            "train": train_seen,
+            "val": val_seen,
+            "test": test_seen,
+        }
+
+    def _collect_positive_items(self, df: pd.DataFrame | None) -> dict[int, set[int]]:
+        positives = {}
+
+        if df is None:
+            return positives
+
+        pos_df = df[df[config.RELEVANT_COL] > 0]
+        for u_id, group in pos_df.groupby(config.USER_COL):
+            positives[int(u_id)] = {int(item_id) for item_id in group[config.ITEM_COL]}  # type: ignore
 
         return positives
 
-    def _ensure_negative_sampling_capacity(self) -> None:
-        if self._negative_sampling_checked:
-            return
+    def _clone_seen_items(self, seen_items: dict[int, set[int]]) -> dict[int, set[int]]:
+        return {int(user_id): set(items) for user_id, items in seen_items.items()}
 
-        if not self.user_positive_items:
-            self._negative_sampling_checked = True
-            return
+    def _merge_seen_items(
+        self,
+        base_seen_items: dict[int, set[int]],
+        extra_seen_items: dict[int, set[int]],
+    ) -> dict[int, set[int]]:
+        merged = self._clone_seen_items(base_seen_items)
 
-        self.max_feasible_negatives = min(
-            max(self.num_items - len(seen_items), 0)
-            for seen_items in self.user_positive_items.values()
-        )
+        for user_id, items in extra_seen_items.items():
+            merged.setdefault(int(user_id), set()).update(items)
 
-        adjusted_train = min(self.n_neg_train, self.max_feasible_negatives)
-        adjusted_val = min(self.n_neg_val, self.max_feasible_negatives)
-        adjusted_test = min(self.n_neg_test, self.max_feasible_negatives)
+        return merged
 
-        if (
-            adjusted_train != self.n_neg_train
-            or adjusted_val != self.n_neg_val
-            or adjusted_test != self.n_neg_test
-        ):
-            self.n_neg_train = adjusted_train
-            self.n_neg_val = adjusted_val
-            self.n_neg_test = adjusted_test
+    def _resolve_split_negatives(self, split: str, requested_negatives: int) -> int:
+        if requested_negatives <= 0:
+            return 0
 
-        self._negative_sampling_checked = True
+        df = self._get_processed_split(split)
+        if df is None or df.empty:
+            return 0
+
+        pos_df = df[df[config.RELEVANT_COL] > 0]
+        if pos_df.empty:
+            return 0
+
+        seen_items_by_user = self.seen_items_by_split.get(split, {})
+        max_negatives_per_query: list[int] = []
+
+        for row in pos_df.itertuples(index=False):
+            user_id = int(getattr(row, config.USER_COL))
+            item_id = int(getattr(row, config.ITEM_COL))
+            seen_items = seen_items_by_user.get(user_id, set())
+
+            excluded_items = len(seen_items) + (0 if item_id in seen_items else 1)
+            max_negatives_per_query.append(max(self.num_items - excluded_items, 0))
+
+        if not max_negatives_per_query:
+            return 0
+
+        return min(requested_negatives, min(max_negatives_per_query))
 
     def _generate_static_feats(self, df: pd.DataFrame, id_col: str) -> torch.Tensor:
         """
@@ -643,13 +665,15 @@ class ElearningDataModule(L.LightningDataModule):
                 f"Data must be processed before creating the dataset for {split}"
             )
 
+        resolved_negatives = self._resolve_split_negatives(split, n_negatives)
+
         return ElearningDataset(
             interactions=df,
             global_history=self.global_history,
-            user_positive_items=self.user_positive_items,
+            seen_items_by_user=self.seen_items_by_split.get(split, {}),
             num_ctx_feats=self.num_ctx_feats,
             all_item_ids=np.arange(self.num_items, dtype=np.int64),
-            n_negatives=n_negatives,
+            n_negatives=resolved_negatives,
         )
 
     def _get_processed_split(self, split: str) -> pd.DataFrame | None:

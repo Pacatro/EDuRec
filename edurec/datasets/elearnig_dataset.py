@@ -11,7 +11,7 @@ class ElearningDataset(Dataset):
         self,
         interactions: pd.DataFrame,
         global_history: dict[int, list],
-        user_positive_items: dict[int, set[int]],
+        seen_items_by_user: dict[int, set[int]],
         num_ctx_feats: int,
         all_item_ids: np.ndarray,
         n_negatives: int = 0,
@@ -20,7 +20,7 @@ class ElearningDataset(Dataset):
         self.n_negatives = n_negatives
         self.min_rating = min_rating
         self.global_history = global_history
-        self.user_positive_items = user_positive_items
+        self.seen_items_by_user = seen_items_by_user
         self.num_ctx_feats = num_ctx_feats
 
         if self.n_negatives > 0:
@@ -32,8 +32,6 @@ class ElearningDataset(Dataset):
         self.item_ids = interactions[config.ITEM_COL].values
         self.targets = interactions[config.RELEVANT_COL].astype(np.float32).values
         self.all_item_ids = np.asarray(all_item_ids, dtype=np.int64)
-
-        self.user_history = user_positive_items
 
     def __len__(self) -> int:
         return len(self.user_ids)
@@ -97,7 +95,7 @@ class ElearningDataset(Dataset):
                 "positive_position": torch.tensor(0, dtype=torch.long),
             }
 
-        neg_items = self._sample_negatives(user_idx)
+        neg_items = self._sample_negatives(user_idx, item_idx)
 
         candidates = torch.tensor(
             np.concatenate([[item_idx], neg_items]), dtype=torch.long
@@ -123,18 +121,22 @@ class ElearningDataset(Dataset):
             "positive_position": torch.tensor(positive_position, dtype=torch.long),
         }
 
-    def _sample_negatives(self, user_idx: int) -> np.ndarray:
-        seen = self.user_history.get(int(user_idx), set())
-        negatives = []
+    def _sample_negatives(self, user_idx: int, current_item: int) -> np.ndarray:
+        seen = set(self.seen_items_by_user.get(int(user_idx), set()))
+        seen.add(int(current_item))
 
-        while len(negatives) < self.n_negatives:
-            samples = np.random.choice(
-                self.all_item_ids, size=max(self.n_negatives * 2, 1), replace=True
+        available_items = np.array(
+            [item_id for item_id in self.all_item_ids if int(item_id) not in seen],
+            dtype=np.int64,
+        )
+
+        if available_items.size < self.n_negatives:
+            raise RuntimeError(
+                "Not enough negative items available for the requested query."
             )
-            for s in samples:
-                s = int(s)
-                if s not in seen and s not in negatives:
-                    negatives.append(s)
-                if len(negatives) == self.n_negatives:
-                    break
-        return np.array(negatives)
+
+        return np.random.choice(
+            available_items,
+            size=self.n_negatives,
+            replace=False,
+        )

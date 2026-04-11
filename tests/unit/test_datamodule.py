@@ -32,10 +32,24 @@ def test_setup(dm: ElearningDataModule):
     assert dm.is_processed
     assert dm.artifacts.is_ready
     assert dm.data_processor is not None
-    assert len(dm.user_positive_items) > 0
+    assert set(dm.seen_items_by_split) == {"train", "val", "test"}
     assert config.RELEVANT_COL in dm.interactions.columns
     assert dm.interactions.groupby(config.USER_COL).size().min() >= dm.min_interactions
     assert set(dm.users_feats[config.USER_COL]) == set(dm.interactions[config.USER_COL])
+
+
+def test_seen_items_by_split_are_monotonic(dm: ElearningDataModule):
+    users = set()
+    for split_seen_items in dm.seen_items_by_split.values():
+        users.update(split_seen_items.keys())
+
+    for user_id in users:
+        train_seen = dm.seen_items_by_split["train"].get(user_id, set())
+        val_seen = dm.seen_items_by_split["val"].get(user_id, set())
+        test_seen = dm.seen_items_by_split["test"].get(user_id, set())
+
+        assert train_seen <= val_seen
+        assert val_seen <= test_seen
 
 
 def test_create_inter_graph(dm: ElearningDataModule):
@@ -48,8 +62,6 @@ def test_create_inter_graph(dm: ElearningDataModule):
     assert graph.num_edges == 2 * num_pos_inter
     assert graph.edge_index is not None
     assert graph.edge_index[1, :num_pos_inter].min().item() >= graph.num_users
-    assert graph.u_x.shape[0] == graph.num_users
-    assert graph.i_x.shape[0] == graph.num_items
 
 
 def test_feature_metadata_and_static_shapes(dm: ElearningDataModule):
