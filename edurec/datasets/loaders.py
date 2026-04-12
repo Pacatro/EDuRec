@@ -1,4 +1,6 @@
-from enum import Enum
+from dataclasses import dataclass
+from pathlib import Path
+from enum import StrEnum
 from functools import wraps
 from typing import Callable
 
@@ -6,14 +8,27 @@ import pandas as pd
 
 from .. import config
 
-type ExportFn = Callable[[], pd.DataFrame]
+RAW_DATA_FOLDER = Path(config.DATA_FOLDER) / "raw"
 
 
-class DatasetName(str, Enum):
+class DatasetName(StrEnum):
     MARS = "mars"
     ITM = "itm"
-    ELEARNING_STUDENT = "elearning"
+    DORIS = "doris"
 
+
+type Schema = dict[str, dict[str, list[str]]]
+
+
+@dataclass
+class RawDataset:
+    interactions: pd.DataFrame
+    i_feats: pd.DataFrame
+    u_feats: pd.DataFrame
+    schema: Schema
+
+
+type ExportFn = Callable[[], RawDataset]
 
 dataset_loaders: dict[DatasetName, ExportFn] = {}
 
@@ -40,7 +55,7 @@ def register_dataset(ds_name: DatasetName) -> Callable[[ExportFn], ExportFn]:
 
     def decorator(fn: ExportFn) -> ExportFn:
         @wraps(fn)
-        def wrapper() -> pd.DataFrame:
+        def wrapper() -> RawDataset:
             return fn()
 
         dataset_loaders[ds_name] = wrapper
@@ -50,127 +65,188 @@ def register_dataset(ds_name: DatasetName) -> Callable[[ExportFn], ExportFn]:
 
 
 @register_dataset(DatasetName.MARS)
-def load_mars() -> pd.DataFrame:
-    """Load and preprocess the MARS dataset.
+def load_mars() -> RawDataset:
+    """Load the MARS dataset.
 
     This loader combines English and French rating files and merges them with
-    item metadata. It also standardizes column names and ensures consistent
-    schema across sources.
+    item metadata. Dataset-wide cleaning and filtering happen later in the
+    datamodule preprocessing phase.
 
     Returns:
         pd.DataFrame: The MARS dataset.
     """
-    explicit_df_en = pd.read_csv(
-        f"{config.DATA_FOLDER}/raw/mars/explicit_ratings_en.csv"
-    )
-    explicit_df_fr = pd.read_csv(
-        f"{config.DATA_FOLDER}/raw/mars/explicit_ratings_fr.csv"
-    )
+    mars_folder = RAW_DATA_FOLDER / DatasetName.MARS.value
+    items_en = pd.read_csv(mars_folder / "items_en.csv")
+    items_fr = pd.read_csv(mars_folder / "items_fr.csv")
+    users_en = pd.read_csv(mars_folder / "users_en.csv")
+    users_fr = pd.read_csv(mars_folder / "users_fr.csv")
+    ratings_en = pd.read_csv(mars_folder / "explicit_ratings_en.csv")
+    ratings_fr = pd.read_csv(mars_folder / "explicit_ratings_fr.csv")
 
-    items_en = pd.read_csv(f"{config.DATA_FOLDER}/raw/mars/items_en.csv")
-    items_fr = pd.read_csv(f"{config.DATA_FOLDER}/raw/mars/items_fr.csv")
-
-    df_explicit = pd.concat([explicit_df_en, explicit_df_fr], ignore_index=True)
+    df_interactions = pd.concat([ratings_en, ratings_fr], ignore_index=True)
     df_items = pd.concat([items_en, items_fr], ignore_index=True)
+    df_users = pd.concat([users_en, users_fr], ignore_index=True)
 
-    df_items = df_items.drop(columns=["created_at"])
-
-    df = pd.merge(df_explicit, df_items, on=config.ITEM_COL, how="inner")
-
-    df.rename(
+    df_interactions.rename(
         columns={
             "user_id": config.USER_COL,
             "item_id": config.ITEM_COL,
             "rating": config.RATING_COL,
-            "Difficulty": "difficulty",
-            "type": "item_type",
             "created_at": config.TIME_COL,
         },
         inplace=True,
     )
 
-    features = [
-        config.USER_COL,
-        config.ITEM_COL,
-        "item_type",
-        "difficulty",
-        "nb_views",
-        "watch_percentage",
-        config.RATING_COL,
-        config.TIME_COL,
-    ]
+    df_items.rename(
+        columns={"item_id": config.ITEM_COL, "type": "item_type"},
+        inplace=True,
+    )
 
-    result_df = df[features]
-    assert isinstance(result_df, pd.DataFrame)
-    return result_df
+    df_users.rename(columns={"user_id": config.USER_COL}, inplace=True)
+
+    schema = {
+        "users": {
+            "bin": [],
+            "num": [],
+            "cat": ["job"],
+            "text": [],
+            "list": [],
+        },
+        "items": {
+            "bin": [],
+            "num": ["nb_views", "duration"],
+            "cat": ["language", "difficulty", "item_type"],
+            "text": ["name", "description"],
+            "list": ["job", "software", "theme"],
+        },
+        "inter": {
+            "bin": [],
+            "num": ["watch_percentage"],
+            "cat": [],
+            "text": [],
+            "list": [],
+        },
+    }
+
+    return RawDataset(
+        interactions=df_interactions, i_feats=df_items, u_feats=df_users, schema=schema
+    )
 
 
 @register_dataset(DatasetName.ITM)
-def load_itm() -> pd.DataFrame:
-    """Load and preprocess the ITM dataset.
+def load_itm() -> RawDataset:
+    """Load the ITM dataset.
 
     This loader merges ratings, items, and user information into a unified
-    DataFrame and normalizes column names for consistency.
+    DataFrame. Dataset-wide cleaning and filtering happen later in the
+    datamodule preprocessing phase.
 
     Returns:
         pd.DataFrame: The ITM dataset.
     """
-    ratings_df = pd.read_csv(f"{config.DATA_FOLDER}/raw/itm/ratings.csv")
-    items_df = pd.read_csv(f"{config.DATA_FOLDER}/raw/itm/items.csv")
-    users_df = pd.read_csv(f"{config.DATA_FOLDER}/raw/itm/users.csv")
+    itm_folder = RAW_DATA_FOLDER / DatasetName.ITM.value
+    ratings_df = pd.read_csv(itm_folder / "ratings.csv")
+    items_df = pd.read_csv(itm_folder / "items.csv")
+    users_df = pd.read_csv(itm_folder / "users.csv")
 
-    merged_df = pd.merge(left=items_df, right=ratings_df, how="inner", on="Item")
-    merged_df = pd.merge(left=merged_df, right=users_df, how="inner", on="UserID")
-    merged_df = merged_df.rename(
+    ratings_df.rename(
         columns={
             "UserID": config.USER_COL,
             "Item": config.ITEM_COL,
             "Rating": config.RATING_COL,
-        }
-    )
-
-    features = [
-        config.USER_COL,
-        config.ITEM_COL,
-        "Title",
-        "Semester",
-        "Class",
-        "App",
-        "Lockdown",
-        "Ease",
-        " Age",
-        "Married",
-        config.RATING_COL,
-    ]
-
-    result_df = merged_df[features]
-    assert isinstance(result_df, pd.DataFrame)
-    return result_df
-
-
-@register_dataset(DatasetName.ELEARNING_STUDENT)
-def load_elearning_student() -> pd.DataFrame:
-    df = pd.read_csv(f"{config.DATA_FOLDER}/raw/elearning/elearning_dataset.csv")
-
-    df = df.rename(
-        columns={
-            "UserID": config.USER_COL,
-            "CourseName": config.ITEM_COL,
-            "UserSatisfaction": config.RATING_COL,
         },
+        inplace=True,
+    )
+    items_df.rename(columns={"Item": config.ITEM_COL}, inplace=True)
+    users_df.rename(columns={"UserID": config.USER_COL}, inplace=True)
+
+    items_df = items_df.drop(["URL"], axis=1)
+
+    schema = {
+        "users": {
+            "bin": ["genre", "married"],
+            "num": [],
+            "cat": ["age"],
+            "text": [],
+            "list": [],
+        },
+        "items": {
+            "bin": [],
+            "num": [],
+            "cat": [],
+            "text": ["title", "descriptions"],
+            "list": [],
+        },
+        "inter": {
+            "bin": [],
+            "num": ["app", "data", "ease"],
+            "cat": ["class", "semester", "lockdown"],
+            "text": [],
+            "list": [],
+        },
+    }
+
+    return RawDataset(
+        interactions=ratings_df,
+        i_feats=items_df,
+        u_feats=users_df,
+        schema=schema,
     )
 
-    excluded_cols = ["SignUpDate", "LastActiveDate", "FeedbackComments"]
 
-    features = [col for col in df.columns if col not in excluded_cols]
+@register_dataset(DatasetName.DORIS)
+def load_doris() -> RawDataset:
+    doris_folder = RAW_DATA_FOLDER / DatasetName.DORIS.value
+    ratings_df = pd.read_excel(doris_folder / "CourseSelectionTable.xlsx")
+    items_df = pd.read_excel(doris_folder / "CourseInformationTable.xlsx")
+    users_df = pd.read_excel(doris_folder / "StudentInformationTable.xlsx")
 
-    result_df = df[features]
-    assert isinstance(result_df, pd.DataFrame)
-    return result_df
+    ratings_df.rename(
+        columns={
+            "StudedntId": config.USER_COL,
+            "CourseId": config.ITEM_COL,
+            "Score": config.RATING_COL,
+        },
+        inplace=True,
+    )
+    items_df.rename(
+        columns={"CourseId": config.ITEM_COL, "type": "item_type"}, inplace=True
+    )
+    users_df.rename(columns={"StudentId": config.USER_COL}, inplace=True)
+
+    schema = {
+        "users": {
+            "bin": [],
+            "num": [],
+            "cat": ["enrollmentyear", "education", "major"],
+            "text": [],
+            "list": [],
+        },
+        "items": {
+            "bin": [],
+            "num": [],
+            "cat": ["item_type", "grade", "prerequisite"],
+            "text": ["introduction"],
+            "list": [],
+        },
+        "inter": {
+            "bin": [],
+            "num": [],
+            "cat": ["academicyear", "semester", "coursecollage"],
+            "text": ["coursename"],
+            "list": [],
+        },
+    }
+
+    return RawDataset(
+        interactions=ratings_df,
+        i_feats=items_df,
+        u_feats=users_df,
+        schema=schema,
+    )
 
 
-# TODO: Return df and some other info metadata
-def load_data(dataset_name: DatasetName) -> pd.DataFrame:
+def load_raw_data(dataset_name: DatasetName) -> RawDataset:
     """
     Load the specified dataset. If data was processed before, laod the data from disk.
 

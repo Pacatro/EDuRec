@@ -1,5 +1,3 @@
-from typing import Any, Hashable
-
 import numpy as np
 import pandas as pd
 import torch
@@ -11,92 +9,132 @@ from .. import config
 class ElearningDataset(Dataset):
     def __init__(
         self,
-        df: pd.DataFrame,
+        interactions: pd.DataFrame,
+        global_history: dict[int, list],
+        user_positive_items: dict[int, set[int]],
+        num_ctx_feats: int,
+        all_item_ids: np.ndarray,
         n_negatives: int = 0,
-        min_rating: float = 0.0,
-        item_catalog: pd.DataFrame | None = None,
-        user_history: dict[Any, Any] | None = None,
-        all_item_ids: np.ndarray | None = None,
-        id_cols: list[str] | None = None,
-        numeric_cols: list[str] | None = None,
-        sampling_weights: np.ndarray | None = None,
+        min_rating: float | None = None,
     ) -> None:
-        self.df = df.copy()
         self.n_negatives = n_negatives
-        self.item_catalog = item_catalog
-        self.user_history = user_history
-        self.all_item_ids = all_item_ids
-        self.columns = df.columns.tolist()
-        self.id_cols = id_cols or []
-        self.numeric_cols = numeric_cols or []
         self.min_rating = min_rating
-        self.sampling_weights = sampling_weights
-
-    def __len__(self) -> int:
-        return len(self.df)
-
-    def __getitem__(self, idx: int) -> list[dict[str, torch.Tensor]]:
-        pos_row = self.df.iloc[idx].to_dict()
-        results = [self._to_tensor_dict(pos_row)]
+        self.global_history = global_history
+        self.user_positive_items = user_positive_items
+        self.num_ctx_feats = num_ctx_feats
 
         if self.n_negatives > 0:
-            self._generate_neg_samples(pos_row, results)
+            interactions = interactions[
+                interactions[config.RELEVANT_COL] > 0
+            ].reset_index(drop=True)
 
-        return results
+        self.user_ids = interactions[config.USER_COL].values
+        self.item_ids = interactions[config.ITEM_COL].values
+        self.targets = interactions[config.RELEVANT_COL].astype(np.float32).values
+        self.all_item_ids = np.asarray(all_item_ids, dtype=np.int64)
 
-    def _to_tensor_dict(self, row: dict) -> dict[str, torch.Tensor]:
-        result = {}
-        for k, v in row.items():
-            v = self._ensure_scalar(v)
-            if k in self.id_cols:
-                result[k] = torch.tensor(v, dtype=torch.long)
-            elif k in (config.RELEVANT_COL,):
-                result[k] = torch.tensor(v, dtype=torch.bool)
-            elif k in self.numeric_cols or k in (config.RATING_COL,):
-                result[k] = torch.tensor(v, dtype=torch.float32)
-            else:
-                result[k] = torch.tensor(v)
-        return result
+        self.user_history = user_positive_items
 
-    def _ensure_scalar(self, v: torch.Tensor) -> Any:
-        if hasattr(v, "item"):
-            return v.item()
-        elif hasattr(v, "tolist"):
-            return v.tolist()
-        return v
+    def __len__(self) -> int:
+        return len(self.user_ids)
 
-    def _generate_neg_samples(
-        self, row: dict[Hashable, Any], results: list[dict[str, torch.Tensor]]
-    ) -> None:
-        assert self.user_history is not None, (
-            "There must be a user history in order to generate negatives samples."
+    def _get_history_and_mask(self, user_idx: int, current_item: int):
+        full_hist = self.global_history.get(user_idx, [])
+
+        # Take all items before the current one
+        try:
+            pos_idx = next(i for i, x in enumerate(full_hist) if x[0] == current_item)
+            history_data = full_hist[:pos_idx]
+        except StopIteration:
+            history_data = full_hist.copy()
+
+        if len(history_data) > config.MAX_HISTORY_LEN:
+            history_data = history_data[-config.MAX_HISTORY_LEN :]
+
+        hist_len = len(history_data)
+        hist_items = torch.zeros(config.MAX_HISTORY_LEN, dtype=torch.long)
+        history_valid_mask = torch.zeros(config.MAX_HISTORY_LEN, dtype=torch.bool)
+
+        hist_ctx = torch.zeros(
+            config.MAX_HISTORY_LEN, self.num_ctx_feats, dtype=torch.float32
         )
 
-        user_id = row[config.USER_COL]
+        if hist_len == 0:
+            return hist_items, hist_ctx, history_valid_mask
 
-        seen = self.user_history.get(user_id, set())
+        hist_items[:hist_len] = torch.tensor(
+            [x[0] + 1 for x in history_data], dtype=torch.long
+        )
+        hist_ctx[:hist_len] = torch.tensor(
+            [x[1] for x in history_data], dtype=torch.float32
+        )
+        history_valid_mask[:hist_len] = True
 
-        neg_candidates = []
-        while len(neg_candidates) < self.n_negatives:
-            assert self.all_item_ids is not None
-            ids = np.random.choice(
-                self.all_item_ids,
-                size=self.n_negatives * 2,
-                p=self.sampling_weights,
+        return hist_items, hist_ctx, history_valid_mask
+
+    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
+        user_idx = self.user_ids[idx]
+        item_idx = self.item_ids[idx]
+        target = float(self.targets[idx])
+        query_id = torch.tensor(idx, dtype=torch.long)
+
+        hist_items, hist_ctx, history_valid_mask = self._get_history_and_mask(
+            user_idx, item_idx
+        )
+
+        if self.n_negatives <= 0:
+            return {
+                "query_id": query_id,
+                "user_id": torch.tensor(user_idx, dtype=torch.long),
+                "history_items": hist_items,
+                "history_ctx": hist_ctx,
+                "history_valid_mask": history_valid_mask,
+                "candidate_ids": torch.tensor(
+                    item_idx + 1,
+                    dtype=torch.long,
+                ).unsqueeze(0),
+                "candidate_labels": torch.tensor(target, dtype=torch.float32),
+                "positive_position": torch.tensor(0, dtype=torch.long),
+            }
+
+        neg_items = self._sample_negatives(user_idx)
+
+        candidates = torch.tensor(
+            np.concatenate([[item_idx], neg_items]), dtype=torch.long
+        )  # [1 + n_neg]
+
+        targets = torch.zeros(len(candidates), dtype=torch.float32)  # [1 + n_neg]
+        targets[0] = 1.0
+
+        perm = torch.randperm(len(candidates))
+        shuffled_candidates = candidates[perm] + 1
+        shuffled_targets = targets[perm]
+
+        positive_position = (perm == 0).nonzero(as_tuple=True)[0].item()
+
+        return {
+            "query_id": query_id,
+            "user_id": torch.tensor(user_idx, dtype=torch.long),
+            "history_items": hist_items,
+            "history_ctx": hist_ctx,
+            "history_valid_mask": history_valid_mask,
+            "candidate_ids": shuffled_candidates,
+            "candidate_labels": shuffled_targets,
+            "positive_position": torch.tensor(positive_position, dtype=torch.long),
+        }
+
+    def _sample_negatives(self, user_idx: int) -> np.ndarray:
+        seen = self.user_history.get(int(user_idx), set())
+        negatives = []
+
+        while len(negatives) < self.n_negatives:
+            samples = np.random.choice(
+                self.all_item_ids, size=max(self.n_negatives * 2, 1), replace=True
             )
-            for nid in ids:
-                if nid not in seen and nid not in neg_candidates:
-                    neg_candidates.append(nid)
-                if len(neg_candidates) >= self.n_negatives:
+            for s in samples:
+                s = int(s)
+                if s not in seen and s not in negatives:
+                    negatives.append(s)
+                if len(negatives) == self.n_negatives:
                     break
-
-        for neg_id in neg_candidates:
-            neg_row = row.copy()
-            neg_row[config.ITEM_COL] = neg_id
-            neg_row[config.RELEVANT_COL] = False
-            neg_row[config.RATING_COL] = self.min_rating
-
-            if self.item_catalog is not None:
-                neg_row.update(self.item_catalog.loc[neg_id].to_dict())
-
-            results.append(self._to_tensor_dict(neg_row))
+        return np.array(negatives)

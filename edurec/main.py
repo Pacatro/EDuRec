@@ -1,18 +1,20 @@
 import warnings
-from enum import Enum
+from enum import StrEnum
 from typing import Annotated
 
 import typer
 import torch
+from dotenv import load_dotenv
 
 from . import config
-from .cli import eval_app, train_app
+from .cli import train_app, test_app
 
 # Ignore pandas future warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-# Set a default seed for reproducibility
 torch.manual_seed(config.state["random_state"])
+
+load_dotenv()
 
 app = typer.Typer(
     rich_markup_mode=None,
@@ -21,11 +23,13 @@ app = typer.Typer(
 )
 
 app.add_typer(train_app)
-app.add_typer(eval_app)
+app.add_typer(test_app)
+# app.add_typer(eval_app)
+# app.add_typer(train_comp_app)
 # app.add_typer(predict_app)
 
 
-class Device(str, Enum):
+class Device(StrEnum):
     AUTO = "auto"
     CPU = "cpu"
     CUDA = "cuda"

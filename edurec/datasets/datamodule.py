@@ -1,0 +1,749 @@
+import json
+from dataclasses import dataclass
+from pathlib import Path
+
+import lightning as L
+import numpy as np
+import pandas as pd
+import torch
+from safetensors.torch import load_file, save_file
+from torch.utils.data import DataLoader
+from torch_geometric.data import Data
+
+from .. import config
+from .data_processor import DataProcessor
+from .elearnig_dataset import ElearningDataset
+from .loaders import DatasetName, RawDataset, Schema, load_raw_data
+
+
+@dataclass
+class ProcessedArtifacts:
+    train: pd.DataFrame | None = None
+    val: pd.DataFrame | None = None
+    test: pd.DataFrame | None = None
+    u_static_feats: torch.Tensor | None = None
+    i_static_feats: torch.Tensor | None = None
+    data_processor: DataProcessor | None = None
+
+    @property
+    def is_ready(self) -> bool:
+        return (
+            self.train is not None
+            and self.val is not None
+            and self.test is not None
+            and self.u_static_feats is not None
+            and self.i_static_feats is not None
+            and self.data_processor is not None
+        )
+
+
+class ElearningDataModule(L.LightningDataModule):
+    """
+    Implements the end-to-end data pipeline for the recommendation system.
+
+    This module handles raw data ingestion, per-user temporal or random splitting,
+    feature preprocessing via a specialized `DataProcessor`, and persistence of
+    processed artifacts to disk to skip redundant computations in future runs.
+
+    Parameters:
+        dataset (DatasetName): The name of the dataset to use.
+        batch_size (int): The batch size for training and validation.
+        test_ratio (float): The ratio of test interactions to the total dataset.
+        val_ratio (float): The ratio of validation interactions to the total dataset.
+        min_interactions (int): The minimum number of interactions per user.
+        n_neg_train (int): The number of negative interactions to sample for training.
+        n_neg_val (int): The number of negative interactions to sample for validation.
+        n_neg_test (int): The number of negative interactions to sample for testing.
+        use_processed_data (bool): Whether to use pre-processed data from disk.
+        random_state (int | None): The random seed to use for data splitting.
+    """
+
+    def __init__(
+        self,
+        dataset: DatasetName,
+        batch_size: int,
+        test_ratio: float,
+        val_ratio: float,
+        n_neg_train: int = config.N_NEG_TRAIN,
+        n_neg_val: int = config.N_NEG_VAL,
+        n_neg_test: int = config.N_NEG_TEST,
+        min_interactions: int = config.MIN_INTERACTIONS,
+        remove_sparse_users: bool = config.REMOVE_SPARSE_USERS,
+        use_processed_data: bool = False,
+        random_state: int | None = None,
+    ) -> None:
+        super().__init__()
+        self.save_hyperparameters()
+        self.dataset_name = dataset
+        self.batch_size = batch_size
+        self.test_ratio = test_ratio
+        self.val_ratio = val_ratio
+        self.min_interactions = min_interactions
+        self.n_neg_train = n_neg_train
+        self.n_neg_val = n_neg_val
+        self.n_neg_test = n_neg_test
+        self.remove_sparse_users = remove_sparse_users
+        self.use_processed_data = use_processed_data
+        self.random_state = random_state
+
+        self.processed_folder = Path(config.PROCESSED_FOLDER) / self.dataset_name.value
+
+        self.raw_dataset: RawDataset | None = None
+        self.artifacts = ProcessedArtifacts()
+        self.global_history = {}
+        self.user_positive_items: dict[int, set[int]] = {}
+        self.max_feasible_negatives: int | None = None
+        self._loaded_processed_cache = False
+        self._negative_sampling_checked = False
+
+        self._load_data()
+
+    @property
+    def interactions(self) -> pd.DataFrame:
+        if self.raw_dataset is None:
+            raise RuntimeError("Raw interactions are not available.")
+        return self.raw_dataset.interactions
+
+    @property
+    def users_feats(self) -> pd.DataFrame:
+        if self.raw_dataset is None:
+            raise RuntimeError("Raw user features are not available.")
+        return self.raw_dataset.u_feats
+
+    @property
+    def items_feats(self) -> pd.DataFrame:
+        if self.raw_dataset is None:
+            raise RuntimeError("Raw item features are not available.")
+        return self.raw_dataset.i_feats
+
+    @property
+    def schema(self) -> Schema:
+        if self.raw_dataset is not None:
+            return self.raw_dataset.schema
+        if self.data_processor is not None:
+            return self.data_processor.schema
+        raise RuntimeError("Schema is not available.")
+
+    @property
+    def u_static_feats(self) -> torch.Tensor | None:
+        return self.artifacts.u_static_feats
+
+    @property
+    def i_static_feats(self) -> torch.Tensor | None:
+        return self.artifacts.i_static_feats
+
+    @property
+    def data_processor(self) -> DataProcessor | None:
+        return self.artifacts.data_processor
+
+    @property
+    def _processed_data(self) -> dict[str, pd.DataFrame | None]:
+        return {
+            "train": self.artifacts.train,
+            "val": self.artifacts.val,
+            "test": self.artifacts.test,
+        }
+
+    @property
+    def excluded_cols(self) -> list[str]:
+        return self._get_excluded_cols()
+
+    @property
+    def is_processed(self) -> bool:
+        """Whether processed splits and static features are available."""
+        return self.artifacts.is_ready
+
+    @property
+    def num_users(self) -> int:
+        """Return total number of users from processed or raw features."""
+        if self.u_static_feats is not None:
+            return self.u_static_feats.shape[0]
+        return len(self.raw_dataset.u_feats) if self.raw_dataset is not None else 0
+
+    @property
+    def num_items(self) -> int:
+        """Return total number of items from processed or raw features."""
+        if self.i_static_feats is not None:
+            return self.i_static_feats.shape[0]
+        return len(self.raw_dataset.i_feats) if self.raw_dataset is not None else 0
+
+    @property
+    def num_interactions(self) -> int:
+        """Return interaction count across all splits or raw interactions."""
+        if self.is_processed:
+            return sum(
+                len(df) for df in self._processed_data.values() if df is not None
+            )
+        return len(self.raw_dataset.interactions) if self.raw_dataset is not None else 0
+
+    @property
+    def num_ctx_feats(self) -> int:
+        """Return number of context features."""
+        if self.is_processed:
+            df = self._processed_data["train"]
+            if df is not None:
+                return len([c for c in df.columns if c not in self.excluded_cols])
+
+        return (
+            len(
+                [
+                    c
+                    for c in self.raw_dataset.interactions.columns
+                    if c not in self.excluded_cols
+                ]
+            )
+            if self.raw_dataset is not None
+            else 0
+        )
+
+    @property
+    def sparsity(self) -> float:
+        """Compute dataset sparsity as 1 - interactions/(users*items)."""
+        n_inter = self.num_interactions
+        n_users = self.num_users
+        n_items = self.num_items
+        if n_users == 0 or n_items == 0:
+            return 0.0
+        return 1 - (n_inter / (n_users * n_items))
+
+    @property
+    def num_user_feats(self) -> int:
+        if self.data_processor is not None:
+            metadata = self.data_processor.feature_metadata["users"]
+            return len(metadata.dense_cols) + len(metadata.categorical_cols)
+        if self.u_static_feats is not None:
+            return self.u_static_feats.shape[1]
+        return 0
+
+    @property
+    def num_item_feats(self) -> int:
+        if self.data_processor is not None:
+            metadata = self.data_processor.feature_metadata["items"]
+            return len(metadata.dense_cols) + len(metadata.categorical_cols)
+        if self.i_static_feats is not None:
+            return self.i_static_feats.shape[1]
+        return 0
+
+    @property
+    def num_user_dense_feats(self) -> int:
+        if self.data_processor is None:
+            return 0
+        return len(self.data_processor.feature_metadata["users"].dense_cols)
+
+    @property
+    def num_item_dense_feats(self) -> int:
+        if self.data_processor is None:
+            return 0
+        return len(self.data_processor.feature_metadata["items"].dense_cols)
+
+    @property
+    def user_cat_cardinalities(self) -> list[int]:
+        if self.data_processor is None:
+            return []
+        metadata = self.data_processor.feature_metadata["users"]
+        return [
+            metadata.categorical_cardinalities[col] for col in metadata.categorical_cols
+        ]
+
+    @property
+    def item_cat_cardinalities(self) -> list[int]:
+        if self.data_processor is None:
+            return []
+        metadata = self.data_processor.feature_metadata["items"]
+        return [
+            metadata.categorical_cardinalities[col] for col in metadata.categorical_cols
+        ]
+
+    def _get_excluded_cols(self) -> list[str]:
+        return [
+            config.USER_COL,
+            config.ITEM_COL,
+            config.RELEVANT_COL,
+            config.RATING_COL,
+            config.TIME_COL,
+        ]
+
+    def _load_data(self):
+        """Load raw inputs or processed cache depending on configuration."""
+        required_files = [
+            "train.csv",
+            "val.csv",
+            "test.csv",
+            "static_feats.safetensors",
+            "processor.joblib",
+            "preprocess_metadata.json",
+        ]
+
+        cache_exists = self.processed_folder.exists() and all(
+            (self.processed_folder / f).exists() for f in required_files
+        )
+
+        if self.use_processed_data and cache_exists and self._has_compatible_cache():
+            self._load_processed_data()
+            return
+
+        self._load_raw_dataset()
+
+    def _load_raw_dataset(self) -> None:
+        raw_dataset = load_raw_data(self.dataset_name)
+        self.raw_dataset = self._prepare_raw_dataset(raw_dataset)
+        self.artifacts = ProcessedArtifacts(
+            data_processor=DataProcessor(schema=self.raw_dataset.schema)
+        )
+        self._loaded_processed_cache = False
+
+    def _has_compatible_cache(self) -> bool:
+        metadata_path = self.processed_folder / "preprocess_metadata.json"
+        if not metadata_path.exists():
+            return False
+
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        return metadata == self._build_cache_metadata()
+
+    def _build_cache_metadata(self) -> dict[str, int | str | list[str]]:
+        return {
+            "preprocess_cache_version": config.PREPROCESS_CACHE_VERSION,
+            "feature_types": list(config.PREPROCESS_FEATURE_TYPES),
+            "text_preprocess_strategy": config.TEXT_PREPROCESS_STRATEGY,
+            "text_embedding_model": config.TEXT_EMBEDDING_MODEL,
+            "text_embedding_dim": config.TEXT_EMBEDDING_DIM,
+        }
+
+    def _prepare_raw_dataset(self, raw_dataset: RawDataset) -> RawDataset:
+        interactions = self._clean_df(raw_dataset.interactions)
+        items = self._clean_df(raw_dataset.i_feats)
+        users = self._clean_df(raw_dataset.u_feats)
+
+        if self.remove_sparse_users:
+            interactions, users = self._filter_sparse_users(interactions, users)
+
+        interactions = self._add_relevant_col(interactions)
+
+        return RawDataset(
+            interactions=interactions,
+            i_feats=items,
+            u_feats=users,
+            schema=raw_dataset.schema,
+        )
+
+    def _clean_df(self, df: pd.DataFrame) -> pd.DataFrame:
+        cleaned = df.copy()
+        cleaned.columns = (
+            cleaned.columns.str.lower()
+            .str.strip()
+            .str.replace(" ", "_")
+            .str.replace(r"[^\w]", "", regex=True)
+        )
+        return cleaned
+
+    def _add_relevant_col(self, interactions: pd.DataFrame) -> pd.DataFrame:
+        if (
+            config.RELEVANT_COL in interactions.columns
+            or config.RATING_COL not in interactions.columns
+        ):
+            return interactions
+
+        interactions = interactions.copy()
+        global_threshold = interactions[config.RATING_COL].mean()
+        user_stats = interactions.groupby(config.USER_COL)[config.RATING_COL]
+        mean_user_ratings = user_stats.transform("mean")
+        count_user_ratings = user_stats.transform("count")
+
+        thresholds = np.where(
+            count_user_ratings < self.min_interactions,
+            global_threshold,
+            mean_user_ratings,
+        )
+        interactions[config.RELEVANT_COL] = (
+            interactions[config.RATING_COL] >= thresholds
+        )
+
+        return interactions
+
+    def _filter_sparse_users(
+        self,
+        interactions: pd.DataFrame,
+        user_features: pd.DataFrame,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        user_counts = interactions[config.USER_COL].value_counts(sort=False)
+        valid_user_ids = user_counts[user_counts >= self.min_interactions].index
+
+        filtered_interactions = interactions[
+            interactions[config.USER_COL].isin(valid_user_ids)
+        ].reset_index(drop=True)
+        filtered_user_features = user_features[
+            user_features[config.USER_COL].isin(valid_user_ids)
+        ].reset_index(drop=True)
+
+        return filtered_interactions, filtered_user_features
+
+    def _load_processed_data(self) -> None:
+        """Load cached splits, static features, and fitted preprocessor."""
+        assert self.processed_folder is not None and self.processed_folder.exists()
+
+        processed_splits = {
+            split: pd.read_csv(self.processed_folder / f"{split}.csv")
+            for split in ["train", "val", "test"]
+        }
+
+        static_feats = load_file(self.processed_folder / "static_feats.safetensors")
+        self.artifacts = ProcessedArtifacts(
+            train=processed_splits["train"],
+            val=processed_splits["val"],
+            test=processed_splits["test"],
+            u_static_feats=static_feats["u_static_feats"],
+            i_static_feats=static_feats["i_static_feats"],
+            data_processor=DataProcessor.load(
+                self.processed_folder / "processor.joblib"
+            ),
+        )
+        self._loaded_processed_cache = True
+
+    def setup(self, stage: str | None = None) -> None:
+        """Prepare processed datasets for training/validation/testing stages."""
+        if not self.is_processed:
+            train_raw, val_raw, test_raw = self._split_data()
+            self.artifacts = self._prepare_processed_artifacts(
+                train_raw=train_raw,
+                val_raw=val_raw,
+                test_raw=test_raw,
+            )
+            if not self._loaded_processed_cache:
+                self._save_processed_data()
+
+        self._build_runtime_state()
+        self._ensure_negative_sampling_capacity()
+
+        match stage:
+            case "fit" | None:
+                self.train_ds = self._make_dataset("train", self.n_neg_train)
+                self.val_ds = self._make_dataset("val", self.n_neg_val)
+            case "test":
+                self.test_ds = self._make_dataset("test", self.n_neg_test)
+
+    # TODO: IMPLEMENT TEMPORAL GLOBAL SPLITTING
+    def _split_data(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """
+        Splits global interactions into Train/Val/Test sets.
+        Applies temporal splitting (last-n) if timestamps are available,
+        otherwise performs a per-user random shuffle.
+
+        Returns:
+            tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]: Train/Val/Test splits.
+        """
+        assert not self.is_processed
+        df = self.interactions
+        rng = np.random.default_rng(self.random_state)
+
+        if config.TIME_COL in df.columns:
+            df = df.sort_values(by=config.TIME_COL, kind="mergesort")
+
+        train_parts, val_parts, test_parts = [], [], []
+
+        for _, g in df.groupby(config.USER_COL, sort=False):
+            n = len(g)
+
+            if n < self.min_interactions:
+                train_parts.append(g)
+                continue
+
+            n_test = np.maximum(1, int(np.floor(n * self.test_ratio)))
+            n_val = np.maximum(1, int(np.floor(n * self.val_ratio)))
+
+            if n_test + n_val >= n:
+                n_test, n_val = 1, 1
+
+            if config.TIME_COL in g.columns:
+                test_g = g.iloc[-n_test:]
+                val_g = g.iloc[-(n_test + n_val) : -n_test]
+                train_g = g.iloc[: -(n_test + n_val)]
+            else:
+                idx = g.index.to_numpy()
+                rng.shuffle(idx)
+
+                test_idx = idx[:n_test]
+                val_idx = idx[n_test : n_test + n_val]
+                train_idx = idx[n_test + n_val :]
+
+                test_g = g.loc[test_idx]
+                val_g = g.loc[val_idx]
+                train_g = g.loc[train_idx]
+
+            train_parts.append(train_g)
+            test_parts.append(test_g)
+            val_parts.append(val_g)
+
+        train_df = (
+            pd.concat(train_parts, axis=0)
+            .sample(frac=1, random_state=self.random_state)
+            .reset_index(drop=True)
+        )
+
+        val_df = pd.concat(val_parts, axis=0).reset_index(drop=True)
+        test_df = pd.concat(test_parts, axis=0).reset_index(drop=True)
+
+        return train_df, val_df, test_df
+
+    def _prepare_processed_artifacts(
+        self,
+        train_raw: pd.DataFrame,
+        val_raw: pd.DataFrame,
+        test_raw: pd.DataFrame,
+    ) -> ProcessedArtifacts:
+        """
+        Fits the `DataProcessor` on training data and transforms all splits.
+        Also generates static feature matrices and persists results to the cache.
+        """
+        data_processor = self._require_data_processor()
+        data_processor.fit(
+            users_train=self.users_feats,
+            items_train=self.items_feats,
+            interactions_train=train_raw,
+        )
+
+        processed_all = data_processor.transform(
+            users=self.users_feats, items=self.items_feats
+        )
+        assert processed_all.users is not None and processed_all.items is not None
+
+        u_static_feats = self._generate_static_feats(
+            processed_all.users, config.USER_COL
+        )
+        i_static_feats = self._generate_static_feats(
+            processed_all.items, config.ITEM_COL
+        )
+
+        p_train = data_processor.transform(interactions=train_raw)
+        p_val = data_processor.transform(interactions=val_raw)
+        p_test = data_processor.transform(interactions=test_raw)
+
+        return ProcessedArtifacts(
+            train=p_train.interactions,
+            val=p_val.interactions,
+            test=p_test.interactions,
+            u_static_feats=u_static_feats,
+            i_static_feats=i_static_feats,
+            data_processor=data_processor,
+        )
+
+    def _build_runtime_state(self) -> None:
+        self.global_history = self._generate_global_history()
+        self.user_positive_items = self._generate_user_positive_items()
+
+    def _generate_global_history(self) -> dict[int, list]:
+        train_p = self.artifacts.train
+
+        assert train_p is not None
+
+        ctx_cols = [c for c in train_p.columns if c not in self.excluded_cols]
+
+        if config.TIME_COL in train_p.columns:
+            train_p = train_p.sort_values(config.TIME_COL)
+
+        pos_inter = train_p[train_p[config.RELEVANT_COL] > 0]
+
+        global_history = {}
+        for u_id, group in pos_inter.groupby(config.USER_COL):
+            items = group[config.ITEM_COL].tolist()
+            ctx_vals = group[ctx_cols].values.tolist()
+
+            global_history[u_id] = list(zip(items, ctx_vals))
+
+        return global_history
+
+    def _generate_user_positive_items(self) -> dict[int, set[int]]:
+        positives: dict[int, set[int]] = {}
+
+        for split in ["train", "val", "test"]:
+            df = self._processed_data[split]
+            if df is None:
+                continue
+
+            pos_df = df[df[config.RELEVANT_COL] > 0]
+            for u_id, group in pos_df.groupby(config.USER_COL):
+                u_id = int(u_id)  # type: ignore
+                positives.setdefault(u_id, set()).update(
+                    int(item_id) for item_id in group[config.ITEM_COL].tolist()
+                )
+
+        return positives
+
+    def _ensure_negative_sampling_capacity(self) -> None:
+        if self._negative_sampling_checked:
+            return
+
+        if not self.user_positive_items:
+            self._negative_sampling_checked = True
+            return
+
+        self.max_feasible_negatives = min(
+            max(self.num_items - len(seen_items), 0)
+            for seen_items in self.user_positive_items.values()
+        )
+
+        adjusted_train = min(self.n_neg_train, self.max_feasible_negatives)
+        adjusted_val = min(self.n_neg_val, self.max_feasible_negatives)
+        adjusted_test = min(self.n_neg_test, self.max_feasible_negatives)
+
+        if (
+            adjusted_train != self.n_neg_train
+            or adjusted_val != self.n_neg_val
+            or adjusted_test != self.n_neg_test
+        ):
+            self.n_neg_train = adjusted_train
+            self.n_neg_val = adjusted_val
+            self.n_neg_test = adjusted_test
+
+        self._negative_sampling_checked = True
+
+    def _generate_static_feats(self, df: pd.DataFrame, id_col: str) -> torch.Tensor:
+        """
+        Convert sorted entity features into a 2D tensor matrix with
+        shape (N, F), where N is the number of entities and F is the number
+        of features.
+        """
+        df_sorted = df.sort_values(id_col)
+        data_processor = self._require_data_processor()
+        prefix = "users" if id_col == config.USER_COL else "items"
+        metadata = data_processor.feature_metadata[prefix]
+        feat_cols = metadata.dense_cols + metadata.categorical_cols
+        return torch.tensor(df_sorted[feat_cols].values, dtype=torch.float32)
+
+    def _save_processed_data(self) -> None:
+        """Persist processed splits, static tensors, and preprocessing artifacts."""
+        self.processed_folder.mkdir(parents=True, exist_ok=True)
+
+        for split, df in self._processed_data.items():
+            if df is None:
+                continue
+            df.to_csv(self.processed_folder / f"{split}.csv", index=False)
+
+        assert self.u_static_feats is not None and self.i_static_feats is not None
+
+        save_file(
+            {
+                "u_static_feats": self.u_static_feats.contiguous(),
+                "i_static_feats": self.i_static_feats.contiguous(),
+            },
+            self.processed_folder / "static_feats.safetensors",
+        )
+
+        self._require_data_processor().save(self.processed_folder / "processor.joblib")
+        (self.processed_folder / "preprocess_metadata.json").write_text(
+            json.dumps(self._build_cache_metadata(), indent=2),
+            encoding="utf-8",
+        )
+
+    def _make_dataset(self, split: str, n_negatives: int) -> ElearningDataset:
+        """Create an `ElearningDataset` for a processed split."""
+        df = self._get_processed_split(split)
+
+        if df is None:
+            raise RuntimeError(
+                f"Data must be processed before creating the dataset for {split}"
+            )
+
+        return ElearningDataset(
+            interactions=df,
+            global_history=self.global_history,
+            user_positive_items=self.user_positive_items,
+            num_ctx_feats=self.num_ctx_feats,
+            all_item_ids=np.arange(self.num_items, dtype=np.int64),
+            n_negatives=n_negatives,
+        )
+
+    def _get_processed_split(self, split: str) -> pd.DataFrame | None:
+        return getattr(self.artifacts, split)
+
+    def _require_data_processor(self) -> DataProcessor:
+        if self.data_processor is None:
+            raise RuntimeError("Data processor is not available.")
+        return self.data_processor
+
+    def create_inter_graph(self) -> Data:
+        """
+        Constructs a homogeneous bipartite graph from processed user-item training interactions.
+
+        The graph uses a unified node index space [0, ..., num_users + num_items - 1],
+        where item indices are offset by the total number of users. This structure
+        is optimized for homogeneous GNNs and Graph Contrastive Learning (GCL)
+        augmentations like Edge Dropout.
+
+        Normaly, the correct representation of this graph is using HeteroData,
+        but because of we are going to use GCL and all the librarys and methods
+        for this use homogeneous graphs, we are going to use Data instead.
+
+        Topology:
+            - Nodes: Unified set representing both users and items.
+            - Edges: Undirected (bidirectional) interactions stored in a single
+              COO tensor to facilitate symmetric message passing.
+
+        Edge Index Structure [2, 2 * N]:
+            Row 0: [u_1, ..., u_n, (i_1 + offset), ..., (i_n + offset)]
+            Row 1: [(i_1 + offset), ..., (i_n + offset), u_1, ..., u_n]
+            Mapping: u_k <-> (i_k + offset).
+
+        Returns:
+            Data: A PyG Data object containing the unified edge_index,
+                  and raw features (u_x, i_x) for later projection.
+
+        Raises:
+            RuntimeError: If called before data/features are processed and cached.
+        """
+        df_train = self.artifacts.train
+
+        if df_train is None or self.u_static_feats is None:
+            raise RuntimeError("Data must be processed before creating the graph")
+
+        pos_train = df_train[df_train[config.RELEVANT_COL] > 0]
+
+        u_idx = torch.tensor(pos_train[config.USER_COL].values, dtype=torch.long)
+        i_idx = (
+            torch.tensor(pos_train[config.ITEM_COL].values, dtype=torch.long)
+            + self.num_users
+        )
+
+        edge_index_u2i = torch.stack([u_idx, i_idx], dim=0)
+        edge_index_i2u = torch.stack([i_idx, u_idx], dim=0)
+
+        full_edge_index = torch.cat(
+            [edge_index_u2i, edge_index_i2u], dim=1
+        ).contiguous()
+
+        num_nodes = self.num_users + self.num_items
+        data = Data(edge_index=full_edge_index, num_nodes=num_nodes)
+
+        data.num_users = self.num_users
+        data.num_items = self.num_items
+        data.node_type = torch.cat(
+            [
+                torch.zeros(self.num_users, dtype=torch.long),
+                torch.ones(self.num_items, dtype=torch.long),
+            ]
+        )
+
+        return data
+
+    def train_dataloader(self) -> DataLoader:
+        return DataLoader(
+            self.train_ds,
+            batch_size=self.batch_size,
+            num_workers=config.NUM_WORKERS,
+            shuffle=True,
+        )
+
+    def val_dataloader(self) -> DataLoader:
+        return DataLoader(
+            self.val_ds,
+            batch_size=self.batch_size,
+            num_workers=config.NUM_WORKERS,
+            shuffle=False,
+        )
+
+    def test_dataloader(self) -> DataLoader:
+        return DataLoader(
+            self.test_ds,
+            batch_size=self.batch_size,
+            num_workers=config.NUM_WORKERS,
+            shuffle=False,
+        )

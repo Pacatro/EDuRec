@@ -21,18 +21,17 @@ wandb/
 log*/ 
 sota_cv_data/
 
+# Data folders
+data/processed/
 
 # Other exetensions
 *.json
 
 # Models files
+saved_models/
 models/
 saved/
 *.pt
 
-# Predict file
-./data/predict_df.csv
-
-# Data
-raw_data/
-
+# Codex files
+.codex
