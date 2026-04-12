@@ -51,14 +51,14 @@ def train(
         int,
         typer.Option("--n_neg_test", help="Number of negatives to sample for testing"),
     ] = config.N_NEG_TEST,
-    remove_sparse_users: Annotated[
+    remove_sparse: Annotated[
         bool,
         typer.Option(
-            "--remove_sparse_users",
+            "--remove_sparse",
             "-R",
             help="Remove users with less than MIN_INTERACTIONS interactions",
         ),
-    ] = config.REMOVE_SPARSE_USERS,
+    ] = config.REMOVE_SPARSE,
     min_interactions: Annotated[
         int,
         typer.Option(
@@ -104,13 +104,13 @@ def train(
         n_neg_val=n_neg_val,
         n_neg_test=n_neg_test,
         min_interactions=min_interactions,
-        remove_sparse_users=remove_sparse_users,
+        remove_sparse=remove_sparse,
     )
 
     if config.state["verbose"]:
         print(f"[TRAIN] Using dataset {dataset.value}")
         print(f"[TRAIN] Using adaptive k: {adaptive_k}")
-        print(f"[TRAIN] Removing sparse users: {remove_sparse_users}")
+        print(f"[TRAIN] Removing sparse users: {remove_sparse}")
         print(f"[TRAIN] Minimum interactions per user: {min_interactions}")
 
         if use_procesed_data:

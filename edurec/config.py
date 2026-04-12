@@ -13,13 +13,14 @@ DATA_FOLDER: str = "data"
 ITEM_COL: str = "item_id"
 USER_COL: str = "user_id"
 TIME_COL: str = "timestamp"
+INTERACTION_ORDER_COL: str = "interaction_order"
 RATING_COL: str = "rating"
 RELEVANT_COL: str = "relevant"
 MIN_INTERACTIONS: int = 3
 
 # Preprocessing
 PROCESSED_FOLDER: str = f"{DATA_FOLDER}/processed"
-REMOVE_SPARSE_USERS: bool = True
+REMOVE_SPARSE: bool = True
 PREPROCESS_FEATURE_TYPES: tuple[str, ...] = (
     "numeric",
     "categorical",
@@ -27,7 +28,7 @@ PREPROCESS_FEATURE_TYPES: tuple[str, ...] = (
     "list",
     "time",
 )
-PREPROCESS_CACHE_VERSION: int = 3
+PREPROCESS_CACHE_VERSION: int = 4
 TEXT_EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
 TEXT_EMBEDDING_DIM: int = 384
 TEXT_EMBEDDING_BATCH_SIZE: int = 32
@@ -61,7 +62,7 @@ DELTA: float = 0.001
 TOP_K: int = 20
 NUM_WORKERS: int = 4
 VAL_RATIO: float = 0.1
-TEST_RATIO: float = 0.2
+TEST_RATIO: float = 0.1
 N_NEG_TRAIN: int = 4
 N_NEG_VAL: int = 99
 N_NEG_TEST: int = 99

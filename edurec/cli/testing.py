@@ -58,9 +58,9 @@ def test_recsys(
     use_procesed_data: Annotated[
         bool, typer.Option("--use_processed", "-P", help="Use saved processed data")
     ] = config.SAVE_DATA,
-    remove_sparse_users: Annotated[
-        bool, typer.Option("--remove_sparse_users", "-R", help="Remove users")
-    ] = config.REMOVE_SPARSE_USERS,
+    remove_sparse: Annotated[
+        bool, typer.Option("--remove_sparse", "-R", help="Remove users")
+    ] = config.REMOVE_SPARSE,
     models_folder: Annotated[
         str,
         typer.Option(
@@ -82,7 +82,7 @@ def test_recsys(
         n_neg_train=n_neg_train,
         n_neg_val=n_neg_val,
         n_neg_test=n_neg_test,
-        remove_sparse_users=remove_sparse_users,
+        remove_sparse=remove_sparse,
     )
     dm.setup()
 

@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 import torch
@@ -6,11 +8,18 @@ from torch.utils.data import Dataset
 from .. import config
 
 
+@dataclass
+class History:
+    items: torch.Tensor
+    ctx: torch.Tensor
+    valid_mask: torch.Tensor
+
+
 class ElearningDataset(Dataset):
     def __init__(
         self,
         interactions: pd.DataFrame,
-        global_history: dict[int, list],
+        precomputed_history: History,
         seen_items_by_user: dict[int, set[int]],
         num_ctx_feats: int,
         all_item_ids: np.ndarray,
@@ -19,66 +28,44 @@ class ElearningDataset(Dataset):
     ) -> None:
         self.n_negatives = n_negatives
         self.min_rating = min_rating
-        self.global_history = global_history
         self.seen_items_by_user = seen_items_by_user
         self.num_ctx_feats = num_ctx_feats
 
+        if len(precomputed_history.items) != len(interactions):
+            raise RuntimeError("Precomputed history must align with interactions.")
+
+        history_items = precomputed_history.items
+        history_ctx = precomputed_history.ctx
+        history_valid_mask = precomputed_history.valid_mask
+
         if self.n_negatives > 0:
-            interactions = interactions[
-                interactions[config.RELEVANT_COL] > 0
-            ].reset_index(drop=True)
+            positive_mask = (interactions[config.RELEVANT_COL] > 0).to_numpy(
+                dtype=bool, copy=False
+            )
+            interactions = interactions[positive_mask].reset_index(drop=True)
+            history_items = history_items[positive_mask]
+            history_ctx = history_ctx[positive_mask]
+            history_valid_mask = history_valid_mask[positive_mask]
 
         self.user_ids = interactions[config.USER_COL].values
         self.item_ids = interactions[config.ITEM_COL].values
         self.targets = interactions[config.RELEVANT_COL].astype(np.float32).values
         self.all_item_ids = np.asarray(all_item_ids, dtype=np.int64)
+        self.history_items = history_items
+        self.history_ctx = history_ctx
+        self.history_valid_mask = history_valid_mask
 
     def __len__(self) -> int:
         return len(self.user_ids)
-
-    def _get_history_and_mask(self, user_idx: int, current_item: int):
-        full_hist = self.global_history.get(user_idx, [])
-
-        # Take all items before the current one
-        try:
-            pos_idx = next(i for i, x in enumerate(full_hist) if x[0] == current_item)
-            history_data = full_hist[:pos_idx]
-        except StopIteration:
-            history_data = full_hist.copy()
-
-        if len(history_data) > config.MAX_HISTORY_LEN:
-            history_data = history_data[-config.MAX_HISTORY_LEN :]
-
-        hist_len = len(history_data)
-        hist_items = torch.zeros(config.MAX_HISTORY_LEN, dtype=torch.long)
-        history_valid_mask = torch.zeros(config.MAX_HISTORY_LEN, dtype=torch.bool)
-
-        hist_ctx = torch.zeros(
-            config.MAX_HISTORY_LEN, self.num_ctx_feats, dtype=torch.float32
-        )
-
-        if hist_len == 0:
-            return hist_items, hist_ctx, history_valid_mask
-
-        hist_items[:hist_len] = torch.tensor(
-            [x[0] + 1 for x in history_data], dtype=torch.long
-        )
-        hist_ctx[:hist_len] = torch.tensor(
-            [x[1] for x in history_data], dtype=torch.float32
-        )
-        history_valid_mask[:hist_len] = True
-
-        return hist_items, hist_ctx, history_valid_mask
 
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         user_idx = self.user_ids[idx]
         item_idx = self.item_ids[idx]
         target = float(self.targets[idx])
         query_id = torch.tensor(idx, dtype=torch.long)
-
-        hist_items, hist_ctx, history_valid_mask = self._get_history_and_mask(
-            user_idx, item_idx
-        )
+        hist_items = self.history_items[idx]
+        hist_ctx = self.history_ctx[idx]
+        history_valid_mask = self.history_valid_mask[idx]
 
         if self.n_negatives <= 0:
             return {

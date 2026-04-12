@@ -517,6 +517,7 @@ class DataProcessor:
             config.RATING_COL,
             config.RELEVANT_COL,
             config.TIME_COL,
+            config.INTERACTION_ORDER_COL,
         ]
 
     def _normalize_feature_types(
