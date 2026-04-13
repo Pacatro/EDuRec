@@ -4,17 +4,17 @@ from pathlib import Path
 import pytest
 
 from edurec.recsys.io import load_model
-from edurec.recsys.model import GhostConfig
+from edurec.recsys.model import GnnRankerConfig
 
 
 def test_load_model_returns_latest_saved_artifacts(tmp_path: Path):
-    models_root = tmp_path / "models" / "mars"
-    older_dir = models_root / "Ghost_20240101_000000"
-    newer_dir = models_root / "Ghost_20240102_000000"
+    models_root = tmp_path / "models" / "mars" / "ranker"
+    older_dir = models_root / "Ranker_20240101_000000"
+    newer_dir = models_root / "Ranker_20240102_000000"
     older_dir.mkdir(parents=True)
     newer_dir.mkdir(parents=True)
 
-    cfg = GhostConfig(
+    cfg = GnnRankerConfig(
         num_users=2,
         num_items=3,
         num_ctx_feats=4,

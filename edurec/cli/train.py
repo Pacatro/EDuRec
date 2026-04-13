@@ -7,7 +7,7 @@ from .. import config
 from ..datasets import DatasetName, ElearningDataModule, Phase
 from ..pipelines.candidates import generate_candidates
 from ..pipelines.training import train_reranker, train_retrieval
-from ..recsys.io import load_model, save_model
+from ..recsys.io import ModelType, load_model, save_model
 from ..recsys.model import GnnRankerConfig
 from ..recsys.reranker_engine import Reranker
 from ..recsys.retrieval_engine import Retrieval
@@ -165,7 +165,6 @@ def train_retrieval_command(
 
     if save:
         model_file_path, model_config_path, metrics_path = save_model(
-            model_name=retrieval.model_name,
             model_config=cfg,
             dataset_name=dataset.value,
             best_model_path=best_model_path,
@@ -270,7 +269,7 @@ def train_ranker_command(
     retrieval_model_path, retrieval_cfg = load_model(
         models_folder=models_folder,
         dataset_name=dataset.value,
-        model_type="retrieval",
+        model_type=ModelType.RETRIEVAL,
     )
 
     if not isinstance(retrieval_cfg, RetrievalConfig):
@@ -337,7 +336,6 @@ def train_ranker_command(
 
     if save:
         model_file_path, model_config_path, metrics_path = save_model(
-            model_name=reranker.model_name,
             model_config=cfg,
             dataset_name=dataset.value,
             best_model_path=best_model_path,

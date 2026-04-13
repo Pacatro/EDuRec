@@ -7,7 +7,7 @@ import typer
 from .. import config
 from ..datasets import DatasetName, ElearningDataModule, Phase
 from ..recsys.reranker_engine import Reranker
-from ..recsys.io import load_model, save_metrics
+from ..recsys.io import ModelType, load_model, save_metrics
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -53,7 +53,9 @@ def test_recsys(
     ] = config.MODELS_FOLDER,
 ):
     model_path, cfg = load_model(
-        models_folder=models_folder, dataset_name=dataset.value
+        models_folder=models_folder,
+        dataset_name=dataset.value,
+        model_type=ModelType.RANKER,
     )
 
     dm = ElearningDataModule(

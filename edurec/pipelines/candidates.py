@@ -1,15 +1,9 @@
-from __future__ import annotations
-
 import pandas as pd
 import torch
 
 from .. import config
 from ..datasets import ElearningDataModule, History, Phase
 from ..recsys.retrieval_engine import Retrieval
-
-_CANDIDATE_IDS_COL = "candidate_ids"
-_CANDIDATE_LABELS_COL = "candidate_labels"
-_POSITIVE_POSITION_COL = "positive_position"
 
 
 @torch.no_grad()
@@ -65,9 +59,9 @@ def _generate_split_topn_candidates(
 
     df = interactions.reset_index(drop=True).copy()
     if df.empty:
-        df[_CANDIDATE_IDS_COL] = [[] for _ in range(len(df))]
-        df[_CANDIDATE_LABELS_COL] = [[] for _ in range(len(df))]
-        df[_POSITIVE_POSITION_COL] = []
+        df[config.CANDIDATE_IDS_COL] = [[] for _ in range(len(df))]
+        df[config.CANDIDATE_LABELS_COL] = [[] for _ in range(len(df))]
+        df[config.POSITIVE_POSITION_COL] = []
         return df
 
     device = next(retrieval.parameters()).device
@@ -132,9 +126,9 @@ def _generate_split_topn_candidates(
             candidate_labels.append(row_labels)
             positive_positions.append(positive_position)
 
-    df[_CANDIDATE_IDS_COL] = candidate_ids
-    df[_CANDIDATE_LABELS_COL] = candidate_labels
-    df[_POSITIVE_POSITION_COL] = positive_positions
+    df[config.CANDIDATE_IDS_COL] = candidate_ids
+    df[config.CANDIDATE_LABELS_COL] = candidate_labels
+    df[config.POSITIVE_POSITION_COL] = positive_positions
     return df
 
 

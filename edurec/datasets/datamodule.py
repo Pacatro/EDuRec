@@ -13,9 +13,14 @@ from torch_geometric.data import Data
 
 from .. import config
 from .data_processor import DataProcessor
-from .reranker_dataset import RerankerDataset, History
-from .retrieval_dataset import RetrievalDataset
 from .loaders import DatasetName, RawDataset, Schema, load_raw_data
+from .reranker_dataset import History, RerankerDataset
+from .retrieval_dataset import RetrievalDataset
+
+
+class Phase(StrEnum):
+    RETRIEVAL = "retrieval"
+    RANKING = "ranking"
 
 
 @dataclass
@@ -37,11 +42,6 @@ class ProcessedArtifacts:
             and self.i_static_feats is not None
             and self.data_processor is not None
         )
-
-
-class Phase(StrEnum):
-    RETRIEVAL = "retrieval"
-    RERANKING = "reranking"
 
 
 class ElearningDataModule(L.LightningDataModule):
@@ -731,7 +731,7 @@ class ElearningDataModule(L.LightningDataModule):
                     precomputed_history=self.history_prefixes_by_split[split],
                     num_ctx_feats=self.num_ctx_feats,
                 )
-            case Phase.RERANKING:
+            case Phase.RANKING:
                 return RerankerDataset(
                     interactions=df,
                     precomputed_history=self.history_prefixes_by_split[split],

@@ -7,65 +7,62 @@ import pandas as pd
 
 from .model import GnnRankerConfig
 from .two_tower import RetrievalConfig
+from ..datasets import Phase
 
 type RecsysConfig = GnnRankerConfig | RetrievalConfig
 
-_RERANKER_TYPE = "reranker"
-_RETRIEVAL_TYPE = "retrieval"
-
 
 def save_model(
-    model_name: str,
     model_config: RecsysConfig,
     dataset_name: str,
     best_model_path: str | Path,
     models_folder: str | Path,
     metrics: dict[str, float] | None = None,
 ) -> tuple[Path, Path, Path | None]:
-    """Save the best model and its config to the specified folder."""
+    """Save the best model and its config to the expected folder structure."""
     if not is_dataclass(model_config):
         raise TypeError("model_config must be a dataclass instance.")
 
-    out_model = f"{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    saving_models_folder = Path(models_folder) / dataset_name / out_model
-    saving_models_folder.mkdir(parents=True, exist_ok=True)
+    if isinstance(model_config, GnnRankerConfig):
+        model_type = Phase.RANKING
+    elif isinstance(model_config, RetrievalConfig):
+        model_type = Phase.RETRIEVAL
+    else:
+        raise TypeError(f"Unsupported model config type: {type(model_config)!r}")
 
-    model_file_path = saving_models_folder / f"{out_model}.pt"
-    model_config_path = saving_models_folder / f"{out_model}.json"
+    model_name = f"{model_type.value}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    model_folder = Path(models_folder) / dataset_name / model_type.value / model_name
+    model_folder.mkdir(parents=True, exist_ok=True)
+
+    model_file_path = model_folder / f"{model_name}.pt"
+    model_config_path = model_folder / f"{model_name}.json"
+
     Path(best_model_path).rename(model_file_path)
-
     model_config_path.write_text(
         json.dumps(
-            {
-                "model_type": _get_model_type(model_config),
-                "config": asdict(model_config),
-            },
+            {"model_type": model_type, "config": asdict(model_config)},
             indent=2,
             ensure_ascii=False,
         ),
         encoding="utf-8",
     )
 
-    metrics_path = (
-        save_metrics(metrics, saving_models_folder) if metrics is not None else None
-    )
-
+    metrics_path = save_metrics(metrics, model_folder) if metrics is not None else None
     return model_file_path, model_config_path, metrics_path
 
 
 def save_metrics(metrics: dict[str, float], saving_models_folder: str | Path) -> Path:
     file_path = Path(saving_models_folder) / "metrics.csv"
-    metrics_df = pd.DataFrame.from_dict(metrics, orient="index")
-    metrics_df.to_csv(file_path, index=True)
+    pd.DataFrame.from_dict(metrics, orient="index").to_csv(file_path, index=True)
     return file_path
 
 
 def load_model(
     models_folder: str | Path,
     dataset_name: str,
-    model_type: str | None = None,
+    model_type: Phase | str | None = None,
 ) -> tuple[Path, RecsysConfig]:
-    """Get the last saved model and reconstruct its config."""
+    """Load the most recent saved model and rebuild its config."""
     root = Path(models_folder) / dataset_name
 
     if not root.exists():
@@ -74,26 +71,40 @@ def load_model(
     if not root.is_dir():
         raise NotADirectoryError(f"Models folder is not a directory: {root}")
 
-    models_dirs = [p for p in root.iterdir() if p.is_dir()]
+    requested_type = Phase(model_type) if model_type is not None else None
+    model_dirs = [
+        path
+        for path in root.rglob("*")
+        if path.is_dir()
+        and (path / f"{path.name}.pt").exists()
+        and (path / f"{path.name}.json").exists()
+    ]
 
-    if not models_dirs:
-        raise FileNotFoundError(f"No models found in {root}")
-
-    if model_type is not None:
-        models_dirs = [
-            p for p in models_dirs if _load_model_type(p / f"{p.name}.json") == model_type
-        ]
-
-        if not models_dirs:
-            raise FileNotFoundError(
-                f"No models of type {model_type!r} found in {root}"
+    if requested_type is not None:
+        filtered_dirs: list[Path] = []
+        for path in model_dirs:
+            config_payload = json.loads(
+                (path / f"{path.name}.json").read_text(encoding="utf-8")
             )
+            config_data = config_payload.get("config", config_payload)
+            saved_type = config_payload.get("model_type")
+            saved_type = (
+                Phase(saved_type)
+                if saved_type is not None
+                else Phase.RANKING
+                if "edge_dropout" in config_data or "gnn_layers" in config_data
+                else Phase.RETRIEVAL
+            )
+            if saved_type == requested_type:
+                filtered_dirs.append(path)
+        model_dirs = filtered_dirs
 
-    latest_dir = root / max(models_dirs, key=lambda p: p.stat().st_mtime).name
+    if not model_dirs:
+        if requested_type is None:
+            raise FileNotFoundError(f"No models found in {root}")
+        raise FileNotFoundError(f"No models of type {requested_type!r} found in {root}")
 
-    if not latest_dir.exists():
-        raise FileNotFoundError(f"Model {latest_dir} does not exist")
-
+    latest_dir = max(model_dirs, key=lambda path: path.stat().st_mtime)
     model_file = latest_dir / f"{latest_dir.name}.pt"
     config_file = latest_dir / f"{latest_dir.name}.json"
 
@@ -106,48 +117,21 @@ def load_model(
     if not config_file.exists():
         raise FileNotFoundError(f"Model config {config_file} does not exist")
 
-    config_payload = _load_config_payload(config_file)
-    model_config = _build_model_config(config_payload)
+    config_payload = json.loads(config_file.read_text(encoding="utf-8"))
+    config_data = config_payload.get("config", config_payload)
+    saved_type = config_payload.get("model_type")
 
-    return model_file, model_config
+    saved_type = (
+        Phase(saved_type)
+        if saved_type is not None
+        else Phase.RANKING
+        if "edge_dropout" in config_data or "gnn_layers" in config_data
+        else Phase.RETRIEVAL
+    )
 
+    if saved_type == Phase.RANKING:
+        return model_file, GnnRankerConfig(**config_data)
+    if saved_type == Phase.RETRIEVAL:
+        return model_file, RetrievalConfig(**config_data)
 
-def _get_model_type(model_config: RecsysConfig) -> str:
-    if isinstance(model_config, GnnRankerConfig):
-        return _RERANKER_TYPE
-    if isinstance(model_config, RetrievalConfig):
-        return _RETRIEVAL_TYPE
-    raise TypeError(f"Unsupported model config type: {type(model_config)!r}")
-
-
-def _build_model_config(config_payload: dict) -> RecsysConfig:
-    if "model_type" in config_payload and "config" in config_payload:
-        model_type = config_payload["model_type"]
-        config_data = config_payload["config"]
-    else:
-        model_type = _infer_model_type(config_payload)
-        config_data = config_payload
-
-    if model_type == _RERANKER_TYPE:
-        return GnnRankerConfig(**config_data)
-    if model_type == _RETRIEVAL_TYPE:
-        return RetrievalConfig(**config_data)
-
-    raise ValueError(f"Unsupported model type: {model_type}")
-
-
-def _infer_model_type(config_data: dict) -> str:
-    if "edge_dropout" in config_data or "gnn_layers" in config_data:
-        return _RERANKER_TYPE
-    return _RETRIEVAL_TYPE
-
-
-def _load_config_payload(config_file: str | Path) -> dict:
-    return json.loads(Path(config_file).read_text(encoding="utf-8"))
-
-
-def _load_model_type(config_file: str | Path) -> str:
-    config_payload = _load_config_payload(config_file)
-    if "model_type" in config_payload:
-        return config_payload["model_type"]
-    return _infer_model_type(config_payload)
+    raise ValueError(f"Unsupported model type: {saved_type}")
