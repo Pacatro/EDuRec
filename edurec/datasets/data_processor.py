@@ -135,7 +135,7 @@ class DataProcessor:
 
         return self
 
-    def _initialize_runtime_state(self, reset_fitted_state: bool = False) -> None:
+    def _initialize_runtime_state(self, reset_fitted_state: bool = False):
         self.schema_columns = {
             prefix: self._normalize_schema(prefix) for prefix in PREFIXES
         }
@@ -189,7 +189,7 @@ class DataProcessor:
             "passthrough": [],
         }
 
-    def _fit_ct_feats(self, df: pd.DataFrame, prefix: str) -> None:
+    def _fit_ct_feats(self, df: pd.DataFrame, prefix: str):
         """Build and fit feature preprocessors for one feature group."""
         groups = self._resolve_column_groups(
             prefix=prefix, available_columns=df.columns
@@ -553,7 +553,7 @@ class DataProcessor:
 
         return cols
 
-    def save(self, path: str | Path) -> None:
+    def save(self, path: str | Path):
         """
         Save the fitted processor state to disk.
 

@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 import torch
@@ -7,7 +7,8 @@ from torch import nn
 from torch_geometric.data import Data
 from torch_geometric.nn import LGConv
 
-from ... import config
+from .. import config
+from .static_feats_encoder import StaticFeatureEncoder
 
 
 class LossReduction(StrEnum):
@@ -24,6 +25,10 @@ class GnnEncoderConfig:
     tau: float = config.TAU
     loss_reduc: LossReduction = LossReduction(config.LOSS_REDUCTION)
     num_layers: int = config.GNN_LAYERS
+    num_user_dense_feats: int = 0
+    num_item_dense_feats: int = 0
+    user_cat_cardinalities: list[int] = field(default_factory=list)
+    item_cat_cardinalities: list[int] = field(default_factory=list)
 
 
 class GnnEncoder(nn.Module):
@@ -36,14 +41,29 @@ class GnnEncoder(nn.Module):
         self.user_emb = nn.Embedding(self.num_users, cfg.emb_dim)
         self.item_emb = nn.Embedding(self.num_items, cfg.emb_dim)
 
+        self.user_static_encoder = StaticFeatureEncoder(
+            cfg.num_user_dense_feats, cfg.user_cat_cardinalities, cfg.emb_dim
+        )
+        self.item_static_encoder = StaticFeatureEncoder(
+            cfg.num_item_dense_feats, cfg.item_cat_cardinalities, cfg.emb_dim
+        )
+
         self.convs = nn.ModuleList(LGConv() for _ in range(cfg.num_layers))
+        self.norm = nn.LayerNorm(cfg.emb_dim)
 
-    def forward(self, data: Data) -> tuple[torch.Tensor, torch.Tensor]:
-        assert data.edge_index is not None
-
+    def forward(
+        self,
+        data: Data,
+        user_static_feats: torch.Tensor,
+        item_static_feats: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         edge_index = data.edge_index
 
-        x = torch.cat([self.user_emb.weight, self.item_emb.weight], dim=0)
+        u_x = self.user_emb.weight + self.user_static_encoder(user_static_feats)
+        i_x = self.item_emb.weight + self.item_static_encoder(item_static_feats)
+
+        x = torch.cat([u_x, i_x], dim=0)
+        x = self.norm(x)
 
         layer_embeddings = [x]
         for conv in self.convs:

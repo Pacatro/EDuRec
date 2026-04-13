@@ -11,7 +11,9 @@ List of TODOs for the project.
 - [x] Reorganize code
 - [x] Implement new arquitecture
 - [x] Add other cols preprocessing
-- [ ] Use GNN for retrieval model
+- [x] Add retrieval model
+- [ ] Simplify candidate selection
+- [ ] Add evaluation system
 - [ ] Fix bugs with DORIS dataset
 - [ ] Add fairness
 - [ ] Add XAI

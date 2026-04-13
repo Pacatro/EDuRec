@@ -47,4 +47,4 @@ def test_recsys_step_and_metrics():
     metrics = recsys.val_ranking_metrics.compute()
 
     assert loss.item() > 0
-    assert f"val/Ndcg@{recsys.top_k}" in metrics
+    assert f"val/NDCG@{recsys.top_k}" in metrics

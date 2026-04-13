@@ -5,8 +5,8 @@ import torch
 import typer
 
 from .. import config
-from ..datasets import DatasetName, ElearningDataModule
-from ..recsys.engine import RecSys
+from ..datasets import DatasetName, ElearningDataModule, Phase
+from ..recsys.reranker_engine import Reranker
 from ..recsys.io import load_model, save_metrics
 
 app = typer.Typer(no_args_is_help=True)
@@ -23,7 +23,7 @@ def test_recsys(
     ] = DatasetName.MARS,
     batch_size: Annotated[
         int, typer.Option("--batch_size", "-b", help="Batch size")
-    ] = config.BATCH_SIZE,
+    ] = config.RANKER_BATCH_SIZE,
     val_size: Annotated[
         float, typer.Option("--val_size", "-v", help="Validation size")
     ] = config.VAL_RATIO,
@@ -32,29 +32,13 @@ def test_recsys(
     ] = config.TEST_RATIO,
     top_k: Annotated[
         int, typer.Option("--top_k", "-k", help="Top-k value")
-    ] = config.TOP_K,
+    ] = config.RANKER_TOP_K,
     adaptive_k: Annotated[
         bool,
         typer.Option(
             "--adaptive_k", "-a", help="Use adaptive k to compute some metrics"
         ),
     ] = config.ADAPTIVE_K,
-    n_neg_train: Annotated[
-        int,
-        typer.Option(
-            "--n_neg_train", help="Number of negatives to sample for training"
-        ),
-    ] = config.N_NEG_TRAIN,
-    n_neg_val: Annotated[
-        int,
-        typer.Option(
-            "--n_neg_val", help="Number of negatives to sample for validation"
-        ),
-    ] = config.N_NEG_VAL,
-    n_neg_test: Annotated[
-        int,
-        typer.Option("--n_neg_test", help="Number of negatives to sample for testing"),
-    ] = config.N_NEG_TEST,
     use_procesed_data: Annotated[
         bool, typer.Option("--use_processed", "-P", help="Use saved processed data")
     ] = config.SAVE_DATA,
@@ -79,16 +63,13 @@ def test_recsys(
         val_ratio=val_size,
         use_processed_data=use_procesed_data,
         random_state=config.state["random_state"],
-        n_neg_train=n_neg_train,
-        n_neg_val=n_neg_val,
-        n_neg_test=n_neg_test,
         remove_sparse=remove_sparse,
     )
-    dm.setup()
+    dm.setup(phase=Phase.RERANKING)
 
     assert dm.u_static_feats is not None and dm.i_static_feats is not None
 
-    model = RecSys.load_from_checkpoint(
+    model = Reranker.load_from_checkpoint(
         checkpoint_path=str(model_path),
         cfg=cfg,
         inter_graph=dm.create_inter_graph(),

@@ -1,7 +1,7 @@
 # Global state
 state = {"verbose": False, "random_state": 42, "device": "auto"}
 
-# MLFlow
+# W&B
 EXPERIMENT_NAME: str = "TFM"
 
 # Folders
@@ -16,6 +16,9 @@ TIME_COL: str = "timestamp"
 INTERACTION_ORDER_COL: str = "interaction_order"
 RATING_COL: str = "rating"
 RELEVANT_COL: str = "relevant"
+CANDIDATE_IDS_COL: str = "candidate_ids"
+CANDIDATE_LABELS_COL: str = "candidate_labels"
+POSITIVE_POSITION_COL: str = "positive_position"
 MIN_INTERACTIONS: int = 3
 
 # Preprocessing
@@ -36,7 +39,7 @@ TEXT_MAX_TOKENS: int = 256
 TEXT_PREPROCESS_STRATEGY: str = "sentence-transformer"
 
 # GCL
-DROP_EDGES_P: float = 0.2
+DROP_EDGES_P: float = 0.1
 TAU: float = 0.2
 LOSS_REDUCTION: str = "mean"
 GNN_LAYERS: int = 2
@@ -46,30 +49,37 @@ NUM_HEADS: int = 4
 NUM_BLOCKS: int = 2
 FF_DIM: int = 512
 DROPOUT: float = 0.1
-MAX_HISTORY_LEN: int = 50
+MAX_HISTORY_LEN: int = 30
 NUM_SCORES: int = 1
 
-# Ghost model
+# Embeddings
 EMB_DIM: int = 128
 
-# Training
-LR: float = 0.001
-BATCH_SIZE: int = 256
-EPOCHS: int = 100
-WEIGHT_DECAY: float = 1e-5
-PATIENCE: int = 10
-DELTA: float = 0.001
-TOP_K: int = 20
+# Training (Retreival)
+RETRIEVAL_EPOCHS: int = 40
+RETRIEVAL_LR: float = 0.001
+RETRIEVAL_WEIGHT_DECAY: float = 1e-4
+RETRIEVAL_BATCH_SIZE: int = 256
+RETRIEVAL_PATIENCE: int = 5
+RETRIEVAL_TOP_K: int = 50
+
+# Training (Ranker)
+RANKER_LR: float = 0.001
+RANKER_WEIGHT_DECAY: float = 1e-4
+RANKER_BATCH_SIZE: int = 128
+RANKER_EPOCHS: int = 60
+RANKER_PATIENCE: int = 7
+RANKER_TOP_K: int = 20
+
+# Training (General)
+TOP_N: int = 50
+DELTA: float = 0.0005
 NUM_WORKERS: int = 4
-VAL_RATIO: float = 0.1
-TEST_RATIO: float = 0.1
-N_NEG_TRAIN: int = 4
-N_NEG_VAL: int = 99
-N_NEG_TEST: int = 99
+VAL_RATIO: float = 0.2
+TEST_RATIO: float = 0.4
 SAVE_DATA: bool = False
-MONITOR: str = "val/Ndcg"
 ADAPTIVE_K: bool = False
-ALPHA: float = 0.05
+ALPHA: float = 0.01
 COMPILE_MODEL: bool = False
 
 # Eval

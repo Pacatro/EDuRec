@@ -1,5 +1,6 @@
 import json
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 import lightning as L
@@ -12,7 +13,8 @@ from torch_geometric.data import Data
 
 from .. import config
 from .data_processor import DataProcessor
-from .elearnig_dataset import ElearningDataset, History
+from .reranker_dataset import RerankerDataset, History
+from .retrieval_dataset import RetrievalDataset
 from .loaders import DatasetName, RawDataset, Schema, load_raw_data
 
 
@@ -37,6 +39,11 @@ class ProcessedArtifacts:
         )
 
 
+class Phase(StrEnum):
+    RETRIEVAL = "retrieval"
+    RERANKING = "reranking"
+
+
 class ElearningDataModule(L.LightningDataModule):
     """
     Implements the end-to-end data pipeline for the recommendation system.
@@ -51,9 +58,6 @@ class ElearningDataModule(L.LightningDataModule):
         test_ratio (float): The ratio of test interactions to the total dataset.
         val_ratio (float): The ratio of validation interactions to the total dataset.
         min_interactions (int): The minimum number of interactions per user.
-        n_neg_train (int): The number of negative interactions to sample for training.
-        n_neg_val (int): The number of negative interactions to sample for validation.
-        n_neg_test (int): The number of negative interactions to sample for testing.
         use_processed_data (bool): Whether to use pre-processed data from disk.
         random_state (int | None): The random seed to use for data splitting.
     """
@@ -64,14 +68,11 @@ class ElearningDataModule(L.LightningDataModule):
         batch_size: int,
         test_ratio: float,
         val_ratio: float,
-        n_neg_train: int = config.N_NEG_TRAIN,
-        n_neg_val: int = config.N_NEG_VAL,
-        n_neg_test: int = config.N_NEG_TEST,
         min_interactions: int = config.MIN_INTERACTIONS,
         remove_sparse: bool = config.REMOVE_SPARSE,
         use_processed_data: bool = False,
         random_state: int | None = None,
-    ) -> None:
+    ):
         super().__init__()
         self.save_hyperparameters()
         self.dataset_name = dataset
@@ -79,9 +80,6 @@ class ElearningDataModule(L.LightningDataModule):
         self.test_ratio = test_ratio
         self.val_ratio = val_ratio
         self.min_interactions = min_interactions
-        self.n_neg_train = n_neg_train
-        self.n_neg_val = n_neg_val
-        self.n_neg_test = n_neg_test
         self.remove_sparse = remove_sparse
         self.use_processed_data = use_processed_data
         self.random_state = random_state
@@ -91,7 +89,7 @@ class ElearningDataModule(L.LightningDataModule):
         self.raw_dataset: RawDataset | None = None
         self.artifacts = ProcessedArtifacts()
         self.history_prefixes_by_split: dict[str, History] = {}
-        self.seen_items_by_split: dict[str, dict[int, set[int]]] = {}
+        self.phase: Phase | None = None
         self._loaded_processed_cache = False
 
         self.excluded_cols = [
@@ -101,6 +99,9 @@ class ElearningDataModule(L.LightningDataModule):
             config.RATING_COL,
             config.TIME_COL,
             config.INTERACTION_ORDER_COL,
+            config.CANDIDATE_IDS_COL,
+            config.CANDIDATE_LABELS_COL,
+            config.POSITIVE_POSITION_COL,
         ]
 
         self._load_data()
@@ -278,7 +279,7 @@ class ElearningDataModule(L.LightningDataModule):
 
         self._load_raw_dataset()
 
-    def _load_raw_dataset(self) -> None:
+    def _load_raw_dataset(self):
         raw_dataset = load_raw_data(self.dataset_name)
         self.raw_dataset = self._prepare_raw_dataset(raw_dataset)
         self.artifacts = ProcessedArtifacts(
@@ -411,7 +412,7 @@ class ElearningDataModule(L.LightningDataModule):
         )
         return interactions
 
-    def _load_processed_data(self) -> None:
+    def _load_processed_data(self):
         """Load cached splits, static features, and fitted preprocessor."""
         assert self.processed_folder is not None and self.processed_folder.exists()
 
@@ -433,8 +434,13 @@ class ElearningDataModule(L.LightningDataModule):
         )
         self._loaded_processed_cache = True
 
-    def setup(self, stage: str | None = None) -> None:
+    def setup(self, stage: str | None = None, phase: Phase | None = None):
         """Prepare processed datasets for training/validation/testing stages."""
+        if phase is not None:
+            self.phase = phase
+        elif self.phase is None:
+            raise RuntimeError("setup() requires a phase before building datasets.")
+
         if not self.is_processed:
             train_raw, val_raw, test_raw = self._split_data()
             self.artifacts = self._prepare_processed_artifacts(
@@ -449,10 +455,10 @@ class ElearningDataModule(L.LightningDataModule):
 
         match stage:
             case "fit" | None:
-                self.train_ds = self._make_dataset("train", self.n_neg_train)
-                self.val_ds = self._make_dataset("val", self.n_neg_val)
+                self.train_ds = self._make_dataset("train")
+                self.val_ds = self._make_dataset("val")
             case "test":
-                self.test_ds = self._make_dataset("test", self.n_neg_test)
+                self.test_ds = self._make_dataset("test")
 
     def _split_data(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
@@ -561,7 +567,7 @@ class ElearningDataModule(L.LightningDataModule):
             data_processor=data_processor,
         )
 
-    def _build_runtime_state(self) -> None:
+    def _build_runtime_state(self):
         self.history_prefixes_by_split = {}
         user_history_state = {}
 
@@ -570,8 +576,6 @@ class ElearningDataModule(L.LightningDataModule):
             self.history_prefixes_by_split[split], user_history_state = (
                 self._precompute_history_for_split(split_df, user_history_state)
             )
-
-        self.seen_items_by_split = self._generate_seen_items_by_split()
 
     def _precompute_history_for_split(
         self,
@@ -654,7 +658,7 @@ class ElearningDataModule(L.LightningDataModule):
         history: History,
         row_pos: int,
         history_entries: list[tuple[int, list[float]]],
-    ) -> None:
+    ):
         truncated_history = history_entries[-config.MAX_HISTORY_LEN :]
         hist_len = len(truncated_history)
 
@@ -673,77 +677,6 @@ class ElearningDataModule(L.LightningDataModule):
                 dtype=torch.float32,
             )
 
-    def _generate_seen_items_by_split(self) -> dict[str, dict[int, set[int]]]:
-        train_seen = self._collect_positive_items(self.artifacts.train)
-        val_seen = self._clone_seen_items(train_seen)
-
-        test_seen = self._clone_seen_items(train_seen)
-        test_seen = self._merge_seen_items(
-            test_seen, self._collect_positive_items(self.artifacts.val)
-        )
-
-        return {
-            "train": train_seen,
-            "val": val_seen,
-            "test": test_seen,
-        }
-
-    def _collect_positive_items(self, df: pd.DataFrame | None) -> dict[int, set[int]]:
-        positives = {}
-
-        if df is None:
-            return positives
-
-        pos_df = df[df[config.RELEVANT_COL] > 0]
-        for u_id, group in pos_df.groupby(config.USER_COL):
-            positives[int(u_id)] = {int(item_id) for item_id in group[config.ITEM_COL]}  # type: ignore
-
-        return positives
-
-    def _clone_seen_items(self, seen_items: dict[int, set[int]]) -> dict[int, set[int]]:
-        return {int(user_id): set(items) for user_id, items in seen_items.items()}
-
-    def _merge_seen_items(
-        self,
-        base_seen_items: dict[int, set[int]],
-        extra_seen_items: dict[int, set[int]],
-    ) -> dict[int, set[int]]:
-        merged = self._clone_seen_items(base_seen_items)
-
-        for user_id, items in extra_seen_items.items():
-            merged.setdefault(int(user_id), set()).update(items)
-
-        return merged
-
-    def _resolve_split_negatives(self, split: str, requested_negatives: int) -> int:
-        if requested_negatives <= 0:
-            return 0
-
-        df = getattr(self.artifacts, split)
-
-        if df is None or df.empty:
-            return 0
-
-        pos_df = df[df[config.RELEVANT_COL] > 0]
-        if pos_df.empty:
-            return 0
-
-        seen_items_by_user = self.seen_items_by_split.get(split, {})
-        max_negatives_per_query: list[int] = []
-
-        for row in pos_df.itertuples(index=False):
-            user_id = int(getattr(row, config.USER_COL))
-            item_id = int(getattr(row, config.ITEM_COL))
-            seen_items = seen_items_by_user.get(user_id, set())
-
-            excluded_items = len(seen_items) + (0 if item_id in seen_items else 1)
-            max_negatives_per_query.append(max(self.num_items - excluded_items, 0))
-
-        if not max_negatives_per_query:
-            return 0
-
-        return min(requested_negatives, min(max_negatives_per_query))
-
     def _generate_static_feats(self, df: pd.DataFrame, id_col: str) -> torch.Tensor:
         """
         Convert sorted entity features into a 2D tensor matrix with
@@ -757,7 +690,7 @@ class ElearningDataModule(L.LightningDataModule):
         feat_cols = metadata.dense_cols + metadata.categorical_cols
         return torch.tensor(df_sorted[feat_cols].values, dtype=torch.float32)
 
-    def _save_processed_data(self) -> None:
+    def _save_processed_data(self):
         """Persist processed splits, static tensors, and preprocessing artifacts."""
         self.processed_folder.mkdir(parents=True, exist_ok=True)
 
@@ -782,8 +715,8 @@ class ElearningDataModule(L.LightningDataModule):
             encoding="utf-8",
         )
 
-    def _make_dataset(self, split: str, n_negatives: int) -> ElearningDataset:
-        """Create an `ElearningDataset` for a processed split."""
+    def _make_dataset(self, split: str) -> RerankerDataset | RetrievalDataset:
+        """Create a processed dataset for the selected training phase."""
         df = getattr(self.artifacts, split)
 
         if df is None:
@@ -791,16 +724,21 @@ class ElearningDataModule(L.LightningDataModule):
                 f"Data must be processed before creating the dataset for {split}"
             )
 
-        resolved_negatives = self._resolve_split_negatives(split, n_negatives)
-
-        return ElearningDataset(
-            interactions=df,
-            precomputed_history=self.history_prefixes_by_split[split],
-            seen_items_by_user=self.seen_items_by_split.get(split, {}),
-            num_ctx_feats=self.num_ctx_feats,
-            all_item_ids=np.arange(self.num_items, dtype=np.int64),
-            n_negatives=resolved_negatives,
-        )
+        match self.phase:
+            case Phase.RETRIEVAL:
+                return RetrievalDataset(
+                    interactions=df,
+                    precomputed_history=self.history_prefixes_by_split[split],
+                    num_ctx_feats=self.num_ctx_feats,
+                )
+            case Phase.RERANKING:
+                return RerankerDataset(
+                    interactions=df,
+                    precomputed_history=self.history_prefixes_by_split[split],
+                    num_ctx_feats=self.num_ctx_feats,
+                )
+            case _:
+                raise RuntimeError(f"Unsupported phase: {self.phase!r}")
 
     def _require_data_processor(self) -> DataProcessor:
         if self.data_processor is None:
