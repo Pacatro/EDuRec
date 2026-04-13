@@ -199,6 +199,9 @@ class DataProcessor:
             if groups["input"]
             else pd.DataFrame(index=df.index)
         )
+        df_features = self._normalize_categorical_inputs(
+            df_features, groups["categorical"]
+        )
 
         preprocessor = self._build_ct(
             num_cols=groups["numeric"],
@@ -445,6 +448,9 @@ class DataProcessor:
             if groups["input"]
             else pd.DataFrame(index=df.index)
         )
+        df_features = self._normalize_categorical_inputs(
+            df_features, groups["categorical"]
+        )
         processed_df = ct.transform(df_features)
 
         assert isinstance(processed_df, pd.DataFrame)
@@ -463,6 +469,26 @@ class DataProcessor:
             ).astype("int64")
 
         return output_df
+
+    def _normalize_categorical_inputs(
+        self,
+        df: pd.DataFrame,
+        categorical_cols: list[str],
+    ) -> pd.DataFrame:
+        if not categorical_cols or df.empty:
+            return df
+
+        normalized_df = df.copy()
+        for col in categorical_cols:
+            if col not in normalized_df.columns:
+                continue
+
+            values = normalized_df[col].map(
+                lambda value: np.nan if pd.isna(value) else str(value).strip()
+            )
+            normalized_df[col] = values.mask(values == "", np.nan)
+
+        return normalized_df
 
     def _build_feature_metadata(
         self,
