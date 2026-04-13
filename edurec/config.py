@@ -50,7 +50,7 @@ GNN_LAYERS: int = 2
 # Ranker
 NUM_HEADS: int = 4
 NUM_BLOCKS: int = 2
-FF_DIM: int = 512
+FF_DIM: int = 256
 DROPOUT: float = 0.1
 MAX_HISTORY_LEN: int = 30
 NUM_SCORES: int = 1
@@ -67,11 +67,11 @@ RETRIEVAL_PATIENCE: int = 5
 RETRIEVAL_TOP_K: int = 50
 
 # Training (Ranker)
-RANKER_LR: float = 0.001
-RANKER_WEIGHT_DECAY: float = 1e-4
+RANKER_LR: float = 3e-4
+RANKER_WEIGHT_DECAY: float = 2e-4
 RANKER_BATCH_SIZE: int = 128
-RANKER_EPOCHS: int = 60
-RANKER_PATIENCE: int = 7
+RANKER_EPOCHS: int = 30
+RANKER_PATIENCE: int = 5
 RANKER_TOP_K: int = 20
 
 # Training (General)
