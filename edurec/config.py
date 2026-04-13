@@ -4,10 +4,13 @@ state = {"verbose": False, "random_state": 42, "device": "auto"}
 # W&B
 EXPERIMENT_NAME: str = "TFM"
 
-# Folders
+# Filenames and Folders
 RESULTS_FOLDER: str = "evaluations"
 MODELS_FOLDER: str = "models"
 DATA_FOLDER: str = "data"
+MODEL_FILENAME = "model.pt"
+MODEL_CONFIG_FILENAME = "config.json"
+METRICS_FILENAME = "metrics.csv"
 
 # Datasets
 ITEM_COL: str = "item_id"

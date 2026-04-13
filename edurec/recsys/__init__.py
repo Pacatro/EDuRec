@@ -1,6 +1,6 @@
 from .ranker import Ranker
 from .retrieval import Retrieval
-from .graph_encoder import GraphEncoder, GraphEncoderConfig, InfoNCELoss, LossReduction
+from .graph_encoder import GraphEncoder, GraphEncoderConfig, LossReduction
 from .scorer import Scorer, ScorerConfig
 from .ghost import Ghost, GhostConfig
 from .static_feats_encoder import StaticFeatureEncoder
@@ -13,7 +13,6 @@ __all__ = [
     "ScorerConfig",
     "Ghost",
     "GhostConfig",
-    "InfoNCELoss",
     "LossReduction",
     "StaticFeatureEncoder",
     "Retrieval",

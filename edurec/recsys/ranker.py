@@ -17,7 +17,7 @@ from torchmetrics.retrieval import (
 
 from .. import config
 from .ghost import Ghost, GhostConfig
-from .graph_encoder import InfoNCELoss
+from .losses import InfoNCELoss
 from ..datasets import RankerBatch
 
 
@@ -70,7 +70,7 @@ class Ranker(L.LightningModule):
         )
 
         self.model = Ghost(cfg)
-        self.model_name = self.model.__class__.__name__
+        self.model_name = self.__class__.__name__
 
     def on_load_checkpoint(self, checkpoint: dict):
         state_dict = checkpoint.get("state_dict")
@@ -145,24 +145,20 @@ class Ranker(L.LightningModule):
 
         loss = rank_loss + self.alpha * gcl_loss
 
-        batch_size = targets.size(0) if targets.ndim > 1 else targets.numel()
-
         self.log(
             f"{prefix}/Loss_rank",
             rank_loss,
             on_step=(prefix == "train"),
             on_epoch=True,
-            prog_bar=False,
-            batch_size=batch_size,
+            prog_bar=(prefix == "train"),
         )
         self.log(
             f"{prefix}/Loss_gcl",
             gcl_loss,
             on_step=(prefix == "train"),
             on_epoch=True,
-            prog_bar=False,
-            logger=False,
-            batch_size=batch_size,
+            prog_bar=(prefix == "train"),
+            logger=(prefix == "train"),
         )
         self.log(
             f"{prefix}/Loss",
@@ -170,7 +166,6 @@ class Ranker(L.LightningModule):
             on_step=(prefix == "train"),
             on_epoch=True,
             prog_bar=True,
-            batch_size=batch_size,
         )
 
         if ranking_metrics is not None:
