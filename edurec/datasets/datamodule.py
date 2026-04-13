@@ -14,7 +14,7 @@ from torch_geometric.data import Data
 from .. import config
 from .data_processor import DataProcessor
 from .loaders import DatasetName, RawDataset, Schema, load_raw_data
-from .reranker_dataset import History, RerankerDataset
+from .reranker_dataset import History, RankerDataset
 from .retrieval_dataset import RetrievalDataset
 
 
@@ -715,7 +715,7 @@ class ElearningDataModule(L.LightningDataModule):
             encoding="utf-8",
         )
 
-    def _make_dataset(self, split: str) -> RerankerDataset | RetrievalDataset:
+    def _make_dataset(self, split: str) -> RankerDataset | RetrievalDataset:
         """Create a processed dataset for the selected training phase."""
         df = getattr(self.artifacts, split)
 
@@ -732,7 +732,7 @@ class ElearningDataModule(L.LightningDataModule):
                     num_ctx_feats=self.num_ctx_feats,
                 )
             case Phase.RANKING:
-                return RerankerDataset(
+                return RankerDataset(
                     interactions=df,
                     precomputed_history=self.history_prefixes_by_split[split],
                     num_ctx_feats=self.num_ctx_feats,

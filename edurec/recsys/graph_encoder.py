@@ -17,7 +17,7 @@ class LossReduction(StrEnum):
 
 
 @dataclass
-class GnnEncoderConfig:
+class GraphEncoderConfig:
     num_users: int
     num_items: int
     emb_dim: int
@@ -31,8 +31,8 @@ class GnnEncoderConfig:
     item_cat_cardinalities: list[int] = field(default_factory=list)
 
 
-class GnnEncoder(nn.Module):
-    def __init__(self, cfg: GnnEncoderConfig):
+class GraphEncoder(nn.Module):
+    def __init__(self, cfg: GraphEncoderConfig):
         super().__init__()
         self.num_users = cfg.num_users
         self.num_items = cfg.num_items

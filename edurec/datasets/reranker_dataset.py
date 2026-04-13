@@ -16,7 +16,7 @@ class History:
     valid_mask: torch.Tensor
 
 
-class RerankerBatch(NamedTuple):
+class RankerBatch(NamedTuple):
     query_id: torch.Tensor
     user_id: torch.Tensor
     history_items: torch.Tensor
@@ -27,7 +27,7 @@ class RerankerBatch(NamedTuple):
     positive_position: torch.Tensor | None
 
 
-class RerankerDataset(Dataset):
+class RankerDataset(Dataset):
     def __init__(
         self,
         interactions: pd.DataFrame,
@@ -65,7 +65,7 @@ class RerankerDataset(Dataset):
     def __len__(self) -> int:
         return len(self.user_ids)
 
-    def __getitem__(self, idx: int) -> RerankerBatch:
+    def __getitem__(self, idx: int) -> RankerBatch:
         user_idx = self.user_ids[idx]
         item_idx = self.item_ids[idx]
         target = float(self.targets[idx])
@@ -78,7 +78,7 @@ class RerankerDataset(Dataset):
         candidate_labels = self._get_candidate_labels(idx, candidates, item_idx, target)
         positive_position = self._get_positive_position(idx, candidate_labels)
 
-        return RerankerBatch(
+        return RankerBatch(
             query_id=query_id,
             user_id=torch.tensor(user_idx, dtype=torch.long),
             history_items=hist_items,

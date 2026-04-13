@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from edurec.recsys.io import load_model
-from edurec.recsys.model import GnnRankerConfig
+from edurec.recsys.ghost import GhostConfig
 
 
 def test_load_model_returns_latest_saved_artifacts(tmp_path: Path):
@@ -14,7 +14,7 @@ def test_load_model_returns_latest_saved_artifacts(tmp_path: Path):
     older_dir.mkdir(parents=True)
     newer_dir.mkdir(parents=True)
 
-    cfg = GnnRankerConfig(
+    cfg = GhostConfig(
         num_users=2,
         num_items=3,
         num_ctx_feats=4,

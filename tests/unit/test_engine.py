@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from edurec.datasets import DatasetName, ElearningDataModule
-from edurec.recsys.model import GhostConfig
+from edurec.recsys.ghost import GhostConfig
 from edurec.recsys.engine import RecSys
 
 

@@ -5,12 +5,12 @@ from torch import nn
 from torch_geometric.data import Data
 
 from .. import config
-from .gnn_encoder import GnnEncoder, GnnEncoderConfig, LossReduction
-from .ranker import Ranker, RankerConfig
+from .graph_encoder import GraphEncoder, GraphEncoderConfig, LossReduction
+from .scorer import Scorer, ScorerConfig
 
 
 @dataclass
-class GnnRankerConfig:
+class GhostConfig:
     num_users: int
     num_items: int
     num_ctx_feats: int
@@ -26,7 +26,7 @@ class GnnRankerConfig:
     loss_reduction: str = config.LOSS_REDUCTION
     gnn_layers: int = config.GNN_LAYERS
 
-    # Ranker Defaults
+    # Scorer Defaults
     n_heads: int = config.NUM_HEADS
     n_blocks: int = config.NUM_BLOCKS
     ff_dim: int = config.FF_DIM
@@ -34,8 +34,8 @@ class GnnRankerConfig:
     num_scores: int = config.NUM_SCORES
 
     @property
-    def gnn(self) -> GnnEncoderConfig:
-        return GnnEncoderConfig(
+    def gnn(self) -> GraphEncoderConfig:
+        return GraphEncoderConfig(
             num_users=self.num_users,
             num_items=self.num_items,
             emb_dim=self.emb_dim,
@@ -50,8 +50,8 @@ class GnnRankerConfig:
         )
 
     @property
-    def ranker(self) -> RankerConfig:
-        return RankerConfig(
+    def scorer(self) -> ScorerConfig:
+        return ScorerConfig(
             emb_dim=self.emb_dim,
             n_heads=self.n_heads,
             n_blocks=self.n_blocks,
@@ -61,8 +61,8 @@ class GnnRankerConfig:
         )
 
 
-class GnnRanker(nn.Module):
-    def __init__(self, cfg: GnnRankerConfig):
+class Ghost(nn.Module):
+    def __init__(self, cfg: GhostConfig):
         super().__init__()
         self.cfg = cfg
 
@@ -73,8 +73,8 @@ class GnnRanker(nn.Module):
         )
         self.norm = nn.LayerNorm(cfg.emb_dim)
 
-        self.gnn = GnnEncoder(cfg.gnn)
-        self.ranker = Ranker(cfg.ranker)
+        self.gnn = GraphEncoder(cfg.gnn)
+        self.ranker = Scorer(cfg.scorer)
 
     def forward(
         self,

@@ -1,126 +1,283 @@
-from dataclasses import dataclass
-
+import lightning.pytorch as L
 import torch
-from torch import nn
-
-from edurec import config
-
-
-@dataclass
-class RankerConfig:
-    emb_dim: int
-    n_heads: int
-    n_blocks: int
-    ff_dim: int
-    num_scores: int = 1
-    dropout: float = 0.1
-    norm_first: bool = True
-    max_histoy_len: int = config.MAX_HISTORY_LEN
+import torch.nn.functional as F
+from lightning.pytorch.utilities.types import OptimizerLRScheduler
+from torch_geometric.data import Data
+from torch_geometric.utils import dropout_edge
+from torchmetrics import MetricCollection
+from torchmetrics.retrieval import (
+    RetrievalHitRate,
+    RetrievalMAP,
+    RetrievalMRR,
+    RetrievalNormalizedDCG,
+    RetrievalPrecision,
+    RetrievalRecall,
+)
 
 
-class Ranker(nn.Module):
-    def __init__(self, cfg: RankerConfig):
-        super().__init__()
-        self.cfg = cfg
+from .. import config
+from .ghost import Ghost, GhostConfig
+from .graph_encoder import InfoNCELoss
+from ..datasets import RankerBatch
 
-        self.user_proj = nn.Linear(cfg.emb_dim, cfg.emb_dim, bias=False)
-        self.history_proj = nn.Linear(cfg.emb_dim, cfg.emb_dim, bias=False)
-        self.candidate_proj = nn.Linear(cfg.emb_dim, cfg.emb_dim, bias=False)
 
-        encoder_layer = nn.TransformerEncoderLayer(
-            cfg.emb_dim,
-            cfg.n_heads,
-            cfg.ff_dim,
-            cfg.dropout,
-            activation="gelu",
-            batch_first=True,
-            norm_first=cfg.norm_first,
-        )
-
-        self.transformer = nn.TransformerEncoder(
-            encoder_layer,
-            num_layers=cfg.n_blocks,
-            norm=nn.LayerNorm(cfg.emb_dim),
-            enable_nested_tensor=not cfg.norm_first,
-        )
-
-        self.pos_emb = nn.Embedding(cfg.max_histoy_len, cfg.emb_dim)
-
-        self.scorer = nn.Sequential(
-            nn.Linear(cfg.emb_dim, cfg.emb_dim // 2),
-            nn.GELU(),
-            nn.Dropout(cfg.dropout),
-            nn.Linear(cfg.emb_dim // 2, cfg.num_scores),
-        )
-
-    def forward(
+class Ranker(L.LightningModule):
+    def __init__(
         self,
-        user_emb: torch.Tensor,  # [B, D]
-        history_emb: torch.Tensor,  # [B, H, D]
-        candidate_emb: torch.Tensor,  # [B, C, D]
-        history_mask: torch.Tensor | None,  # [B, H]
-    ) -> torch.Tensor:
-        single_candidate = candidate_emb.ndim == 2
-        if single_candidate:
-            candidate_emb = candidate_emb.unsqueeze(1)
+        cfg: GhostConfig,
+        inter_graph: Data,
+        u_static_feats: torch.Tensor,
+        i_static_feats: torch.Tensor,
+        lr: float = config.RANKER_LR,
+        weight_decay: float = config.RANKER_WEIGHT_DECAY,
+        top_k: int = config.RANKER_TOP_K,
+        alpha: float = config.ALPHA,
+        adaptive_k: bool = config.ADAPTIVE_K,
+    ):
+        super().__init__()
+        self.save_hyperparameters(
+            ignore=["inter_graph", "u_static_feats", "i_static_feats"]
+        )
+        self.cfg = cfg
+        self.inter_graph = inter_graph.to(self._resolve_graph_device())
+        self.lr = lr
+        self.weight_decay = weight_decay
+        self.monitor = f"val/NDCG@{top_k}"
+        self.alpha = alpha
+        self.top_k = top_k
 
-        B, H, _ = history_emb.shape
-        C = candidate_emb.shape[1]
+        self.register_buffer("u_static_feats", u_static_feats, persistent=False)
+        self.register_buffer("i_static_feats", i_static_feats, persistent=False)
 
-        user_token = self.user_proj(user_emb).unsqueeze(1)  # [B, 1, D]
-        history_tokens = self.history_proj(history_emb)  # [B, H, D]
-        candidate_tokens = self.candidate_proj(candidate_emb)  # [B, C, D]
+        self.gcl_loss = InfoNCELoss(tau=cfg.gnn.tau, reduction=cfg.gnn.loss_reduc)
 
-        if history_mask is None:
-            history_mask = torch.ones(
-                (B, H), dtype=torch.bool, device=history_emb.device
-            )
+        self.val_ranking_metrics = MetricCollection(
+            {f"NDCG@{top_k}": RetrievalNormalizedDCG(top_k=top_k)}, prefix="val/"
+        )
 
-        # Positional Ecoding
-        pos_emb = self.pos_emb(
-            torch.arange(H, device=history_emb.device).unsqueeze(0).repeat(B, 1)
-        )  # [B, H, D]
+        self.test_ranking_metrics = MetricCollection(
+            {
+                f"Precision@{top_k}": RetrievalPrecision(
+                    top_k=top_k, adaptive_k=adaptive_k
+                ),
+                f"Recall@{top_k}": RetrievalRecall(top_k=top_k),
+                f"NDCG@{top_k}": RetrievalNormalizedDCG(top_k=top_k),
+                f"Hit@{top_k}": RetrievalHitRate(top_k=top_k),
+                f"MAP@{top_k}": RetrievalMAP(top_k=top_k),
+                f"MRR@{top_k}": RetrievalMRR(top_k=top_k),
+            },
+            prefix="test/",
+        )
 
-        history_tokens = (history_tokens + pos_emb) * history_mask.unsqueeze(-1).float()
+        self.model = Ghost(cfg)
+        self.model_name = self.model.__class__.__name__
 
-        seq = torch.cat(
-            [user_token, history_tokens, candidate_tokens], dim=1
-        )  # [B, T, D]
+    def on_load_checkpoint(self, checkpoint: dict):
+        state_dict = checkpoint.get("state_dict")
+        if isinstance(state_dict, dict):
+            state_dict.pop("model.edge_index", None)
 
-        T = seq.shape[1]
-        candidate_start_offset = 1 + H
+    def _resolve_graph_device(self) -> str:
+        if config.state["device"] != "auto":
+            return config.state["device"]
 
-        attn_mask = self._make_attn_mask(T, candidate_start_offset, seq.device)
-        padding_mask = torch.zeros((B, 1 + H + C), dtype=torch.bool, device=seq.device)
-        padding_mask[:, 1 : 1 + H] = ~history_mask
+        return "cuda" if torch.cuda.is_available() else "cpu"
 
-        out = self.transformer(seq, mask=attn_mask, src_key_padding_mask=padding_mask)
+    def forward(self, batch: RankerBatch) -> torch.Tensor:
+        scores = self.model(
+            u_ids=batch.user_id,
+            h_ids=batch.history_items,
+            h_ctx=batch.history_ctx,
+            h_mask=batch.history_valid_mask,
+            c_ids=batch.candidate_ids,
+            inter_graph=self.inter_graph,
+            u_static_feats=self.u_static_feats,
+            i_static_feats=self.i_static_feats,
+        )
 
-        candidate_out = out[:, candidate_start_offset:, :]  # [B, C, D]
-        scores = self.scorer(candidate_out)  # [B, C, num_scores]
-
-        if single_candidate:
-            return scores.squeeze(1).squeeze(-1)
+        if scores.ndim == 3:
+            if scores.size(-1) != 1:
+                raise RuntimeError("Ranker must return a single logit per candidate.")
+            return scores.squeeze(-1)
 
         return scores
 
-    def _make_attn_mask(
-        self, seq_len: int, candidate_start_offset: int, device: torch.device
+    def training_step(self, batch: RankerBatch) -> torch.Tensor:
+        return self._step(batch, "train")
+
+    def validation_step(self, batch: RankerBatch):
+        self._step(
+            batch,
+            "val",
+            ranking_metrics=self.val_ranking_metrics,
+        )
+
+    def test_step(self, batch: RankerBatch):
+        self._step(
+            batch,
+            "test",
+            ranking_metrics=self.test_ranking_metrics,
+        )
+
+    def _step(
+        self,
+        batch: RankerBatch,
+        prefix: str,
+        ranking_metrics: MetricCollection | None = None,
     ) -> torch.Tensor:
-        mask = torch.ones((seq_len, seq_len), dtype=torch.bool, device=device)
+        scores = self(batch)
+        targets = batch.candidate_labels.float()
 
-        causal_mask = torch.triu(
-            torch.ones(candidate_start_offset, candidate_start_offset, device=device),
-            diagonal=1,
-        ).bool()
-        mask[:candidate_start_offset, :candidate_start_offset] = causal_mask
+        scores, targets, positive_position, query_ids = self._select_valid_queries(
+            scores=scores,
+            targets=targets,
+            positive_position=batch.positive_position,
+            query_ids=batch.query_id,
+        )
 
-        mask[candidate_start_offset:, :candidate_start_offset] = False
+        if scores.numel() == 0 or targets.numel() == 0:
+            return scores.new_zeros(())
 
-        if candidate_start_offset < seq_len:
-            candidate_indices = torch.arange(
-                candidate_start_offset, seq_len, device=device
-            )
-            mask[candidate_indices, candidate_indices] = False
+        rank_loss = self._compute_rank_loss(scores, targets, positive_position)
+        gcl_loss = (
+            self._compute_gcl_loss() if prefix == "train" else rank_loss.new_zeros(())
+        )
 
-        return mask
+        loss = rank_loss + self.alpha * gcl_loss
+
+        batch_size = targets.size(0) if targets.ndim > 1 else targets.numel()
+
+        self.log(
+            f"{prefix}/Loss_rank",
+            rank_loss,
+            on_step=(prefix == "train"),
+            on_epoch=True,
+            prog_bar=False,
+            batch_size=batch_size,
+        )
+        self.log(
+            f"{prefix}/Loss_gcl",
+            gcl_loss,
+            on_step=(prefix == "train"),
+            on_epoch=True,
+            prog_bar=False,
+            logger=False,
+            batch_size=batch_size,
+        )
+        self.log(
+            f"{prefix}/Loss",
+            loss,
+            on_step=(prefix == "train"),
+            on_epoch=True,
+            prog_bar=True,
+            batch_size=batch_size,
+        )
+
+        if ranking_metrics is not None:
+            preds = scores.flatten()
+            target = targets.flatten().long()
+
+            num_candidates = targets.size(1) if targets.ndim > 1 else 1
+
+            if targets.ndim == 1:
+                indexes = query_ids.reshape(-1).long()
+            else:
+                num_candidates = targets.size(1)
+                indexes = query_ids.reshape(-1).long().repeat_interleave(num_candidates)
+
+            ranking_metrics.update(preds=preds, target=target, indexes=indexes)
+
+        return loss
+
+    def _select_valid_queries(
+        self,
+        scores: torch.Tensor,
+        targets: torch.Tensor,
+        positive_position: torch.Tensor | None,
+        query_ids: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
+        if scores.ndim == 1 or targets.ndim == 1:
+            return scores, targets, positive_position, query_ids
+
+        valid_mask = targets.sum(dim=1) == 1
+        scores = scores[valid_mask]
+        targets = targets[valid_mask]
+        query_ids = query_ids[valid_mask]
+
+        if positive_position is not None:
+            positive_position = positive_position[valid_mask]
+
+        return scores, targets, positive_position, query_ids
+
+    def _compute_rank_loss(
+        self,
+        scores: torch.Tensor,
+        targets: torch.Tensor,
+        positive_position: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        if scores.ndim == 2 and targets.ndim == 2:
+            if positive_position is None:
+                positive_position = targets.argmax(dim=1)
+
+            return F.cross_entropy(scores, positive_position.long())
+
+        scores = scores.reshape_as(targets)
+        return F.binary_cross_entropy_with_logits(scores, targets.float())
+
+    def _compute_gcl_loss(self) -> torch.Tensor:
+        assert self.inter_graph.edge_index is not None
+        edge_index = self.inter_graph.edge_index
+        num_nodes = self.inter_graph.num_nodes
+        p = self.cfg.edge_dropout
+
+        edge_index_1, _ = dropout_edge(edge_index, p=p, force_undirected=True)
+        edge_index_2, _ = dropout_edge(edge_index, p=p, force_undirected=True)
+
+        graph_view_1 = Data(edge_index=edge_index_1, num_nodes=num_nodes)
+        graph_view_2 = Data(edge_index=edge_index_2, num_nodes=num_nodes)
+
+        u_emb1, i_emb1 = self.model.gnn(
+            graph_view_1,
+            self.u_static_feats,
+            self.i_static_feats,
+        )
+
+        u_emb2, i_emb2 = self.model.gnn(
+            graph_view_2,
+            self.u_static_feats,
+            self.i_static_feats,
+        )
+
+        gcl_loss = self.gcl_loss(u_emb1, i_emb1, u_emb2, i_emb2)
+
+        return gcl_loss
+
+    def on_validation_epoch_start(self):
+        self.val_ranking_metrics.reset()
+
+    def on_validation_epoch_end(self):
+        self.log_dict(self.val_ranking_metrics.compute())
+
+    def on_test_epoch_start(self):
+        self.test_ranking_metrics.reset()
+
+    def on_test_epoch_end(self):
+        self.log_dict(self.test_ranking_metrics.compute())
+
+    def predict_step(self, batch: RankerBatch) -> torch.Tensor:
+        return self(batch)
+
+    def configure_optimizers(self) -> OptimizerLRScheduler:
+        optimizer = torch.optim.AdamW(
+            self.parameters(), lr=self.lr, weight_decay=self.weight_decay
+        )
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode="max",
+            factor=0.5,
+            patience=3,
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {"scheduler": scheduler, "monitor": self.monitor},
+        }

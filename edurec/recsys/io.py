@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from .model import GnnRankerConfig
+from .ghost import GhostConfig
 from .two_tower import RetrievalConfig
 from ..datasets import Phase
 
-type RecsysConfig = GnnRankerConfig | RetrievalConfig
+type RecsysConfig = GhostConfig | RetrievalConfig
 
 
 def save_model(
@@ -23,7 +23,7 @@ def save_model(
     if not is_dataclass(model_config):
         raise TypeError("model_config must be a dataclass instance.")
 
-    if isinstance(model_config, GnnRankerConfig):
+    if isinstance(model_config, GhostConfig):
         model_type = Phase.RANKING
     elif isinstance(model_config, RetrievalConfig):
         model_type = Phase.RETRIEVAL
@@ -130,7 +130,7 @@ def load_model(
     )
 
     if saved_type == Phase.RANKING:
-        return model_file, GnnRankerConfig(**config_data)
+        return model_file, GhostConfig(**config_data)
     if saved_type == Phase.RETRIEVAL:
         return model_file, RetrievalConfig(**config_data)
 

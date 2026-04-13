@@ -1,18 +1,18 @@
-from .reranker_engine import Reranker
-from .retrieval_engine import Retrieval
-from .gnn_encoder import GnnEncoder, GnnEncoderConfig, InfoNCELoss, LossReduction
-from .ranker import Ranker, RankerConfig
-from .model import GnnRanker, GnnRankerConfig
+from .ranker import Ranker
+from .retrieval import Retrieval
+from .graph_encoder import GraphEncoder, GraphEncoderConfig, InfoNCELoss, LossReduction
+from .scorer import Scorer, ScorerConfig
+from .ghost import Ghost, GhostConfig
 from .static_feats_encoder import StaticFeatureEncoder
 
 __all__ = [
-    "Reranker",
-    "GnnEncoder",
-    "GnnEncoderConfig",
     "Ranker",
-    "RankerConfig",
-    "GnnRanker",
-    "GnnRankerConfig",
+    "GraphEncoder",
+    "GraphEncoderConfig",
+    "Scorer",
+    "ScorerConfig",
+    "Ghost",
+    "GhostConfig",
     "InfoNCELoss",
     "LossReduction",
     "StaticFeatureEncoder",

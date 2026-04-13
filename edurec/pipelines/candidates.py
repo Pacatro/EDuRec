@@ -3,7 +3,7 @@ import torch
 
 from .. import config
 from ..datasets import ElearningDataModule, History, Phase
-from ..recsys.retrieval_engine import Retrieval
+from ..recsys.retrieval import Retrieval
 
 
 @torch.no_grad()

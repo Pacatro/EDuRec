@@ -6,11 +6,11 @@ import typer
 from .. import config
 from ..datasets import DatasetName, ElearningDataModule, Phase
 from ..pipelines.candidates import generate_candidates
-from ..pipelines.training import train_reranker, train_retrieval
-from ..recsys.io import ModelType, load_model, save_model
-from ..recsys.model import GnnRankerConfig
-from ..recsys.reranker_engine import Reranker
-from ..recsys.retrieval_engine import Retrieval
+from ..pipelines.training import train_model
+from ..recsys.io import load_model, save_model
+from ..recsys.ghost import GhostConfig
+from ..recsys.ranker import Ranker
+from ..recsys.retrieval import Retrieval
 from ..recsys.two_tower import RetrievalConfig
 
 app = typer.Typer(no_args_is_help=True)
@@ -143,14 +143,15 @@ def train_retrieval_command(
         top_k=top_k,
     )
 
-    trainer, best_model_path = train_retrieval(
-        retrieval=retrieval,
+    trainer, best_model_path = train_model(
+        model=retrieval,
         dm=dm,
         top_k=top_k,
         debug=debug,
         use_logger=use_logger,
         epochs=epochs,
         patience=patience,
+        monitor=f"val/Recall@{top_k}",
     )
 
     if debug:
@@ -269,7 +270,7 @@ def train_ranker_command(
     retrieval_model_path, retrieval_cfg = load_model(
         models_folder=models_folder,
         dataset_name=dataset.value,
-        model_type=ModelType.RETRIEVAL,
+        model_type=Phase.RETRIEVAL,
     )
 
     if not isinstance(retrieval_cfg, RetrievalConfig):
@@ -292,9 +293,9 @@ def train_ranker_command(
         print(f"[TRAIN] Generating top-{candidate_top_n} candidates per query")
 
     generate_candidates(retrieval=retrieval, dm=dm, top_n=candidate_top_n)
-    dm.setup(phase=Phase.RERANKING)
+    dm.setup(phase=Phase.RANKING)
 
-    cfg = GnnRankerConfig(
+    cfg = GhostConfig(
         num_users=dm.num_users,
         num_items=dm.num_items,
         num_ctx_feats=dm.train_ds.num_ctx_feats,
@@ -304,7 +305,7 @@ def train_ranker_command(
         item_cat_cardinalities=dm.item_cat_cardinalities,
     )
 
-    reranker = Reranker(
+    reranker = Ranker(
         cfg=cfg,
         inter_graph=dm.create_inter_graph(),
         u_static_feats=dm.u_static_feats,
@@ -314,14 +315,15 @@ def train_ranker_command(
         adaptive_k=adaptive_k,
     )
 
-    trainer, best_model_path = train_reranker(
-        reranker=reranker,
+    trainer, best_model_path = train_model(
+        model=reranker,
         dm=dm,
         top_k=top_k,
         debug=debug,
         use_logger=use_logger,
         epochs=epochs,
         patience=patience,
+        monitor=f"val/NDCG@{top_k}",
     )
 
     if debug:

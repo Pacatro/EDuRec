@@ -6,8 +6,8 @@ import typer
 
 from .. import config
 from ..datasets import DatasetName, ElearningDataModule, Phase
-from ..recsys.reranker_engine import Reranker
-from ..recsys.io import ModelType, load_model, save_metrics
+from ..recsys.ranker import Ranker
+from ..recsys.io import load_model, save_metrics
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -55,7 +55,7 @@ def test_recsys(
     model_path, cfg = load_model(
         models_folder=models_folder,
         dataset_name=dataset.value,
-        model_type=ModelType.RANKER,
+        model_type=Phase.RANKING,
     )
 
     dm = ElearningDataModule(
@@ -67,11 +67,11 @@ def test_recsys(
         random_state=config.state["random_state"],
         remove_sparse=remove_sparse,
     )
-    dm.setup(phase=Phase.RERANKING)
+    dm.setup(phase=Phase.RANKING)
 
     assert dm.u_static_feats is not None and dm.i_static_feats is not None
 
-    model = Reranker.load_from_checkpoint(
+    model = Ranker.load_from_checkpoint(
         checkpoint_path=str(model_path),
         cfg=cfg,
         inter_graph=dm.create_inter_graph(),

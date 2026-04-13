@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from edurec import config
-from edurec.datasets import DatasetName, ElearningDataModule, RerankerDataset
+from edurec.datasets import DatasetName, ElearningDataModule, RankerDataset
 from edurec.datasets.elearnig_dataset import History
 
 
@@ -20,7 +20,7 @@ def dm() -> ElearningDataModule:
 def test_elearning_dataset_contract(dm: ElearningDataModule):
     ds = dm.train_ds
 
-    assert isinstance(ds, RerankerDataset)
+    assert isinstance(ds, RankerDataset)
     assert len(ds) > 0
 
     elem = ds[0]
@@ -123,7 +123,7 @@ def test_negative_sampling_allows_future_items_but_never_current_positive(
         }
     )
 
-    dataset = RerankerDataset(
+    dataset = RankerDataset(
         interactions=interactions,
         precomputed_history=History(
             items=torch.zeros((1, config.MAX_HISTORY_LEN), dtype=torch.long),

@@ -1,12 +1,12 @@
 import pytest
 import torch
 
-from edurec.recsys.model import Ranker, RankerConfig
+from edurec.recsys.ghost import Scorer, ScorerConfig
 
 
 @pytest.fixture
 def cfg():
-    return RankerConfig(
+    return ScorerConfig(
         emb_dim=16,
         n_heads=4,
         n_blocks=2,
@@ -16,10 +16,10 @@ def cfg():
     )
 
 
-def test_ranker_forward_multi_candidate(cfg):
+def test_scorer_forward_multi_candidate(cfg):
     torch.manual_seed(0)
 
-    model = Ranker(cfg).eval()
+    model = Scorer(cfg).eval()
 
     B, H, C, D = 3, 5, 4, cfg.emb_dim
     user_emb = torch.randn(B, D)
@@ -40,10 +40,10 @@ def test_ranker_forward_multi_candidate(cfg):
     assert torch.isfinite(scores).all()
 
 
-def test_ranker_forward_single_candidate(cfg):
+def test_scorer_forward_single_candidate(cfg):
     torch.manual_seed(0)
 
-    model = Ranker(cfg).eval()
+    model = Scorer(cfg).eval()
 
     B, H, D = 2, 5, cfg.emb_dim
     user_emb = torch.randn(B, D)
@@ -57,10 +57,10 @@ def test_ranker_forward_single_candidate(cfg):
     assert torch.isfinite(scores).all()
 
 
-def test_ranker_padding_does_not_affect_scores(cfg):
+def test_scorer_padding_does_not_affect_scores(cfg):
     torch.manual_seed(0)
 
-    model = Ranker(cfg).eval()
+    model = Scorer(cfg).eval()
 
     B, H, C, D = 2, 5, 3, cfg.emb_dim
     user_emb = torch.randn(B, D)
@@ -86,10 +86,10 @@ def test_ranker_padding_does_not_affect_scores(cfg):
     assert torch.allclose(scores_a, scores_b, atol=1e-6)
 
 
-def test_ranker_candidate_isolation(cfg):
+def test_scorer_candidate_isolation(cfg):
     torch.manual_seed(0)
 
-    model = Ranker(cfg).eval()
+    model = Scorer(cfg).eval()
 
     B, H, C, D = 1, 4, 3, cfg.emb_dim
     user_emb = torch.randn(B, D)
