@@ -305,9 +305,9 @@ class ElearningDataModule(L.LightningDataModule):
         }
 
     def _prepare_raw_dataset(self, raw_dataset: RawDataset) -> RawDataset:
-        interactions = self._clean_df(raw_dataset.interactions)
-        items = self._clean_df(raw_dataset.i_feats)
-        users = self._clean_df(raw_dataset.u_feats)
+        interactions = self._clean_cols_names(raw_dataset.interactions)
+        items = self._clean_cols_names(raw_dataset.i_feats)
+        users = self._clean_cols_names(raw_dataset.u_feats)
 
         if self.remove_sparse:
             interactions, users, items = self._filter_sparse_iterative(
@@ -324,7 +324,7 @@ class ElearningDataModule(L.LightningDataModule):
             schema=raw_dataset.schema,
         )
 
-    def _clean_df(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _clean_cols_names(self, df: pd.DataFrame) -> pd.DataFrame:
         cleaned = df.copy()
         cleaned.columns = (
             cleaned.columns.str.lower()
