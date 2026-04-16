@@ -14,7 +14,7 @@ from torch_geometric.data import Data
 from .. import config
 from .data_processor import DataProcessor
 from .loaders import DatasetName, RawDataset, Schema, load_raw_data
-from .reranker_dataset import History, RankerDataset
+from .ranker_dataset import History, RankerDataset
 from .retrieval_dataset import RetrievalDataset
 
 
@@ -97,7 +97,7 @@ class ElearningDataModule(L.LightningDataModule):
             config.ITEM_COL,
             config.RELEVANT_COL,
             config.RATING_COL,
-            config.TIME_COL,
+            # config.TIME_COL,
             config.INTERACTION_ORDER_COL,
             config.CANDIDATE_IDS_COL,
             config.CANDIDATE_LABELS_COL,
@@ -162,6 +162,7 @@ class ElearningDataModule(L.LightningDataModule):
         """Return total number of users from processed or raw features."""
         if self.u_static_feats is not None:
             return self.u_static_feats.shape[0]
+
         return len(self.raw_dataset.u_feats) if self.raw_dataset is not None else 0
 
     @property
@@ -169,6 +170,7 @@ class ElearningDataModule(L.LightningDataModule):
         """Return total number of items from processed or raw features."""
         if self.i_static_feats is not None:
             return self.i_static_feats.shape[0]
+
         return len(self.raw_dataset.i_feats) if self.raw_dataset is not None else 0
 
     @property
@@ -178,6 +180,7 @@ class ElearningDataModule(L.LightningDataModule):
             return sum(
                 len(df) for df in self._processed_data.values() if df is not None
             )
+
         return len(self.raw_dataset.interactions) if self.raw_dataset is not None else 0
 
     @property
@@ -189,13 +192,7 @@ class ElearningDataModule(L.LightningDataModule):
                 return len([c for c in df.columns if c not in self.excluded_cols])
 
         return (
-            len(
-                [
-                    c
-                    for c in self.raw_dataset.interactions.columns
-                    if c not in self.excluded_cols
-                ]
-            )
+            len([c for c in self.raw_dataset.interactions.columns])
             if self.raw_dataset is not None
             else 0
         )
@@ -212,6 +209,8 @@ class ElearningDataModule(L.LightningDataModule):
 
     @property
     def num_user_feats(self) -> int:
+        if not self.is_processed and self.raw_dataset is not None:
+            return len(self.raw_dataset.u_feats.columns)
         if self.data_processor is not None:
             metadata = self.data_processor.feature_metadata["users"]
             return len(metadata.dense_cols) + len(metadata.categorical_cols)
@@ -221,6 +220,8 @@ class ElearningDataModule(L.LightningDataModule):
 
     @property
     def num_item_feats(self) -> int:
+        if not self.is_processed and self.raw_dataset is not None:
+            return len(self.raw_dataset.i_feats.columns)
         if self.data_processor is not None:
             metadata = self.data_processor.feature_metadata["items"]
             return len(metadata.dense_cols) + len(metadata.categorical_cols)
