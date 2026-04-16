@@ -146,17 +146,14 @@ class Ranker(L.LightningModule):
         loss = rank_loss + self.alpha * gcl_loss
 
         self.log(
-            f"{prefix}/Loss_rank",
+            f"{prefix}/RankLoss",
             rank_loss,
-            on_step=(prefix == "train"),
-            on_epoch=True,
             prog_bar=(prefix == "train"),
+            logger=(prefix == "train"),
         )
         self.log(
-            f"{prefix}/Loss_gcl",
+            f"{prefix}/GclLoss",
             gcl_loss,
-            on_step=(prefix == "train"),
-            on_epoch=True,
             prog_bar=(prefix == "train"),
             logger=(prefix == "train"),
         )
@@ -164,8 +161,8 @@ class Ranker(L.LightningModule):
             f"{prefix}/Loss",
             loss,
             on_step=(prefix == "train"),
-            on_epoch=True,
             prog_bar=True,
+            logger=True,
         )
 
         if ranking_metrics is not None:

@@ -33,9 +33,7 @@ class RankerDataset(Dataset):
         interactions: pd.DataFrame,
         precomputed_history: History,
         num_ctx_feats: int,
-        min_rating: float | None = None,
     ):
-        self.min_rating = min_rating
         self.num_ctx_feats = num_ctx_feats
 
         if len(precomputed_history.items) != len(interactions):

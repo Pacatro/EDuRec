@@ -5,7 +5,7 @@ import torch
 from torch.utils.data import Dataset
 
 from .. import config
-from .reranker_dataset import History
+from .ranker_dataset import History
 
 
 class RetrievalBatch(NamedTuple):

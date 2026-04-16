@@ -160,14 +160,7 @@ class TwoTowerRetrieval(nn.Module):
 
         flat_ids = item_ids.reshape(-1)
         item_static_repr = self.item_static_encoder(i_static_feats[flat_ids])
-
-        if self.item_id_embedding is None:
-            item_id_repr = item_static_repr.new_zeros(
-                flat_ids.size(0), self.cfg.emb_dim
-            )
-        else:
-            # retrieval usa ids reales [0..N-1], embedding reserva 0 como padding
-            item_id_repr = self.item_id_embedding(flat_ids + 1)
+        item_id_repr = self.item_id_embedding(flat_ids + 1)
 
         item_emb = self.item_proj(torch.cat([item_id_repr, item_static_repr], dim=-1))
         item_emb = F.normalize(item_emb, dim=-1)
@@ -176,68 +169,6 @@ class TwoTowerRetrieval(nn.Module):
             return item_emb
 
         return item_emb.view(*item_ids.shape, -1)
-
-    @torch.no_grad()
-    def encode_all_items(self, i_static_feats: torch.Tensor) -> torch.Tensor:
-        item_ids = torch.arange(
-            i_static_feats.size(0),
-            device=i_static_feats.device,
-            dtype=torch.long,
-        )
-        return self.encode_items(item_ids=item_ids, i_static_feats=i_static_feats)
-
-    @torch.no_grad()
-    def retrieve_topk(
-        self,
-        user_ids: torch.Tensor,
-        history_items: torch.Tensor,
-        history_ctx: torch.Tensor,
-        history_valid_mask: torch.Tensor,
-        u_static_feats: torch.Tensor,
-        i_static_feats: torch.Tensor,
-        k: int,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        query_emb = self.encode_query(
-            user_ids=user_ids,
-            history_items=history_items,
-            history_ctx=history_ctx,
-            history_valid_mask=history_valid_mask,
-            u_static_feats=u_static_feats,
-            i_static_feats=i_static_feats,
-        )
-        all_item_embs = self.encode_all_items(i_static_feats)
-        scores = query_emb @ all_item_embs.T
-        top_scores, top_items = torch.topk(scores, k=k, dim=1)
-        return top_items, top_scores
-
-    def score_candidates(
-        self,
-        user_ids: torch.Tensor,
-        history_items: torch.Tensor,
-        history_ctx: torch.Tensor,
-        history_valid_mask: torch.Tensor,
-        candidate_item_ids: torch.Tensor,
-        u_static_feats: torch.Tensor,
-        i_static_feats: torch.Tensor,
-    ) -> torch.Tensor:
-        query_emb = self.encode_query(
-            user_ids=user_ids,
-            history_items=history_items,
-            history_ctx=history_ctx,
-            history_valid_mask=history_valid_mask,
-            u_static_feats=u_static_feats,
-            i_static_feats=i_static_feats,
-        )
-
-        candidate_emb = self.encode_items(
-            item_ids=candidate_item_ids,
-            i_static_feats=i_static_feats,
-        )
-
-        if candidate_emb.ndim == 2:
-            return query_emb @ candidate_emb.T
-
-        return torch.einsum("bd,bcd->bc", query_emb, candidate_emb)
 
     def _masked_mean(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         denom = mask.sum(dim=1).clamp_min(1.0)

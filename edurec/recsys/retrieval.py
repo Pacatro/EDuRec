@@ -44,16 +44,42 @@ class Retrieval(L.LightningModule):
         self.test_ranking_metrics = ranking_metrics.clone(prefix="test/")
 
     def forward(self, batch: RetrievalBatch) -> torch.Tensor:
-        query_emb, item_emb = self.model(
+        query_emb = self.encode_query(
             user_ids=batch.user_id,
             history_items=batch.history_items,
             history_ctx=batch.history_ctx,
             history_valid_mask=batch.history_valid_mask,
-            item_ids=batch.positive_item_id,
+        )
+        item_emb = self.encode_items(batch.positive_item_id)
+        return self.compute_logits(query_emb, item_emb)
+
+    def encode_query(
+        self,
+        user_ids: torch.Tensor,
+        history_items: torch.Tensor,
+        history_ctx: torch.Tensor,
+        history_valid_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        return self.model.encode_query(
+            user_ids=user_ids,
+            history_items=history_items,
+            history_ctx=history_ctx,
+            history_valid_mask=history_valid_mask,
             u_static_feats=self.u_static_feats,
             i_static_feats=self.i_static_feats,
         )
 
+    def encode_items(self, item_ids: torch.Tensor) -> torch.Tensor:
+        return self.model.encode_items(
+            item_ids=item_ids,
+            i_static_feats=self.i_static_feats,
+        )
+
+    def compute_logits(
+        self,
+        query_emb: torch.Tensor,
+        item_emb: torch.Tensor,
+    ) -> torch.Tensor:
         return (query_emb @ item_emb.T) / self.cfg.temperature
 
     def training_step(self, batch: RetrievalBatch) -> torch.Tensor:
