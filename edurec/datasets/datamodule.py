@@ -97,7 +97,7 @@ class ElearningDataModule(L.LightningDataModule):
             config.ITEM_COL,
             config.RELEVANT_COL,
             config.RATING_COL,
-            # config.TIME_COL,
+            config.TIME_COL,
             config.INTERACTION_ORDER_COL,
             config.CANDIDATE_IDS_COL,
             config.CANDIDATE_LABELS_COL,
