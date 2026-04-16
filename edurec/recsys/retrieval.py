@@ -33,20 +33,15 @@ class Retrieval(L.LightningModule):
         self.model = TwoTowerRetrieval(cfg)
         self.model_name = self.model.__class__.__name__
 
-        self.val_ranking_metrics = MetricCollection(
+        ranking_metrics = MetricCollection(
             {
                 f"Hit@{top_k}": RetrievalHitRate(top_k=top_k),
                 f"Recall@{top_k}": RetrievalRecall(top_k=top_k),
-            },
-            prefix="val/",
+            }
         )
-        self.test_ranking_metrics = MetricCollection(
-            {
-                f"Hit@{top_k}": RetrievalHitRate(top_k=top_k),
-                f"Recall@{top_k}": RetrievalRecall(top_k=top_k),
-            },
-            prefix="test/",
-        )
+
+        self.val_ranking_metrics = ranking_metrics.clone(prefix="val/")
+        self.test_ranking_metrics = ranking_metrics.clone(prefix="test/")
 
     def forward(self, batch: RetrievalBatch) -> torch.Tensor:
         query_emb, item_emb = self.model(

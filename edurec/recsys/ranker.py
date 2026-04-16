@@ -42,9 +42,9 @@ class Ranker(L.LightningModule):
         self.inter_graph = inter_graph.to(self._resolve_graph_device())
         self.lr = lr
         self.weight_decay = weight_decay
-        self.monitor = f"val/NDCG@{top_k}"
         self.alpha = alpha
         self.top_k = top_k
+        self.monitor = f"val/NDCG@{top_k}"
 
         self.register_buffer("u_static_feats", u_static_feats, persistent=False)
         self.register_buffer("i_static_feats", i_static_feats, persistent=False)

@@ -292,7 +292,8 @@ def train_ranker_command(
         print(f"[TRAIN] Loaded retrieval model from: {retrieval_model_path}")
         print(f"[TRAIN] Generating top-{candidate_top_n} candidates per query")
 
-    generate_candidates(retrieval=retrieval, dm=dm, top_n=candidate_top_n)
+    candidates = generate_candidates(retrieval=retrieval, dm=dm, top_n=candidate_top_n)
+    print(candidates)
     dm.setup(phase=Phase.RANKING)
 
     cfg = GhostConfig(
