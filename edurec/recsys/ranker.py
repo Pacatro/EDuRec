@@ -51,23 +51,23 @@ class Ranker(L.LightningModule):
 
         self.gcl_loss = InfoNCELoss(tau=cfg.gnn.tau, reduction=cfg.gnn.loss_reduc)
 
+        ranking_metrics = {
+            f"Precision@{top_k}": RetrievalPrecision(
+                top_k=top_k, adaptive_k=adaptive_k
+            ),
+            f"Recall@{top_k}": RetrievalRecall(top_k=top_k),
+            f"NDCG@{top_k}": RetrievalNormalizedDCG(top_k=top_k),
+            f"Hit@{top_k}": RetrievalHitRate(top_k=top_k),
+            f"MAP@{top_k}": RetrievalMAP(top_k=top_k),
+            f"MRR@{top_k}": RetrievalMRR(top_k=top_k),
+        }
+
         self.val_ranking_metrics = MetricCollection(
-            {f"NDCG@{top_k}": RetrievalNormalizedDCG(top_k=top_k)}, prefix="val/"
+            ranking_metrics[f"NDCG@{top_k}"],
+            prefix="val/",
         )
 
-        self.test_ranking_metrics = MetricCollection(
-            {
-                f"Precision@{top_k}": RetrievalPrecision(
-                    top_k=top_k, adaptive_k=adaptive_k
-                ),
-                f"Recall@{top_k}": RetrievalRecall(top_k=top_k),
-                f"NDCG@{top_k}": RetrievalNormalizedDCG(top_k=top_k),
-                f"Hit@{top_k}": RetrievalHitRate(top_k=top_k),
-                f"MAP@{top_k}": RetrievalMAP(top_k=top_k),
-                f"MRR@{top_k}": RetrievalMRR(top_k=top_k),
-            },
-            prefix="test/",
-        )
+        self.test_ranking_metrics = MetricCollection(ranking_metrics, prefix="test/")
 
         self.model = Ghost(cfg)
         self.model_name = self.__class__.__name__
@@ -127,12 +127,12 @@ class Ranker(L.LightningModule):
         if scores.numel() == 0 or targets.numel() == 0:
             return scores.new_zeros(())
 
-        rank_loss = self._compute_rank_loss(scores, targets, positive_position)
-        gcl_loss = (
-            self._compute_gcl_loss() if prefix == "train" else rank_loss.new_zeros(())
+        loss, rank_loss, gcl_loss = self.compute_loss(
+            scores,
+            targets,
+            prefix,
+            positive_position,
         )
-
-        loss = rank_loss + self.alpha * gcl_loss
 
         self.log(
             f"{prefix}/RankLoss",
@@ -190,6 +190,22 @@ class Ranker(L.LightningModule):
 
         return scores, targets, positive_position, query_ids
 
+    def compute_loss(
+        self,
+        scores: torch.Tensor,
+        targets: torch.Tensor,
+        prefix: str,
+        positive_position: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        rank_loss = self._compute_rank_loss(scores, targets, positive_position)
+        gcl_loss = (
+            self._compute_gcl_loss() if prefix == "train" else rank_loss.new_zeros(())
+        )
+
+        loss = rank_loss + self.alpha * gcl_loss
+
+        return loss, rank_loss, gcl_loss
+
     def _compute_rank_loss(
         self,
         scores: torch.Tensor,
@@ -232,7 +248,7 @@ class Ranker(L.LightningModule):
         self.val_ranking_metrics.reset()
 
     def on_validation_epoch_end(self):
-        self.log_dict(self.val_ranking_metrics.compute())
+        self.log_dict(self.val_ranking_metrics.compute(), prog_bar=True)
 
     def on_test_epoch_start(self):
         self.test_ranking_metrics.reset()
