@@ -36,7 +36,7 @@ def save_model(
     model_folder.mkdir(parents=True, exist_ok=True)
 
     model_file_path = model_folder / config.MODEL_FILENAME
-    model_config_path = model_folder / config.MODEL_CONFIG_FILENAME
+    model_config_path = model_folder / config.MODEL_METADATA_FILENAME
 
     Path(best_model_path).rename(model_file_path)
     model_config_path.write_text(
@@ -85,7 +85,7 @@ def load_model(
         for path in phase_root.iterdir()
         if path.is_dir()
         and (path / config.MODEL_FILENAME).exists()
-        and (path / config.MODEL_CONFIG_FILENAME).exists()
+        and (path / config.MODEL_METADATA_FILENAME).exists()
     ]
 
     if not model_dirs:
@@ -95,7 +95,7 @@ def load_model(
 
     latest_dir = max(model_dirs, key=lambda path: path.stat().st_mtime)
     model_file = latest_dir / config.MODEL_FILENAME
-    config_file = latest_dir / config.MODEL_CONFIG_FILENAME
+    config_file = latest_dir / config.MODEL_METADATA_FILENAME
 
     if not model_file.exists():
         raise FileNotFoundError(f"Model file {model_file} does not exist")
