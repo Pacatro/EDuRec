@@ -5,8 +5,8 @@ import typer
 
 from .. import config
 from ..datasets import DatasetName, ElearningDataModule, Phase
-from ..pipelines.candidates import generate_candidates
-from ..pipelines.training import train_model
+from ..recsys import generate_candidates
+from ..recsys import train_model
 from ..recsys.io import load_model, save_model
 from ..recsys.ghost import GhostConfig
 from ..recsys.ranker import Ranker

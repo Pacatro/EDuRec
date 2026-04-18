@@ -1,9 +1,9 @@
 import pandas as pd
 import torch
 
-from .. import config
-from ..datasets import ElearningDataModule, History, Phase
-from ..recsys.retrieval import Retrieval
+from ... import config
+from ...datasets import ElearningDataModule, History, Phase
+from ..retrieval import Retrieval
 
 
 @torch.no_grad()
