@@ -39,13 +39,13 @@ class Ranker(L.LightningModule):
             ignore=["inter_graph", "u_static_feats", "i_static_feats"]
         )
         self.cfg = cfg
-        self.inter_graph = inter_graph.to(self._resolve_graph_device())
         self.lr = lr
         self.weight_decay = weight_decay
         self.alpha = alpha
         self.top_k = top_k
         self.monitor = f"val/NDCG@{top_k}"
 
+        self.register_buffer("edge_index", inter_graph.edge_index)
         self.register_buffer("u_static_feats", u_static_feats, persistent=False)
         self.register_buffer("i_static_feats", i_static_feats, persistent=False)
 
@@ -72,17 +72,6 @@ class Ranker(L.LightningModule):
         self.model = Ghost(cfg)
         self.model_name = self.__class__.__name__
 
-    def on_load_checkpoint(self, checkpoint: dict):
-        state_dict = checkpoint.get("state_dict")
-        if isinstance(state_dict, dict):
-            state_dict.pop("model.edge_index", None)
-
-    def _resolve_graph_device(self) -> str:
-        if config.state["device"] != "auto":
-            return config.state["device"]
-
-        return "cuda" if torch.cuda.is_available() else "cpu"
-
     def forward(self, batch: RankerBatch) -> torch.Tensor:
         scores = self.model(
             u_ids=batch.user_id,
@@ -90,7 +79,7 @@ class Ranker(L.LightningModule):
             h_ctx=batch.history_ctx,
             h_mask=batch.history_valid_mask,
             c_ids=batch.candidate_ids,
-            inter_graph=self.inter_graph,
+            edge_index=self.edge_index,
             u_static_feats=self.u_static_feats,
             i_static_feats=self.i_static_feats,
         )
@@ -217,25 +206,20 @@ class Ranker(L.LightningModule):
         return F.binary_cross_entropy_with_logits(scores, targets.float())
 
     def _compute_gcl_loss(self) -> torch.Tensor:
-        assert self.inter_graph.edge_index is not None
-        edge_index = self.inter_graph.edge_index
-        num_nodes = self.inter_graph.num_nodes
         p = self.cfg.edge_dropout
 
-        edge_index_1, _ = dropout_edge(edge_index, p=p, force_undirected=True)
-        edge_index_2, _ = dropout_edge(edge_index, p=p, force_undirected=True)
-
-        graph_view_1 = Data(edge_index=edge_index_1, num_nodes=num_nodes)
-        graph_view_2 = Data(edge_index=edge_index_2, num_nodes=num_nodes)
+        assert isinstance(self.edge_index, torch.Tensor)
+        edge_index_1, _ = dropout_edge(self.edge_index, p=p, force_undirected=True)
+        edge_index_2, _ = dropout_edge(self.edge_index, p=p, force_undirected=True)
 
         u_emb1, i_emb1 = self.model.gnn(
-            graph_view_1,
+            edge_index_1,
             self.u_static_feats,
             self.i_static_feats,
         )
 
         u_emb2, i_emb2 = self.model.gnn(
-            graph_view_2,
+            edge_index_2,
             self.u_static_feats,
             self.i_static_feats,
         )

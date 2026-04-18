@@ -48,12 +48,10 @@ class GraphEncoder(nn.Module):
 
     def forward(
         self,
-        data: Data,
+        edge_index: torch.Tensor,
         user_static_feats: torch.Tensor,
         item_static_feats: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        edge_index = data.edge_index
-
         u_x = self.user_emb.weight + self.user_static_encoder(user_static_feats)
         i_x = self.item_emb.weight + self.item_static_encoder(item_static_feats)
 

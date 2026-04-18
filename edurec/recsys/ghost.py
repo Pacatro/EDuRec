@@ -83,11 +83,11 @@ class Ghost(nn.Module):
         h_ctx: torch.Tensor,
         h_mask: torch.Tensor,
         c_ids: torch.Tensor,
-        inter_graph: Data,
+        edge_index: torch.Tensor,
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
     ) -> torch.Tensor:
-        user_embs, item_embs = self.gnn(inter_graph, u_static_feats, i_static_feats)
+        user_embs, item_embs = self.gnn(edge_index, u_static_feats, i_static_feats)
 
         padded_item_embs = torch.cat(
             [item_embs.new_zeros(1, item_embs.size(1)), item_embs], dim=0
