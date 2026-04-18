@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from edurec.datasets import DatasetName, ElearningDataModule
-from edurec.recsys.model import GhostConfig
+from edurec.recsys.ghost import GhostConfig
 from edurec.recsys.engine import RecSys
 
 
@@ -47,4 +47,4 @@ def test_recsys_step_and_metrics():
     metrics = recsys.val_ranking_metrics.compute()
 
     assert loss.item() > 0
-    assert f"val/Ndcg@{recsys.top_k}" in metrics
+    assert f"val/NDCG@{recsys.top_k}" in metrics

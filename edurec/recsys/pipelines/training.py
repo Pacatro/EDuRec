@@ -8,12 +8,14 @@ from lightning.pytorch.loggers import WandbLogger
 
 from edurec import config
 
-from ..datasets import ElearningDataModule
-from .engine import RecSys
+from ...datasets import ElearningDataModule
+from .. import Ranker, Retrieval
+
+type Model = Ranker | Retrieval
 
 
-def train_recsys(
-    recsys: RecSys,
+def train_model(
+    model: Model,
     dm: ElearningDataModule,
     top_k: int,
     debug: bool,
@@ -22,27 +24,24 @@ def train_recsys(
     patience: int,
     monitor: str,
 ) -> tuple[L.Trainer, Path]:
-    model_name = recsys.model_name
+    model_name = model.model_name
 
-    recsys = (
-        cast(RecSys, torch.compile(recsys))
+    model = (
+        cast(Model, torch.compile(model))
         if not debug and config.COMPILE_MODEL
-        else recsys
+        else model
     )
 
-    resolved_monitor = monitor if "Loss" in monitor else f"{monitor}@{top_k}"
-    mode = "min" if "Loss" in monitor else "max"
-
     early_stopping = EarlyStopping(
-        monitor=resolved_monitor,
+        monitor=monitor,
         patience=patience,
-        mode=mode,
+        mode="max",
         min_delta=config.DELTA,
         verbose=True,
     )
     checkpoint = ModelCheckpoint(
-        monitor=resolved_monitor,
-        mode=mode,
+        monitor=monitor,
+        mode="max",
         save_top_k=1,
         filename=f"best_{model_name}",
     )
@@ -51,7 +50,7 @@ def train_recsys(
     if use_logger and not debug:
         train_logger = WandbLogger(
             project=config.EXPERIMENT_NAME,
-            name=f"train_{dm.dataset_name}_top-{top_k}",
+            name=f"train_{model_name}_{dm.dataset_name}_top-{top_k}",
         )
 
     trainer = L.Trainer(
@@ -64,6 +63,6 @@ def train_recsys(
         fast_dev_run=debug,
     )
 
-    trainer.fit(recsys, datamodule=dm)
+    trainer.fit(model, datamodule=dm)
 
     return trainer, Path(checkpoint.best_model_path)

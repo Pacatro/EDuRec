@@ -2,7 +2,7 @@ import pytest
 import torch
 from torch_geometric.data import Data
 
-from edurec.recsys.model import Ghost, GhostConfig
+from edurec.recsys.ghost import Ghost, GhostConfig
 
 
 @pytest.fixture

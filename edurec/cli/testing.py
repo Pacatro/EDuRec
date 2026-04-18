@@ -5,8 +5,8 @@ import torch
 import typer
 
 from .. import config
-from ..datasets import DatasetName, ElearningDataModule
-from ..recsys.engine import RecSys
+from ..datasets import DatasetName, ElearningDataModule, Phase
+from ..recsys.ranker import Ranker
 from ..recsys.io import load_model, save_metrics
 
 app = typer.Typer(no_args_is_help=True)
@@ -23,7 +23,7 @@ def test_recsys(
     ] = DatasetName.MARS,
     batch_size: Annotated[
         int, typer.Option("--batch_size", "-b", help="Batch size")
-    ] = config.BATCH_SIZE,
+    ] = config.RANKER_BATCH_SIZE,
     val_size: Annotated[
         float, typer.Option("--val_size", "-v", help="Validation size")
     ] = config.VAL_RATIO,
@@ -32,35 +32,19 @@ def test_recsys(
     ] = config.TEST_RATIO,
     top_k: Annotated[
         int, typer.Option("--top_k", "-k", help="Top-k value")
-    ] = config.TOP_K,
+    ] = config.RANKER_TOP_K,
     adaptive_k: Annotated[
         bool,
         typer.Option(
             "--adaptive_k", "-a", help="Use adaptive k to compute some metrics"
         ),
     ] = config.ADAPTIVE_K,
-    n_neg_train: Annotated[
-        int,
-        typer.Option(
-            "--n_neg_train", help="Number of negatives to sample for training"
-        ),
-    ] = config.N_NEG_TRAIN,
-    n_neg_val: Annotated[
-        int,
-        typer.Option(
-            "--n_neg_val", help="Number of negatives to sample for validation"
-        ),
-    ] = config.N_NEG_VAL,
-    n_neg_test: Annotated[
-        int,
-        typer.Option("--n_neg_test", help="Number of negatives to sample for testing"),
-    ] = config.N_NEG_TEST,
     use_procesed_data: Annotated[
         bool, typer.Option("--use_processed", "-P", help="Use saved processed data")
     ] = config.SAVE_DATA,
-    remove_sparse_users: Annotated[
-        bool, typer.Option("--remove_sparse_users", "-R", help="Remove users")
-    ] = config.REMOVE_SPARSE_USERS,
+    remove_sparse: Annotated[
+        bool, typer.Option("--remove_sparse", "-R", help="Remove users")
+    ] = config.REMOVE_SPARSE,
     models_folder: Annotated[
         str,
         typer.Option(
@@ -69,7 +53,9 @@ def test_recsys(
     ] = config.MODELS_FOLDER,
 ):
     model_path, cfg = load_model(
-        models_folder=models_folder, dataset_name=dataset.value
+        models_folder=models_folder,
+        dataset_name=dataset.value,
+        model_type=Phase.RANKING,
     )
 
     dm = ElearningDataModule(
@@ -79,16 +65,13 @@ def test_recsys(
         val_ratio=val_size,
         use_processed_data=use_procesed_data,
         random_state=config.state["random_state"],
-        n_neg_train=n_neg_train,
-        n_neg_val=n_neg_val,
-        n_neg_test=n_neg_test,
-        remove_sparse_users=remove_sparse_users,
+        remove_sparse=remove_sparse,
     )
-    dm.setup()
+    dm.setup(phase=Phase.RANKING)
 
     assert dm.u_static_feats is not None and dm.i_static_feats is not None
 
-    model = RecSys.load_from_checkpoint(
+    model = Ranker.load_from_checkpoint(
         checkpoint_path=str(model_path),
         cfg=cfg,
         inter_graph=dm.create_inter_graph(),

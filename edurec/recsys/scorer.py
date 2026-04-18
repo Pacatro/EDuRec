@@ -7,7 +7,7 @@ from edurec import config
 
 
 @dataclass
-class RankerConfig:
+class ScorerConfig:
     emb_dim: int
     n_heads: int
     n_blocks: int
@@ -18,8 +18,8 @@ class RankerConfig:
     max_histoy_len: int = config.MAX_HISTORY_LEN
 
 
-class Ranker(nn.Module):
-    def __init__(self, cfg: RankerConfig):
+class Scorer(nn.Module):
+    def __init__(self, cfg: ScorerConfig):
         super().__init__()
         self.cfg = cfg
 

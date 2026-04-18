@@ -135,7 +135,7 @@ class DataProcessor:
 
         return self
 
-    def _initialize_runtime_state(self, reset_fitted_state: bool = False) -> None:
+    def _initialize_runtime_state(self, reset_fitted_state: bool = False):
         self.schema_columns = {
             prefix: self._normalize_schema(prefix) for prefix in PREFIXES
         }
@@ -189,7 +189,7 @@ class DataProcessor:
             "passthrough": [],
         }
 
-    def _fit_ct_feats(self, df: pd.DataFrame, prefix: str) -> None:
+    def _fit_ct_feats(self, df: pd.DataFrame, prefix: str):
         """Build and fit feature preprocessors for one feature group."""
         groups = self._resolve_column_groups(
             prefix=prefix, available_columns=df.columns
@@ -198,6 +198,9 @@ class DataProcessor:
             df[groups["input"]].copy()
             if groups["input"]
             else pd.DataFrame(index=df.index)
+        )
+        df_features = self._normalize_categorical_inputs(
+            df_features, groups["categorical"]
         )
 
         preprocessor = self._build_ct(
@@ -445,6 +448,9 @@ class DataProcessor:
             if groups["input"]
             else pd.DataFrame(index=df.index)
         )
+        df_features = self._normalize_categorical_inputs(
+            df_features, groups["categorical"]
+        )
         processed_df = ct.transform(df_features)
 
         assert isinstance(processed_df, pd.DataFrame)
@@ -463,6 +469,26 @@ class DataProcessor:
             ).astype("int64")
 
         return output_df
+
+    def _normalize_categorical_inputs(
+        self,
+        df: pd.DataFrame,
+        categorical_cols: list[str],
+    ) -> pd.DataFrame:
+        if not categorical_cols or df.empty:
+            return df
+
+        normalized_df = df.copy()
+        for col in categorical_cols:
+            if col not in normalized_df.columns:
+                continue
+
+            values = normalized_df[col].map(
+                lambda value: np.nan if pd.isna(value) else str(value).strip()
+            )
+            normalized_df[col] = values.mask(values == "", np.nan)
+
+        return normalized_df
 
     def _build_feature_metadata(
         self,
@@ -517,6 +543,7 @@ class DataProcessor:
             config.RATING_COL,
             config.RELEVANT_COL,
             config.TIME_COL,
+            config.INTERACTION_ORDER_COL,
         ]
 
     def _normalize_feature_types(
@@ -552,7 +579,7 @@ class DataProcessor:
 
         return cols
 
-    def save(self, path: str | Path) -> None:
+    def save(self, path: str | Path):
         """
         Save the fitted processor state to disk.
 

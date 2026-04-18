@@ -365,6 +365,63 @@ def test_data_processor_respects_global_feature_toggle(monkeypatch: pytest.Monke
     assert config.TIME_COL in processed.interactions.columns
 
 
+def test_data_processor_normalizes_mixed_type_categorical_columns():
+    schema = {
+        "users": {
+            "bin": [],
+            "num": [],
+            "cat": ["segment"],
+            "text": [],
+            "list": [],
+        },
+        "items": {
+            "bin": [],
+            "num": [],
+            "cat": ["grade", "prerequisite"],
+            "text": [],
+            "list": [],
+        },
+        "inter": {
+            "bin": [],
+            "num": [],
+            "cat": ["semester"],
+            "text": [],
+            "list": [],
+        },
+    }
+    items = pd.DataFrame(
+        {
+            config.ITEM_COL: [101, 102, 103, 104],
+            "grade": [2.0, 3.0, np.nan, ""],
+            "prerequisite": [None, "algebra", "", "history"],
+        }
+    )
+    users = pd.DataFrame({config.USER_COL: [1], "segment": ["A"]})
+    interactions = pd.DataFrame(
+        {config.USER_COL: [1], config.ITEM_COL: [101], "semester": ["1.0"]}
+    )
+
+    processor = DataProcessor(schema=schema)
+    processor.fit(
+        users_train=users,
+        items_train=items,
+        interactions_train=interactions,
+    )
+
+    processed = processor.transform(
+        users=users,
+        items=items,
+        interactions=interactions,
+    )
+
+    assert processed.items is not None
+    assert np.isfinite(processed.items.drop(columns=[config.ITEM_COL]).to_numpy()).all()
+    assert _has_suffix(
+        processor.feature_metadata["items"].categorical_cols,
+        "grade",
+    )
+
+
 def test_sentence_embedding_transformer_cleans_truncates_and_serializes(
     tmp_path,
     fake_sentence_model,

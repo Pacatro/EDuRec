@@ -14,43 +14,45 @@ from torchmetrics.retrieval import (
     RetrievalRecall,
 )
 
+
 from .. import config
-from .model import Ghost, GhostConfig, InfoNCELoss
+from .ghost import Ghost, GhostConfig
+from .losses import InfoNCELoss
+from ..datasets import RankerBatch
 
 
-class RecSys(L.LightningModule):
+class Ranker(L.LightningModule):
     def __init__(
         self,
         cfg: GhostConfig,
         inter_graph: Data,
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
-        lr: float = config.LR,
-        weight_decay: float = config.WEIGHT_DECAY,
-        top_k: int = config.TOP_K,
-        alpha: float = config.ALPHA,
+        lr: float = config.RANKER_LR,
+        weight_decay: float = config.RANKER_WEIGHT_DECAY,
+        top_k: int = config.RANKER_TOP_K,
+        alpha: float = config.LOSS_ALPHA,
         adaptive_k: bool = config.ADAPTIVE_K,
-        monitor: str = config.MONITOR,
     ):
         super().__init__()
         self.save_hyperparameters(
             ignore=["inter_graph", "u_static_feats", "i_static_feats"]
         )
         self.cfg = cfg
-        self.inter_graph = inter_graph.to(self._resolve_graph_device())
         self.lr = lr
         self.weight_decay = weight_decay
-        self.monitor = monitor if "Loss" in monitor else f"{monitor}@{top_k}"
         self.alpha = alpha
         self.top_k = top_k
+        self.monitor = f"val/NDCG@{top_k}"
 
+        self.register_buffer("edge_index", inter_graph.edge_index)
         self.register_buffer("u_static_feats", u_static_feats, persistent=False)
         self.register_buffer("i_static_feats", i_static_feats, persistent=False)
 
         self.gcl_loss = InfoNCELoss(tau=cfg.gnn.tau, reduction=cfg.gnn.loss_reduc)
 
         self.val_ranking_metrics = MetricCollection(
-            {f"Ndcg@{top_k}": RetrievalNormalizedDCG(top_k=top_k)}, prefix="val/"
+            {f"NDCG@{top_k}": RetrievalNormalizedDCG(top_k=top_k)}, prefix="val/"
         )
 
         self.test_ranking_metrics = MetricCollection(
@@ -59,52 +61,47 @@ class RecSys(L.LightningModule):
                     top_k=top_k, adaptive_k=adaptive_k
                 ),
                 f"Recall@{top_k}": RetrievalRecall(top_k=top_k),
-                f"Ndcg@{top_k}": RetrievalNormalizedDCG(top_k=top_k),
+                f"NDCG@{top_k}": RetrievalNormalizedDCG(top_k=top_k),
                 f"Hit@{top_k}": RetrievalHitRate(top_k=top_k),
-                f"Map@{top_k}": RetrievalMAP(top_k=top_k),
-                f"Mrr@{top_k}": RetrievalMRR(top_k=top_k),
+                f"MAP@{top_k}": RetrievalMAP(top_k=top_k),
+                f"MRR@{top_k}": RetrievalMRR(top_k=top_k),
             },
             prefix="test/",
         )
 
         self.model = Ghost(cfg)
-        self.model_name = self.model.__class__.__name__
+        self.model_name = self.__class__.__name__
 
-    def on_load_checkpoint(self, checkpoint: dict) -> None:
-        state_dict = checkpoint.get("state_dict")
-        if isinstance(state_dict, dict):
-            state_dict.pop("model.edge_index", None)
-
-    def _resolve_graph_device(self) -> str:
-        if config.state["device"] != "auto":
-            return config.state["device"]
-
-        return "cuda" if torch.cuda.is_available() else "cpu"
-
-    def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+    def forward(self, batch: RankerBatch) -> torch.Tensor:
         scores = self.model(
-            u_ids=batch["user_id"],
-            h_ids=batch["history_items"],
-            h_ctx=batch["history_ctx"],
-            h_mask=batch["history_valid_mask"],
-            c_ids=batch["candidate_ids"],
-            inter_graph=self.inter_graph,
+            u_ids=batch.user_id,
+            h_ids=batch.history_items,
+            h_ctx=batch.history_ctx,
+            h_mask=batch.history_valid_mask,
+            c_ids=batch.candidate_ids,
+            edge_index=self.edge_index,
             u_static_feats=self.u_static_feats,
             i_static_feats=self.i_static_feats,
         )
-        return self._prepare_scores(scores)
 
-    def training_step(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+        if scores.ndim == 3:
+            if scores.size(-1) != 1:
+                raise RuntimeError("Ranker must return a single logit per candidate.")
+            return scores.squeeze(-1)
+
+        return scores
+
+    def training_step(self, batch: RankerBatch) -> torch.Tensor:
         return self._step(batch, "train")
 
-    def validation_step(self, batch: dict[str, torch.Tensor]) -> None:
+    def validation_step(self, batch: RankerBatch):
         self._step(
             batch,
             "val",
             ranking_metrics=self.val_ranking_metrics,
         )
 
-    def test_step(self, batch: dict[str, torch.Tensor]) -> None:
+    def test_step(self, batch: RankerBatch):
         self._step(
             batch,
             "test",
@@ -113,18 +110,18 @@ class RecSys(L.LightningModule):
 
     def _step(
         self,
-        batch: dict[str, torch.Tensor],
+        batch: RankerBatch,
         prefix: str,
         ranking_metrics: MetricCollection | None = None,
     ) -> torch.Tensor:
         scores = self(batch)
-        targets = batch["candidate_labels"].float()
+        targets = batch.candidate_labels.float()
 
         scores, targets, positive_position, query_ids = self._select_valid_queries(
             scores=scores,
             targets=targets,
-            positive_position=batch.get("positive_position"),
-            query_ids=batch["query_id"],
+            positive_position=batch.positive_position,
+            query_ids=batch.query_id,
         )
 
         if scores.numel() == 0 or targets.numel() == 0:
@@ -134,34 +131,27 @@ class RecSys(L.LightningModule):
         gcl_loss = (
             self._compute_gcl_loss() if prefix == "train" else rank_loss.new_zeros(())
         )
-        loss = self._compute_loss(rank_loss, gcl_loss)
 
-        batch_size = targets.size(0) if targets.ndim > 1 else targets.numel()
+        loss = rank_loss + self.alpha * gcl_loss
 
         self.log(
-            f"{prefix}/Loss_rank",
+            f"{prefix}/RankLoss",
             rank_loss,
-            on_step=(prefix == "train"),
-            on_epoch=True,
-            prog_bar=False,
-            batch_size=batch_size,
+            prog_bar=(prefix == "train"),
+            logger=(prefix == "train"),
         )
         self.log(
-            f"{prefix}/Loss_gcl",
+            f"{prefix}/GclLoss",
             gcl_loss,
-            on_step=(prefix == "train"),
-            on_epoch=True,
-            prog_bar=False,
-            logger=False,
-            batch_size=batch_size,
+            prog_bar=(prefix == "train"),
+            logger=(prefix == "train"),
         )
         self.log(
             f"{prefix}/Loss",
             loss,
             on_step=(prefix == "train"),
-            on_epoch=True,
             prog_bar=True,
-            batch_size=batch_size,
+            logger=True,
         )
 
         if ranking_metrics is not None:
@@ -179,14 +169,6 @@ class RecSys(L.LightningModule):
             ranking_metrics.update(preds=preds, target=target, indexes=indexes)
 
         return loss
-
-    def _prepare_scores(self, scores: torch.Tensor) -> torch.Tensor:
-        if scores.ndim == 3:
-            if scores.size(-1) != 1:
-                raise RuntimeError("Ranker must return a single logit per candidate.")
-            return scores.squeeze(-1)
-
-        return scores
 
     def _select_valid_queries(
         self,
@@ -223,80 +205,51 @@ class RecSys(L.LightningModule):
         scores = scores.reshape_as(targets)
         return F.binary_cross_entropy_with_logits(scores, targets.float())
 
-    def _compute_loss(
-        self, rank_loss: torch.Tensor, gcl_loss: torch.Tensor
-    ) -> torch.Tensor:
-        return rank_loss + self.alpha * gcl_loss
-
     def _compute_gcl_loss(self) -> torch.Tensor:
-        assert self.inter_graph.edge_index is not None
-        edge_index_1 = self._create_graph_view(self.inter_graph.edge_index)
-        edge_index_2 = self._create_graph_view(self.inter_graph.edge_index)
+        p = self.cfg.edge_dropout
 
-        graph_view_1 = Data(
-            edge_index=edge_index_1, num_nodes=self.inter_graph.num_nodes
-        )
-        graph_view_2 = Data(
-            edge_index=edge_index_2, num_nodes=self.inter_graph.num_nodes
+        assert isinstance(self.edge_index, torch.Tensor)
+        edge_index_1, _ = dropout_edge(self.edge_index, p=p, force_undirected=True)
+        edge_index_2, _ = dropout_edge(self.edge_index, p=p, force_undirected=True)
+
+        u_emb1, i_emb1 = self.model.gnn(
+            edge_index_1,
+            self.u_static_feats,
+            self.i_static_feats,
         )
 
-        u_emb1, i_emb1 = self.model.gnn(graph_view_1)
-        u_emb2, i_emb2 = self.model.gnn(graph_view_2)
+        u_emb2, i_emb2 = self.model.gnn(
+            edge_index_2,
+            self.u_static_feats,
+            self.i_static_feats,
+        )
 
         gcl_loss = self.gcl_loss(u_emb1, i_emb1, u_emb2, i_emb2)
 
         return gcl_loss
 
-    def _create_graph_view(self, edge_index: torch.Tensor) -> torch.Tensor:
-        if self.cfg.edge_dropout <= 0:
-            return edge_index
-
-        num_edges = edge_index.size(1)
-
-        # The interaction graph is stored as [u->i | i->u], preserving one
-        # reverse edge for each interaction in the same position.
-        if num_edges % 2 != 0:
-            edge_index_view, _ = dropout_edge(
-                edge_index, p=self.cfg.edge_dropout, force_undirected=True
-            )
-            return edge_index_view
-
-        half_edges = num_edges // 2
-        if half_edges == 0:
-            return edge_index
-
-        keep_mask = (
-            torch.rand(half_edges, device=edge_index.device) >= self.cfg.edge_dropout
-        )
-        if not torch.any(keep_mask):
-            keep_mask[torch.randint(half_edges, (1,), device=edge_index.device)] = True
-
-        edge_index_u2i = edge_index[:, :half_edges][:, keep_mask]
-        edge_index_i2u = edge_index[:, half_edges:][:, keep_mask]
-        return torch.cat([edge_index_u2i, edge_index_i2u], dim=1).contiguous()
-
-    def on_validation_epoch_start(self) -> None:
+    def on_validation_epoch_start(self):
         self.val_ranking_metrics.reset()
 
-    def on_validation_epoch_end(self) -> None:
+    def on_validation_epoch_end(self):
         self.log_dict(self.val_ranking_metrics.compute())
 
-    def on_test_epoch_start(self) -> None:
+    def on_test_epoch_start(self):
         self.test_ranking_metrics.reset()
 
-    def on_test_epoch_end(self) -> None:
+    def on_test_epoch_end(self):
         self.log_dict(self.test_ranking_metrics.compute())
 
-    def predict_step(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+    def predict_step(self, batch: RankerBatch) -> torch.Tensor:
         return self(batch)
 
     def configure_optimizers(self) -> OptimizerLRScheduler:
-        optimizer = torch.optim.Adam(
+        optimizer = torch.optim.AdamW(
             self.parameters(), lr=self.lr, weight_decay=self.weight_decay
         )
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
-            mode="min" if "Loss" in self.monitor else "max",
+            mode="max",
             factor=0.5,
             patience=3,
         )

@@ -1,9 +1,9 @@
 import torch
 from torch_geometric.data import Data
 
-from edurec.recsys.model import (
-    GnnEncoder,
-    GnnEncoderConfig,
+from edurec.recsys.ghost import (
+    GraphEncoder,
+    GraphEncoderConfig,
     InfoNCELoss,
     GhostConfig,
 )
@@ -11,7 +11,7 @@ from edurec.recsys.engine import RecSys
 
 
 def test_gnn_encoder_shapes():
-    cfg = GnnEncoderConfig(
+    cfg = GraphEncoderConfig(
         num_users=10,
         num_items=5,
         emb_dim=32,
@@ -29,7 +29,7 @@ def test_gnn_encoder_shapes():
     )
     data = Data(edge_index=edge_index, num_nodes=cfg.num_users + cfg.num_items)
 
-    model = GnnEncoder(cfg)
+    model = GraphEncoder(cfg)
 
     user_embs, item_embs = model(data)
 

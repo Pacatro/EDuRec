@@ -1,8 +1,7 @@
-from dataclasses import dataclass
 from pathlib import Path
 from enum import StrEnum
 from functools import wraps
-from typing import Callable
+from typing import Callable, NamedTuple
 
 import pandas as pd
 
@@ -20,8 +19,7 @@ class DatasetName(StrEnum):
 type Schema = dict[str, dict[str, list[str]]]
 
 
-@dataclass
-class RawDataset:
+class RawDataset(NamedTuple):
     interactions: pd.DataFrame
     i_feats: pd.DataFrame
     u_feats: pd.DataFrame

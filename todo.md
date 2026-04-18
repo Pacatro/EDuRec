@@ -7,18 +7,16 @@ List of TODOs for the project.
 - [x] Change data prerpocessing
 - [x] GCL
 - [x] Transformer Ranking Model
-- [ ] Add retrieval model before ranking model (two towers) -> This allows to get candidates for ranker
-- [ ] Add fairness
-- [ ] Add XAI
-
-## Code
-
 - [x] Separete prerpocessing logic from data management logic
 - [x] Reorganize code
 - [x] Implement new arquitecture
-- [ ] Add other cols preprocessing
-- [ ] Implement retrieval model
+- [x] Add other cols preprocessing
+- [x] Add retrieval model
+- [ ] Simplify candidate selection
+- [ ] Add evaluation system
 - [ ] Fix bugs with DORIS dataset
+- [ ] Add fairness
+- [ ] Add XAI
 
 ## Datasets
 
