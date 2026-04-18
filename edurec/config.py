@@ -59,7 +59,6 @@ NUM_SCORES: int = 1
 EMB_DIM: int = 128
 
 # Training (Retreival)
-RETRIEVAL_EPOCHS: int = 40
 RETRIEVAL_LR: float = 0.001
 RETRIEVAL_WEIGHT_DECAY: float = 1e-4
 RETRIEVAL_BATCH_SIZE: int = 256
@@ -70,12 +69,12 @@ RETRIEVAL_TOP_K: int = 50
 RANKER_LR: float = 3e-4
 RANKER_WEIGHT_DECAY: float = 2e-4
 RANKER_BATCH_SIZE: int = 128
-RANKER_EPOCHS: int = 30
 RANKER_PATIENCE: int = 5
 RANKER_TOP_K: int = 20
 
 # Training (General)
-TOP_N: int = 50
+EPOCHS: int = 100
+TOP_N: int = 100
 DELTA: float = 0.0005
 NUM_WORKERS: int = 4
 VAL_RATIO: float = 0.2

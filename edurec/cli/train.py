@@ -56,7 +56,7 @@ def train_retrieval_command(
     ] = DatasetName.MARS,
     epochs: Annotated[
         int, typer.Option("--epochs", "-e", help="Number of epochs")
-    ] = config.RETRIEVAL_EPOCHS,
+    ] = config.EPOCHS,
     lr: Annotated[
         float, typer.Option("--lr", "-l", help="Learning rate")
     ] = config.RETRIEVAL_LR,
@@ -187,7 +187,7 @@ def train_ranker_command(
     ] = DatasetName.MARS,
     epochs: Annotated[
         int, typer.Option("--epochs", "-e", help="Number of epochs")
-    ] = config.RANKER_EPOCHS,
+    ] = config.EPOCHS,
     lr: Annotated[
         float, typer.Option("--lr", "-l", help="Learning rate")
     ] = config.RANKER_LR,
