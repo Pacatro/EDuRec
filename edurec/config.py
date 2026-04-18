@@ -82,7 +82,7 @@ VAL_RATIO: float = 0.2
 TEST_RATIO: float = 0.4
 SAVE_DATA: bool = False
 ADAPTIVE_K: bool = False
-ALPHA: float = 0.01
+LOSS_ALPHA: float = 0.1
 COMPILE_MODEL: bool = False
 
 # Eval

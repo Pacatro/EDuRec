@@ -31,7 +31,7 @@ class Ranker(L.LightningModule):
         lr: float = config.RANKER_LR,
         weight_decay: float = config.RANKER_WEIGHT_DECAY,
         top_k: int = config.RANKER_TOP_K,
-        alpha: float = config.ALPHA,
+        alpha: float = config.LOSS_ALPHA,
         adaptive_k: bool = config.ADAPTIVE_K,
     ):
         super().__init__()
