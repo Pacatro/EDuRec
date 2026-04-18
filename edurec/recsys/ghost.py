@@ -2,7 +2,6 @@ from dataclasses import dataclass, field
 
 import torch
 from torch import nn
-from torch_geometric.data import Data
 
 from .. import config
 from .graph_encoder import GraphEncoder, GraphEncoderConfig, LossReduction
