@@ -19,7 +19,7 @@ from sklearn.preprocessing import MinMaxScaler, OrdinalEncoder
 
 from edurec.datasets.loaders import Schema
 
-from .. import config
+from .. import settings
 
 set_config(transform_output="pandas")
 
@@ -75,10 +75,10 @@ class DataProcessor:
         schema: Schema,
         ct_sparse_threshold: float = 0.0,
         tfidf_max_features: int = 50_000,
-        text_embedding_model: str = config.TEXT_EMBEDDING_MODEL,
-        text_embedding_dim: int = config.TEXT_EMBEDDING_DIM,
-        text_embedding_batch_size: int = config.TEXT_EMBEDDING_BATCH_SIZE,
-        text_max_tokens: int = config.TEXT_MAX_TOKENS,
+        text_embedding_model: str = settings.TEXT_EMBEDDING_MODEL,
+        text_embedding_dim: int = settings.TEXT_EMBEDDING_DIM,
+        text_embedding_batch_size: int = settings.TEXT_EMBEDDING_BATCH_SIZE,
+        text_max_tokens: int = settings.TEXT_MAX_TOKENS,
     ):
         self.schema = schema
         self.ct_sparse_threshold = ct_sparse_threshold
@@ -88,7 +88,7 @@ class DataProcessor:
         self.text_embedding_batch_size = text_embedding_batch_size
         self.text_max_tokens = text_max_tokens
         self.active_feature_types = self._normalize_feature_types(
-            config.PREPROCESS_FEATURE_TYPES
+            settings.PREPROCESS_FEATURE_TYPES
         )
 
         self.user_encoder = OrdinalEncoder(
@@ -122,12 +122,12 @@ class DataProcessor:
         self._initialize_runtime_state(reset_fitted_state=True)
 
         all_user_ids = pd.concat(
-            [users_train[[config.USER_COL]], interactions_train[[config.USER_COL]]]
+            [users_train[[settings.USER_COL]], interactions_train[[settings.USER_COL]]]
         ).drop_duplicates()
         self.user_encoder.fit(all_user_ids)
 
         all_item_ids = pd.concat(
-            [items_train[[config.ITEM_COL]], interactions_train[[config.ITEM_COL]]]
+            [items_train[[settings.ITEM_COL]], interactions_train[[settings.ITEM_COL]]]
         ).drop_duplicates()
         self.item_encoder.fit(all_item_ids)
 
@@ -284,10 +284,10 @@ class DataProcessor:
         declared = self.schema_columns[prefix]
         available = set(available_columns)
         reserved = {
-            config.USER_COL,
-            config.ITEM_COL,
-            config.RATING_COL,
-            config.RELEVANT_COL,
+            settings.USER_COL,
+            settings.ITEM_COL,
+            settings.RATING_COL,
+            settings.RELEVANT_COL,
         }
 
         binary_cols = [
@@ -298,7 +298,7 @@ class DataProcessor:
         numeric_cols = [
             col
             for col in declared.numeric_cols
-            if col in available and col not in reserved and col != config.TIME_COL
+            if col in available and col not in reserved and col != settings.TIME_COL
         ]
         categorical_cols = [
             col
@@ -316,8 +316,8 @@ class DataProcessor:
             if col in available and col not in reserved
         ]
         time_cols = (
-            [config.TIME_COL]
-            if config.TIME_COL in available and config.TIME_COL not in reserved
+            [settings.TIME_COL]
+            if settings.TIME_COL in available and settings.TIME_COL not in reserved
             else []
         )
 
@@ -346,16 +346,16 @@ class DataProcessor:
 
     def _passthrough_cols(self, prefix: str) -> list[str]:
         if prefix == "users":
-            return [config.USER_COL]
+            return [settings.USER_COL]
         if prefix == "items":
-            return [config.ITEM_COL]
+            return [settings.ITEM_COL]
         return [
-            config.USER_COL,
-            config.ITEM_COL,
-            config.RATING_COL,
-            config.RELEVANT_COL,
-            config.TIME_COL,
-            config.INTERACTION_ORDER_COL,
+            settings.USER_COL,
+            settings.ITEM_COL,
+            settings.RATING_COL,
+            settings.RELEVANT_COL,
+            settings.TIME_COL,
+            settings.INTERACTION_ORDER_COL,
         ]
 
     def _prepare_feature_frame(
@@ -518,14 +518,14 @@ class DataProcessor:
         passthrough_cols = [col for col in groups["passthrough"] if col in df.columns]
         output_df = pd.concat([df[passthrough_cols].copy(), processed_df], axis=1)
 
-        if config.USER_COL in output_df.columns:
-            output_df[config.USER_COL] = self.user_encoder.transform(
-                output_df[[config.USER_COL]]
+        if settings.USER_COL in output_df.columns:
+            output_df[settings.USER_COL] = self.user_encoder.transform(
+                output_df[[settings.USER_COL]]
             ).astype("int64")
 
-        if config.ITEM_COL in output_df.columns:
-            output_df[config.ITEM_COL] = self.item_encoder.transform(
-                output_df[[config.ITEM_COL]]
+        if settings.ITEM_COL in output_df.columns:
+            output_df[settings.ITEM_COL] = self.item_encoder.transform(
+                output_df[[settings.ITEM_COL]]
             ).astype("int64")
 
         return output_df
@@ -633,16 +633,16 @@ class DataProcessor:
 
         if not hasattr(processor, "active_feature_types"):
             processor.active_feature_types = processor._normalize_feature_types(
-                config.PREPROCESS_FEATURE_TYPES
+                settings.PREPROCESS_FEATURE_TYPES
             )
         if not hasattr(processor, "text_embedding_model"):
-            processor.text_embedding_model = config.TEXT_EMBEDDING_MODEL
+            processor.text_embedding_model = settings.TEXT_EMBEDDING_MODEL
         if not hasattr(processor, "text_embedding_dim"):
-            processor.text_embedding_dim = config.TEXT_EMBEDDING_DIM
+            processor.text_embedding_dim = settings.TEXT_EMBEDDING_DIM
         if not hasattr(processor, "text_embedding_batch_size"):
-            processor.text_embedding_batch_size = config.TEXT_EMBEDDING_BATCH_SIZE
+            processor.text_embedding_batch_size = settings.TEXT_EMBEDDING_BATCH_SIZE
         if not hasattr(processor, "text_max_tokens"):
-            processor.text_max_tokens = config.TEXT_MAX_TOKENS
+            processor.text_max_tokens = settings.TEXT_MAX_TOKENS
 
         processor._initialize_runtime_state()
         return processor

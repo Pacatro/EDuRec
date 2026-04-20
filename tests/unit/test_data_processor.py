@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 import joblib
 
-from edurec import config
+from edurec import settings
 from edurec.datasets import DataProcessor
 from edurec.datasets.data_processor import SentenceEmbeddingTransformer
 
@@ -19,7 +19,7 @@ def _get_matching_column(columns: list[str], suffix: str) -> str:
 def test_data_processor_processes_all_feature_types(fake_sentence_model):
     users_train = pd.DataFrame(
         {
-            config.USER_COL: [1, 2, 3, 4],
+            settings.USER_COL: [1, 2, 3, 4],
             "age": [20, 30, 25, 40],
             "job": ["teacher", "student", "teacher", None],
             "bio": [
@@ -38,7 +38,7 @@ def test_data_processor_processes_all_feature_types(fake_sentence_model):
     )
     users_val = pd.DataFrame(
         {
-            config.USER_COL: [5, 6],
+            settings.USER_COL: [5, 6],
             "age": [35, 22],
             "job": ["admin", "student"],
             "bio": ["manages course operations", "likes practical labs"],
@@ -47,7 +47,7 @@ def test_data_processor_processes_all_feature_types(fake_sentence_model):
     )
     users_test = pd.DataFrame(
         {
-            config.USER_COL: [7],
+            settings.USER_COL: [7],
             "age": [28],
             "job": ["guest"],
             "bio": ["reviews learning content"],
@@ -57,7 +57,7 @@ def test_data_processor_processes_all_feature_types(fake_sentence_model):
 
     items_train = pd.DataFrame(
         {
-            config.ITEM_COL: [101, 102, 103, 104],
+            settings.ITEM_COL: [101, 102, 103, 104],
             "language": ["en", "es", "en", "es"],
             "nb_views": [100, 200, 150, 180],
             "description": [
@@ -76,7 +76,7 @@ def test_data_processor_processes_all_feature_types(fake_sentence_model):
     )
     items_val = pd.DataFrame(
         {
-            config.ITEM_COL: [105],
+            settings.ITEM_COL: [105],
             "language": ["it"],
             "nb_views": [170],
             "description": ["introductory course about modern statistics"],
@@ -85,7 +85,7 @@ def test_data_processor_processes_all_feature_types(fake_sentence_model):
     )
     items_test = pd.DataFrame(
         {
-            config.ITEM_COL: [106],
+            settings.ITEM_COL: [106],
             "language": ["de"],
             "nb_views": [120],
             "description": ["advanced class on recommendation pipelines"],
@@ -95,8 +95,8 @@ def test_data_processor_processes_all_feature_types(fake_sentence_model):
 
     interactions_train = pd.DataFrame(
         {
-            config.USER_COL: [1, 2, 3, 4, 1],
-            config.ITEM_COL: [101, 102, 103, 104, 102],
+            settings.USER_COL: [1, 2, 3, 4, 1],
+            settings.ITEM_COL: [101, 102, 103, 104, 102],
             "watch_percentage": [0.6, 0.8, 0.5, 0.9, 0.3],
             "semester": ["spring", "fall", "spring", "fall", "spring"],
             "feedback": [
@@ -113,41 +113,41 @@ def test_data_processor_processes_all_feature_types(fake_sentence_model):
                 "python,data",
                 "experiments",
             ],
-            config.TIME_COL: [
+            settings.TIME_COL: [
                 "2025-01-01T08:00:00Z",
                 "2025-01-02T10:00:00Z",
                 "2025-01-03T12:00:00Z",
                 "2025-01-04T14:00:00Z",
                 "2025-01-05T16:00:00Z",
             ],
-            config.RATING_COL: [4, 5, 3, 5, 2],
-            config.RELEVANT_COL: [1, 1, 0, 1, 0],
+            settings.RATING_COL: [4, 5, 3, 5, 2],
+            settings.RELEVANT_COL: [1, 1, 0, 1, 0],
         }
     )
     interactions_val = pd.DataFrame(
         {
-            config.USER_COL: [5],
-            config.ITEM_COL: [105],
+            settings.USER_COL: [5],
+            settings.ITEM_COL: [105],
             "watch_percentage": [0.7],
             "semester": ["winter"],
             "feedback": ["solid summary of the lesson"],
             "skills": ["sql,etl"],
-            config.TIME_COL: ["2025-01-06T18:00:00Z"],
-            config.RATING_COL: [4],
-            config.RELEVANT_COL: [1],
+            settings.TIME_COL: ["2025-01-06T18:00:00Z"],
+            settings.RATING_COL: [4],
+            settings.RELEVANT_COL: [1],
         }
     )
     interactions_test = pd.DataFrame(
         {
-            config.USER_COL: [7],
-            config.ITEM_COL: [106],
+            settings.USER_COL: [7],
+            settings.ITEM_COL: [106],
             "watch_percentage": [0.4],
             "semester": ["summer"],
             "feedback": ["good but a bit repetitive"],
             "skills": ["debugging"],
-            config.TIME_COL: ["2025-01-07T20:00:00Z"],
-            config.RATING_COL: [3],
-            config.RELEVANT_COL: [0],
+            settings.TIME_COL: ["2025-01-07T20:00:00Z"],
+            settings.RATING_COL: [3],
+            settings.RELEVANT_COL: [0],
         }
     )
 
@@ -168,7 +168,7 @@ def test_data_processor_processes_all_feature_types(fake_sentence_model):
         },
         "inter": {
             "bin": [],
-            "num": ["watch_percentage", config.RATING_COL],
+            "num": ["watch_percentage", settings.RATING_COL],
             "cat": ["semester"],
             "text": ["feedback"],
             "list": ["skills"],
@@ -206,7 +206,9 @@ def test_data_processor_processes_all_feature_types(fake_sentence_model):
     assert not train_processed.users.isna().any().any()
     assert np.isfinite(train_processed.users.values).all()
     assert np.isfinite(train_processed.items.values).all()
-    numeric_interactions = train_processed.interactions.drop(columns=[config.TIME_COL])
+    numeric_interactions = train_processed.interactions.drop(
+        columns=[settings.TIME_COL]
+    )
     assert np.isfinite(numeric_interactions.values).all()
 
     pd.testing.assert_index_equal(train_processed.users.index, users_train.index)
@@ -236,7 +238,7 @@ def test_data_processor_processes_all_feature_types(fake_sentence_model):
     assert len(processor.feature_metadata["items"].dense_cols) > 1
     assert processor.feature_metadata["inter"].text_cols == ["feedback"]
     assert processor.feature_metadata["inter"].list_cols == ["skills"]
-    assert processor.feature_metadata["inter"].time_cols == [config.TIME_COL]
+    assert processor.feature_metadata["inter"].time_cols == [settings.TIME_COL]
     assert _has_suffix(
         processor.feature_metadata["inter"].dense_cols, "watch_percentage"
     )
@@ -258,7 +260,7 @@ def test_data_processor_processes_all_feature_types(fake_sentence_model):
     assert items_groups["text"] == ["description"]
     assert items_groups["list"] == ["tags"]
 
-    assert inter_groups["time"] == [config.TIME_COL]
+    assert inter_groups["time"] == [settings.TIME_COL]
     assert inter_groups["text"] == ["feedback"]
     assert inter_groups["list"] == ["skills"]
     assert inter_groups["input"] == [
@@ -266,29 +268,29 @@ def test_data_processor_processes_all_feature_types(fake_sentence_model):
         "semester",
         "feedback",
         "skills",
-        config.TIME_COL,
+        settings.TIME_COL,
     ]
-    assert config.RATING_COL not in inter_groups["input"]
-    assert config.RELEVANT_COL not in inter_groups["input"]
-    assert config.USER_COL not in inter_groups["input"]
-    assert config.ITEM_COL not in inter_groups["input"]
-    assert config.TIME_COL in train_processed.interactions.columns
+    assert settings.RATING_COL not in inter_groups["input"]
+    assert settings.RELEVANT_COL not in inter_groups["input"]
+    assert settings.USER_COL not in inter_groups["input"]
+    assert settings.ITEM_COL not in inter_groups["input"]
+    assert settings.TIME_COL in train_processed.interactions.columns
     assert _has_suffix(train_processed.interactions.columns.tolist(), "time_hour")
     assert train_processed.interactions.shape[1] > len(inter_groups["passthrough"])
     assert len(fake_sentence_model) == 1
-    assert config.TEXT_EMBEDDING_MODEL in fake_sentence_model
+    assert settings.TEXT_EMBEDDING_MODEL in fake_sentence_model
 
 
 def test_data_processor_respects_global_feature_toggle(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
-        config,
+        settings,
         "PREPROCESS_FEATURE_TYPES",
         ("numeric", "categorical"),
     )
 
     users = pd.DataFrame(
         {
-            config.USER_COL: [1, 2],
+            settings.USER_COL: [1, 2],
             "age": [20, 30],
             "job": ["teacher", "student"],
             "bio": ["teaches statistics", "studies recommender systems"],
@@ -297,7 +299,7 @@ def test_data_processor_respects_global_feature_toggle(monkeypatch: pytest.Monke
     )
     items = pd.DataFrame(
         {
-            config.ITEM_COL: [101, 102],
+            settings.ITEM_COL: [101, 102],
             "language": ["en", "es"],
             "nb_views": [100, 200],
             "description": ["machine learning course", "data analysis lab"],
@@ -306,15 +308,15 @@ def test_data_processor_respects_global_feature_toggle(monkeypatch: pytest.Monke
     )
     interactions = pd.DataFrame(
         {
-            config.USER_COL: [1, 2],
-            config.ITEM_COL: [101, 102],
+            settings.USER_COL: [1, 2],
+            settings.ITEM_COL: [101, 102],
             "watch_percentage": [0.6, 0.8],
             "semester": ["spring", "fall"],
             "feedback": ["helpful explanation", "clear structure"],
             "skills": ["python,ml", "statistics|visualization"],
-            config.TIME_COL: ["2025-01-01T08:00:00Z", "2025-01-02T10:00:00Z"],
-            config.RATING_COL: [4, 5],
-            config.RELEVANT_COL: [1, 1],
+            settings.TIME_COL: ["2025-01-01T08:00:00Z", "2025-01-02T10:00:00Z"],
+            settings.RATING_COL: [4, 5],
+            settings.RELEVANT_COL: [1, 1],
         }
     )
     schema = {
@@ -360,7 +362,7 @@ def test_data_processor_respects_global_feature_toggle(monkeypatch: pytest.Monke
     assert "bio" not in processed.users.columns
     assert "description" not in processed.items.columns
     assert "time_hour" not in processed.interactions.columns
-    assert config.TIME_COL in processed.interactions.columns
+    assert settings.TIME_COL in processed.interactions.columns
 
 
 def test_data_processor_normalizes_mixed_type_categorical_columns():
@@ -389,14 +391,14 @@ def test_data_processor_normalizes_mixed_type_categorical_columns():
     }
     items = pd.DataFrame(
         {
-            config.ITEM_COL: [101, 102, 103, 104],
+            settings.ITEM_COL: [101, 102, 103, 104],
             "grade": [2.0, 3.0, np.nan, ""],
             "prerequisite": [None, "algebra", "", "history"],
         }
     )
-    users = pd.DataFrame({config.USER_COL: [1], "segment": ["A"]})
+    users = pd.DataFrame({settings.USER_COL: [1], "segment": ["A"]})
     interactions = pd.DataFrame(
-        {config.USER_COL: [1], config.ITEM_COL: [101], "semester": ["1.0"]}
+        {settings.USER_COL: [1], settings.ITEM_COL: [101], "semester": ["1.0"]}
     )
 
     processor = DataProcessor(schema=schema)
@@ -413,7 +415,9 @@ def test_data_processor_normalizes_mixed_type_categorical_columns():
     )
 
     assert processed.items is not None
-    assert np.isfinite(processed.items.drop(columns=[config.ITEM_COL]).to_numpy()).all()
+    assert np.isfinite(
+        processed.items.drop(columns=[settings.ITEM_COL]).to_numpy()
+    ).all()
     assert _has_suffix(
         processor.feature_metadata["items"].categorical_cols,
         "grade",
@@ -426,9 +430,9 @@ def test_sentence_embedding_transformer_cleans_truncates_and_serializes(
 ):
     transformer = SentenceEmbeddingTransformer(
         cols=["title", "description"],
-        model_name=config.TEXT_EMBEDDING_MODEL,
-        embedding_dim=config.TEXT_EMBEDDING_DIM,
-        batch_size=config.TEXT_EMBEDDING_BATCH_SIZE,
+        model_name=settings.TEXT_EMBEDDING_MODEL,
+        embedding_dim=settings.TEXT_EMBEDDING_DIM,
+        batch_size=settings.TEXT_EMBEDDING_BATCH_SIZE,
         max_tokens=8,
     )
     df = pd.DataFrame(
@@ -444,11 +448,11 @@ def test_sentence_embedding_transformer_cleans_truncates_and_serializes(
     transformed = transformer.transform(df)
     transformed_array = np.asarray(transformed)
 
-    assert transformed.shape == (1, config.TEXT_EMBEDDING_DIM)
+    assert transformed.shape == (1, settings.TEXT_EMBEDDING_DIM)
     assert np.isfinite(transformed_array).all()
-    assert transformer.get_feature_names_out().shape == (config.TEXT_EMBEDDING_DIM,)
+    assert transformer.get_feature_names_out().shape == (settings.TEXT_EMBEDDING_DIM,)
 
-    model = fake_sentence_model[config.TEXT_EMBEDDING_MODEL]
+    model = fake_sentence_model[settings.TEXT_EMBEDDING_MODEL]
     assert model.last_texts == ["title: hello world [SEP] description: visit for more"]
 
     path = tmp_path / "text_transformer.joblib"

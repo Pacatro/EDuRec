@@ -16,7 +16,7 @@ from torchmetrics.retrieval import (
 )
 
 
-from .. import config
+from .. import settings
 from .ghost import Ghost, GhostConfig
 from .losses import InfoNCELoss
 from ..datasets import RankerBatch
@@ -29,11 +29,11 @@ class Ranker(L.LightningModule):
         inter_graph: Data,
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
-        lr: float = config.RANKER_LR,
-        weight_decay: float = config.RANKER_WEIGHT_DECAY,
-        top_k: int = config.RANKER_TOP_K,
-        alpha: float = config.LOSS_ALPHA,
-        adaptive_k: bool = config.ADAPTIVE_K,
+        lr: float = settings.RANKER_LR,
+        weight_decay: float = settings.RANKER_WEIGHT_DECAY,
+        top_k: int = settings.RANKER_TOP_K,
+        alpha: float = settings.LOSS_ALPHA,
+        adaptive_k: bool = settings.ADAPTIVE_K,
     ):
         super().__init__()
         self.save_hyperparameters(

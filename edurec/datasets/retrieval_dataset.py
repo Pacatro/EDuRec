@@ -4,7 +4,7 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from .. import config
+from .. import settings
 from .ranker_dataset import History
 
 
@@ -39,7 +39,7 @@ class RetrievalDataset(Dataset):
         df = interactions.reset_index(drop=True)
 
         if positives_only:
-            positive_mask = (df[config.RELEVANT_COL] > 0).to_numpy(
+            positive_mask = (df[settings.RELEVANT_COL] > 0).to_numpy(
                 dtype=bool, copy=False
             )
             df = df[positive_mask].reset_index(drop=True)
@@ -47,9 +47,9 @@ class RetrievalDataset(Dataset):
             history_ctx = history_ctx[positive_mask]
             history_valid_mask = history_valid_mask[positive_mask]
 
-        self.user_ids = df[config.USER_COL].to_numpy(copy=True)
-        self.positive_item_ids = df[config.ITEM_COL].to_numpy(copy=True)
-        self.targets = df[config.RELEVANT_COL].astype("float32").to_numpy(copy=True)
+        self.user_ids = df[settings.USER_COL].to_numpy(copy=True)
+        self.positive_item_ids = df[settings.ITEM_COL].to_numpy(copy=True)
+        self.targets = df[settings.RELEVANT_COL].astype("float32").to_numpy(copy=True)
 
         self.history_items = history_items
         self.history_ctx = history_ctx

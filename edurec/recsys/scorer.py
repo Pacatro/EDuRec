@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
-from edurec import config
+from edurec import settings
 
 
 @dataclass
@@ -15,7 +15,7 @@ class ScorerConfig:
     num_scores: int = 1
     dropout: float = 0.1
     norm_first: bool = True
-    max_histoy_len: int = config.MAX_HISTORY_LEN
+    max_histoy_len: int = settings.MAX_HISTORY_LEN
 
 
 class Scorer(nn.Module):

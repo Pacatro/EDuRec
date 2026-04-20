@@ -4,7 +4,7 @@ import lightning as L
 import torch
 import typer
 
-from .. import config
+from .. import settings
 from ..datasets import DatasetName, ElearningDataModule, Phase
 from ..recsys.ranker import Ranker
 from ..recsys.io import load_model, save_metrics
@@ -23,34 +23,34 @@ def test_recsys(
     ] = DatasetName.MARS,
     batch_size: Annotated[
         int, typer.Option("--batch_size", "-b", help="Batch size")
-    ] = config.RANKER_BATCH_SIZE,
+    ] = settings.RANKER_BATCH_SIZE,
     val_size: Annotated[
         float, typer.Option("--val_size", "-v", help="Validation size")
-    ] = config.VAL_RATIO,
+    ] = settings.VAL_RATIO,
     test_size: Annotated[
         float, typer.Option("--test_size", "-t", help="Test size")
-    ] = config.TEST_RATIO,
+    ] = settings.TEST_RATIO,
     top_k: Annotated[
         int, typer.Option("--top_k", "-k", help="Top-k value")
-    ] = config.RANKER_TOP_K,
+    ] = settings.RANKER_TOP_K,
     adaptive_k: Annotated[
         bool,
         typer.Option(
             "--adaptive_k", "-a", help="Use adaptive k to compute some metrics"
         ),
-    ] = config.ADAPTIVE_K,
+    ] = settings.ADAPTIVE_K,
     use_procesed_data: Annotated[
         bool, typer.Option("--use_processed", "-P", help="Use saved processed data")
-    ] = config.SAVE_DATA,
+    ] = settings.SAVE_DATA,
     remove_sparse: Annotated[
         bool, typer.Option("--remove_sparse", "-R", help="Remove users")
-    ] = config.REMOVE_SPARSE,
+    ] = settings.REMOVE_SPARSE,
     models_folder: Annotated[
         str,
         typer.Option(
             "--models-folder", "-M", help="Folder where saved models are stored."
         ),
-    ] = config.MODELS_FOLDER,
+    ] = settings.MODELS_FOLDER,
 ):
     model_path, cfg = load_model(
         models_folder=models_folder,
@@ -64,7 +64,7 @@ def test_recsys(
         test_ratio=test_size,
         val_ratio=val_size,
         use_processed_data=use_procesed_data,
-        random_state=config.state["random_state"],
+        random_state=settings.state["random_state"],
         remove_sparse=remove_sparse,
     )
     dm.setup(phase=Phase.RANKING)
@@ -84,7 +84,7 @@ def test_recsys(
     )
 
     trainer = L.Trainer(
-        accelerator=config.state["device"],
+        accelerator=settings.state["device"],
         devices="auto",
         logger=False,
     )

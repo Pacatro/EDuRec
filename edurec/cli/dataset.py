@@ -2,7 +2,7 @@ from typing import Annotated
 
 import typer
 
-from .. import config
+from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
 
 app = typer.Typer(no_args_is_help=True)
@@ -19,11 +19,11 @@ def dataset_command(
 ):
     dm = ElearningDataModule(
         dataset=dataset,
-        batch_size=config.RETRIEVAL_BATCH_SIZE,
-        test_ratio=config.TEST_RATIO,
-        val_ratio=config.VAL_RATIO,
+        batch_size=settings.RETRIEVAL_BATCH_SIZE,
+        test_ratio=settings.TEST_RATIO,
+        val_ratio=settings.VAL_RATIO,
         use_processed_data=False,
-        random_state=config.state["random_state"],
+        random_state=settings.state["random_state"],
         remove_sparse=False,
     )
 

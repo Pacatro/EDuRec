@@ -6,7 +6,7 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from .. import config
+from .. import settings
 
 
 @dataclass
@@ -40,10 +40,10 @@ class RankerDataset(Dataset):
             raise RuntimeError("Precomputed history must align with interactions.")
 
         interactions = interactions.reset_index(drop=True)
-        self.user_ids = interactions[config.USER_COL].to_numpy(copy=True)
-        self.item_ids = interactions[config.ITEM_COL].to_numpy(copy=True)
+        self.user_ids = interactions[settings.USER_COL].to_numpy(copy=True)
+        self.item_ids = interactions[settings.ITEM_COL].to_numpy(copy=True)
         self.targets = (
-            interactions[config.RELEVANT_COL].astype(np.float32).to_numpy(copy=True)
+            interactions[settings.RELEVANT_COL].astype(np.float32).to_numpy(copy=True)
         )
 
         self.history_items = precomputed_history.items
@@ -51,13 +51,13 @@ class RankerDataset(Dataset):
         self.history_valid_mask = precomputed_history.valid_mask
 
         self.candidate_ids = self._get_optional_column(
-            interactions, config.CANDIDATE_IDS_COL
+            interactions, settings.CANDIDATE_IDS_COL
         )
         self.candidate_labels = self._get_optional_column(
-            interactions, config.CANDIDATE_LABELS_COL
+            interactions, settings.CANDIDATE_LABELS_COL
         )
         self.positive_positions = self._get_optional_column(
-            interactions, config.POSITIVE_POSITION_COL
+            interactions, settings.POSITIVE_POSITION_COL
         )
 
     def __len__(self) -> int:

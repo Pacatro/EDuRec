@@ -1,7 +1,7 @@
 import pandas as pd
 import torch
 
-from ... import config
+from ... import settings
 from ...datasets import ElearningDataModule, History, Phase
 from ..retrieval import Retrieval
 
@@ -56,9 +56,9 @@ def _generate_split_candidates(
 
     df = interactions.reset_index(drop=True).copy()
     if df.empty:
-        df[config.CANDIDATE_IDS_COL] = [[] for _ in range(len(df))]
-        df[config.CANDIDATE_LABELS_COL] = [[] for _ in range(len(df))]
-        df[config.POSITIVE_POSITION_COL] = [0 for _ in range(len(df))]
+        df[settings.CANDIDATE_IDS_COL] = [[] for _ in range(len(df))]
+        df[settings.CANDIDATE_LABELS_COL] = [[] for _ in range(len(df))]
+        df[settings.POSITIVE_POSITION_COL] = [0 for _ in range(len(df))]
         return df
 
     device = retrieval.device
@@ -73,15 +73,15 @@ def _generate_split_candidates(
     pool_size = min(num_items, effective_k + history.items.size(1))
 
     user_ids = torch.as_tensor(
-        df[config.USER_COL].to_numpy(copy=True),
+        df[settings.USER_COL].to_numpy(copy=True),
         dtype=torch.long,
     )
     target_item_ids = torch.as_tensor(
-        df[config.ITEM_COL].to_numpy(copy=True),
+        df[settings.ITEM_COL].to_numpy(copy=True),
         dtype=torch.long,
     )
     targets = torch.as_tensor(
-        df[config.RELEVANT_COL].astype("float32").to_numpy(copy=True),
+        df[settings.RELEVANT_COL].astype("float32").to_numpy(copy=True),
         dtype=torch.float32,
     )
 
@@ -142,9 +142,9 @@ def _generate_split_candidates(
             candidate_labels.append(row_labels)
             positive_positions.append(positive_position)
 
-    df[config.CANDIDATE_IDS_COL] = candidate_ids
-    df[config.CANDIDATE_LABELS_COL] = candidate_labels
-    df[config.POSITIVE_POSITION_COL] = positive_positions
+    df[settings.CANDIDATE_IDS_COL] = candidate_ids
+    df[settings.CANDIDATE_LABELS_COL] = candidate_labels
+    df[settings.POSITIVE_POSITION_COL] = positive_positions
     return df
 
 

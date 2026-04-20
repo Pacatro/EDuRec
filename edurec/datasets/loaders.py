@@ -5,9 +5,9 @@ from typing import Callable, NamedTuple
 
 import pandas as pd
 
-from .. import config
+from .. import settings
 
-RAW_DATA_FOLDER = Path(config.DATA_FOLDER) / "raw"
+RAW_DATA_FOLDER = Path(settings.DATA_FOLDER) / "raw"
 
 
 class DatasetName(StrEnum):
@@ -87,20 +87,20 @@ def load_mars() -> RawDataset:
 
     df_interactions.rename(
         columns={
-            "user_id": config.USER_COL,
-            "item_id": config.ITEM_COL,
-            "rating": config.RATING_COL,
-            "created_at": config.TIME_COL,
+            "user_id": settings.USER_COL,
+            "item_id": settings.ITEM_COL,
+            "rating": settings.RATING_COL,
+            "created_at": settings.TIME_COL,
         },
         inplace=True,
     )
 
     df_items.rename(
-        columns={"item_id": config.ITEM_COL, "type": "item_type"},
+        columns={"item_id": settings.ITEM_COL, "type": "item_type"},
         inplace=True,
     )
 
-    df_users.rename(columns={"user_id": config.USER_COL}, inplace=True)
+    df_users.rename(columns={"user_id": settings.USER_COL}, inplace=True)
 
     schema = {
         "users": {
@@ -149,14 +149,14 @@ def load_itm() -> RawDataset:
 
     ratings_df.rename(
         columns={
-            "UserID": config.USER_COL,
-            "Item": config.ITEM_COL,
-            "Rating": config.RATING_COL,
+            "UserID": settings.USER_COL,
+            "Item": settings.ITEM_COL,
+            "Rating": settings.RATING_COL,
         },
         inplace=True,
     )
-    items_df.rename(columns={"Item": config.ITEM_COL}, inplace=True)
-    users_df.rename(columns={"UserID": config.USER_COL}, inplace=True)
+    items_df.rename(columns={"Item": settings.ITEM_COL}, inplace=True)
+    users_df.rename(columns={"UserID": settings.USER_COL}, inplace=True)
 
     items_df = items_df.drop(["URL"], axis=1)
 
@@ -201,16 +201,16 @@ def load_doris() -> RawDataset:
 
     ratings_df.rename(
         columns={
-            "StudedntId": config.USER_COL,
-            "CourseId": config.ITEM_COL,
-            "Score": config.RATING_COL,
+            "StudedntId": settings.USER_COL,
+            "CourseId": settings.ITEM_COL,
+            "Score": settings.RATING_COL,
         },
         inplace=True,
     )
     items_df.rename(
-        columns={"CourseId": config.ITEM_COL, "type": "item_type"}, inplace=True
+        columns={"CourseId": settings.ITEM_COL, "type": "item_type"}, inplace=True
     )
-    users_df.rename(columns={"StudentId": config.USER_COL}, inplace=True)
+    users_df.rename(columns={"StudentId": settings.USER_COL}, inplace=True)
 
     schema = {
         "users": {

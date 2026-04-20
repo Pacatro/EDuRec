@@ -9,7 +9,7 @@ from torchmetrics.retrieval import (
     RetrievalRecall,
 )
 
-from .. import config
+from .. import settings
 from ..datasets import RetrievalBatch
 from .two_tower import RetrievalConfig, TwoTowerRetrieval
 
@@ -20,9 +20,9 @@ class Retrieval(L.LightningModule):
         cfg: RetrievalConfig,
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
-        lr: float = config.RETRIEVAL_LR,
-        weight_decay: float = config.RETRIEVAL_WEIGHT_DECAY,
-        top_k: int = config.RETRIEVAL_TOP_K,
+        lr: float = settings.RETRIEVAL_LR,
+        weight_decay: float = settings.RETRIEVAL_WEIGHT_DECAY,
+        top_k: int = settings.RETRIEVAL_TOP_K,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["u_static_feats", "i_static_feats"])

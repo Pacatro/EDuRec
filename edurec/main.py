@@ -6,13 +6,13 @@ import typer
 import torch
 from dotenv import load_dotenv
 
-from . import config
+from . import settings
 from .cli import train_app, test_app, dataset_app
 
 # Ignore pandas future warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-torch.manual_seed(config.state["random_state"])
+torch.manual_seed(settings.state["random_state"])
 
 load_dotenv()
 
@@ -41,19 +41,19 @@ def main(
     device: Annotated[
         Device,
         typer.Option("--device", "-d", help="Device to use"),
-    ] = Device(config.state["device"]),
+    ] = Device(settings.state["device"]),
     random_state: Annotated[
         int | None,
         typer.Option("--random-state", "-r", help="Random state"),
-    ] = config.state["random_state"],
+    ] = settings.state["random_state"],
     verbose: Annotated[
         bool,
         typer.Option("--verbose", "-v", help="Verbose mode"),
-    ] = config.state["verbose"],
+    ] = settings.state["verbose"],
 ):
-    config.state["verbose"] = verbose
-    config.state["random_state"] = random_state
-    config.state["device"] = device.value
+    settings.state["verbose"] = verbose
+    settings.state["random_state"] = random_state
+    settings.state["device"] = device.value
 
     if verbose:
         print(f"[CONFIG] Device: {device.value}")

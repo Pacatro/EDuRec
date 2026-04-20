@@ -8,7 +8,7 @@ import pandas as pd
 from .ghost import GhostConfig
 from .two_tower import RetrievalConfig
 from ..datasets import Phase
-from .. import config
+from .. import settings
 
 type RecsysConfig = GhostConfig | RetrievalConfig
 
@@ -37,8 +37,8 @@ def save_model(
     model_folder = models_root / dataset_name / phase.value / timestamp
     model_folder.mkdir(parents=True, exist_ok=True)
 
-    model_file_path = model_folder / config.MODEL_FILENAME
-    model_config_path = model_folder / config.MODEL_METADATA_FILENAME
+    model_file_path = model_folder / settings.MODEL_FILENAME
+    model_config_path = model_folder / settings.MODEL_METADATA_FILENAME
 
     Path(best_model_path).rename(model_file_path)
     model_config_path.write_text(
@@ -55,7 +55,7 @@ def save_model(
 
 
 def save_metrics(metrics: dict[str, float], saving_models_folder: str | Path) -> Path:
-    file_path = Path(saving_models_folder) / config.METRICS_FILENAME
+    file_path = Path(saving_models_folder) / settings.METRICS_FILENAME
     pd.DataFrame.from_dict(metrics, orient="index").to_csv(file_path, index=True)
     return file_path
 
@@ -86,8 +86,8 @@ def load_model(
         if phase_root.exists()
         for path in phase_root.iterdir()
         if path.is_dir()
-        and (path / config.MODEL_FILENAME).exists()
-        and (path / config.MODEL_METADATA_FILENAME).exists()
+        and (path / settings.MODEL_FILENAME).exists()
+        and (path / settings.MODEL_METADATA_FILENAME).exists()
     ]
 
     if not model_dirs:
@@ -96,8 +96,8 @@ def load_model(
         raise FileNotFoundError(f"No models of type {requested_type!r} found in {root}")
 
     latest_dir = max(model_dirs, key=lambda path: path.stat().st_mtime)
-    model_file = latest_dir / config.MODEL_FILENAME
-    config_file = latest_dir / config.MODEL_METADATA_FILENAME
+    model_file = latest_dir / settings.MODEL_FILENAME
+    config_file = latest_dir / settings.MODEL_METADATA_FILENAME
 
     if not model_file.exists():
         raise FileNotFoundError(f"Model file {model_file} does not exist")

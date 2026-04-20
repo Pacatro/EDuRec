@@ -4,7 +4,7 @@ from typing import Annotated, cast
 import torch
 import typer
 
-from .. import config
+from .. import settings
 from ..datasets import DatasetName, ElearningDataModule, Phase
 from ..recsys import generate_candidates, train_model
 from ..recsys.ghost import GhostConfig
@@ -22,7 +22,7 @@ def _print_common_info(
     remove_sparse: bool,
     min_interactions: int,
 ) -> None:
-    if not config.state["verbose"]:
+    if not settings.state["verbose"]:
         return
 
     print(f"[TRAIN] Using dataset {dataset.value}")
@@ -30,13 +30,15 @@ def _print_common_info(
     print(f"[TRAIN] Minimum interactions per user: {min_interactions}")
 
     if use_processed_data:
-        print(f"[TRAIN] Using saved processed data from {config.PROCESSED_FOLDER}")
+        print(f"[TRAIN] Using saved processed data from {settings.PROCESSED_FOLDER}")
     else:
-        print(f"[TRAIN] Processing raw data from {config.DATA_FOLDER}/{dataset.value}")
+        print(
+            f"[TRAIN] Processing raw data from {settings.DATA_FOLDER}/{dataset.value}"
+        )
 
 
 def _print_datamodule_stats(dm: ElearningDataModule) -> None:
-    if not config.state["verbose"]:
+    if not settings.state["verbose"]:
         return
 
     print(f"[TRAIN] Dataset sparsity: {dm.sparsity}")
@@ -64,7 +66,7 @@ def _build_datamodule(
         test_ratio=test_size,
         val_ratio=val_size,
         use_processed_data=use_processed_data,
-        random_state=config.state["random_state"],
+        random_state=settings.state["random_state"],
         min_interactions=min_interactions,
         remove_sparse=remove_sparse,
     )
@@ -135,7 +137,7 @@ def _save_trained_model(
         metrics=metrics,
     )
 
-    if config.state["verbose"]:
+    if settings.state["verbose"]:
         print(f"Model weights saved in: {model_file_path}")
         print(f"Model config saved in: {model_config_path}")
         print(f"Metrics saved in: {metrics_path}")
@@ -232,7 +234,7 @@ def _load_retrieval(
         weights_only=False,
     )
 
-    if config.state["verbose"]:
+    if settings.state["verbose"]:
         print(f"[TRAIN] Loaded retrieval model from: {retrieval_model_path}")
 
     return retrieval, retrieval_cfg
@@ -298,25 +300,25 @@ def train_retrieval_command(
     ] = DatasetName.MARS,
     epochs: Annotated[
         int, typer.Option("--epochs", "-e", help="Number of epochs")
-    ] = config.EPOCHS,
+    ] = settings.EPOCHS,
     lr: Annotated[
         float, typer.Option("--lr", "-l", help="Learning rate")
-    ] = config.RETRIEVAL_LR,
+    ] = settings.RETRIEVAL_LR,
     batch_size: Annotated[
         int, typer.Option("--batch_size", "-b", help="Batch size")
-    ] = config.RETRIEVAL_BATCH_SIZE,
+    ] = settings.RETRIEVAL_BATCH_SIZE,
     patience: Annotated[
         int, typer.Option("--patience", "-p", help="Patience")
-    ] = config.RETRIEVAL_PATIENCE,
+    ] = settings.RETRIEVAL_PATIENCE,
     val_size: Annotated[
         float, typer.Option("--val_size", "-v", help="Validation size")
-    ] = config.VAL_RATIO,
+    ] = settings.VAL_RATIO,
     test_size: Annotated[
         float, typer.Option("--test_size", "-t", help="Test size")
-    ] = config.TEST_RATIO,
+    ] = settings.TEST_RATIO,
     top_k: Annotated[
         int, typer.Option("--top_k", "-k", help="Top-k value")
-    ] = config.RETRIEVAL_TOP_K,
+    ] = settings.RETRIEVAL_TOP_K,
     remove_sparse: Annotated[
         bool,
         typer.Option(
@@ -324,7 +326,7 @@ def train_retrieval_command(
             "-R",
             help="Remove users with less than MIN_INTERACTIONS interactions",
         ),
-    ] = config.REMOVE_SPARSE,
+    ] = settings.REMOVE_SPARSE,
     min_interactions: Annotated[
         int,
         typer.Option(
@@ -332,7 +334,7 @@ def train_retrieval_command(
             "-I",
             help="Minimum number of interactions per user",
         ),
-    ] = config.MIN_INTERACTIONS,
+    ] = settings.MIN_INTERACTIONS,
     use_logger: Annotated[
         bool, typer.Option("--use_logger", "-L", help="Use MLFlow logger")
     ] = False,
@@ -342,13 +344,13 @@ def train_retrieval_command(
     ] = False,
     use_processed_data: Annotated[
         bool, typer.Option("--use_processed", "-P", help="Use saved processed data")
-    ] = config.SAVE_DATA,
+    ] = settings.SAVE_DATA,
     models_folder: Annotated[
         str,
         typer.Option(
             "--models-folder", "-M", help="Folder where save the trained model."
         ),
-    ] = config.MODELS_FOLDER,
+    ] = settings.MODELS_FOLDER,
 ) -> None:
     dm = _build_datamodule(
         dataset=dataset,
@@ -381,32 +383,32 @@ def train_ranker_command(
     ] = DatasetName.MARS,
     epochs: Annotated[
         int, typer.Option("--epochs", "-e", help="Number of epochs")
-    ] = config.EPOCHS,
+    ] = settings.EPOCHS,
     lr: Annotated[
         float, typer.Option("--lr", "-l", help="Learning rate")
-    ] = config.RANKER_LR,
+    ] = settings.RANKER_LR,
     batch_size: Annotated[
         int, typer.Option("--batch_size", "-b", help="Batch size")
-    ] = config.RANKER_BATCH_SIZE,
+    ] = settings.RANKER_BATCH_SIZE,
     patience: Annotated[
         int, typer.Option("--patience", "-p", help="Patience")
-    ] = config.RANKER_PATIENCE,
+    ] = settings.RANKER_PATIENCE,
     val_size: Annotated[
         float, typer.Option("--val_size", "-v", help="Validation size")
-    ] = config.VAL_RATIO,
+    ] = settings.VAL_RATIO,
     test_size: Annotated[
         float, typer.Option("--test_size", "-t", help="Test size")
-    ] = config.TEST_RATIO,
+    ] = settings.TEST_RATIO,
     top_k: Annotated[
         int, typer.Option("--top_k", "-k", help="Top-k value")
-    ] = config.RANKER_TOP_K,
+    ] = settings.RANKER_TOP_K,
     candidate_top_n: Annotated[
         int,
         typer.Option(
             "--candidate_top_n",
             help="Number of retrieval candidates generated before reranking",
         ),
-    ] = config.TOP_N,
+    ] = settings.TOP_N,
     remove_sparse: Annotated[
         bool,
         typer.Option(
@@ -414,7 +416,7 @@ def train_ranker_command(
             "-R",
             help="Remove users with less than MIN_INTERACTIONS interactions",
         ),
-    ] = config.REMOVE_SPARSE,
+    ] = settings.REMOVE_SPARSE,
     min_interactions: Annotated[
         int,
         typer.Option(
@@ -422,13 +424,13 @@ def train_ranker_command(
             "-I",
             help="Minimum number of interactions per user",
         ),
-    ] = config.MIN_INTERACTIONS,
+    ] = settings.MIN_INTERACTIONS,
     adaptive_k: Annotated[
         bool,
         typer.Option(
             "--adaptive_k", "-a", help="Use adaptive k to compute some metrics"
         ),
-    ] = config.ADAPTIVE_K,
+    ] = settings.ADAPTIVE_K,
     use_logger: Annotated[
         bool, typer.Option("--use_logger", "-L", help="Use MLFlow logger")
     ] = False,
@@ -438,13 +440,13 @@ def train_ranker_command(
     ] = False,
     use_processed_data: Annotated[
         bool, typer.Option("--use_processed", "-P", help="Use saved processed data")
-    ] = config.SAVE_DATA,
+    ] = settings.SAVE_DATA,
     models_folder: Annotated[
         str,
         typer.Option(
             "--models-folder", "-M", help="Folder where save and load models."
         ),
-    ] = config.MODELS_FOLDER,
+    ] = settings.MODELS_FOLDER,
 ) -> None:
     dm = _build_datamodule(
         dataset=dataset,
@@ -467,7 +469,7 @@ def train_ranker_command(
 
     assert dm.i_static_feats is not None
 
-    if config.state["verbose"]:
+    if settings.state["verbose"]:
         print(f"[TRAIN] Generating top-{candidate_top_n} candidates per query")
 
     generate_candidates(
@@ -501,56 +503,56 @@ def train_all_command(
     retrieval_epochs: Annotated[
         int,
         typer.Option("--retrieval-epochs", help="Number of retrieval training epochs"),
-    ] = config.EPOCHS,
+    ] = settings.EPOCHS,
     retrieval_lr: Annotated[
         float,
         typer.Option("--retrieval-lr", help="Retrieval learning rate"),
-    ] = config.RETRIEVAL_LR,
+    ] = settings.RETRIEVAL_LR,
     retrieval_batch_size: Annotated[
         int,
         typer.Option("--retrieval-batch-size", help="Retrieval batch size"),
-    ] = config.RETRIEVAL_BATCH_SIZE,
+    ] = settings.RETRIEVAL_BATCH_SIZE,
     retrieval_patience: Annotated[
         int,
         typer.Option("--retrieval-patience", help="Retrieval early stopping"),
-    ] = config.RETRIEVAL_PATIENCE,
+    ] = settings.RETRIEVAL_PATIENCE,
     retrieval_top_k: Annotated[
         int,
         typer.Option("--retrieval-top-k", help="Retrieval top-k metric"),
-    ] = config.RETRIEVAL_TOP_K,
+    ] = settings.RETRIEVAL_TOP_K,
     ranker_epochs: Annotated[
         int,
         typer.Option("--ranker-epochs", help="Number of ranker training epochs"),
-    ] = config.EPOCHS,
+    ] = settings.EPOCHS,
     ranker_lr: Annotated[
         float,
         typer.Option("--ranker-lr", help="Ranker learning rate"),
-    ] = config.RANKER_LR,
+    ] = settings.RANKER_LR,
     ranker_batch_size: Annotated[
         int,
         typer.Option("--ranker-batch-size", help="Ranker batch size"),
-    ] = config.RANKER_BATCH_SIZE,
+    ] = settings.RANKER_BATCH_SIZE,
     ranker_patience: Annotated[
         int,
         typer.Option("--ranker-patience", help="Ranker early stopping"),
-    ] = config.RANKER_PATIENCE,
+    ] = settings.RANKER_PATIENCE,
     ranker_top_k: Annotated[
         int,
         typer.Option("--ranker-top-k", help="Ranker top-k metric"),
-    ] = config.RANKER_TOP_K,
+    ] = settings.RANKER_TOP_K,
     candidate_top_n: Annotated[
         int,
         typer.Option(
             "--candidate-top-n",
             help="Number of retrieval candidates generated before reranking",
         ),
-    ] = config.TOP_N,
+    ] = settings.TOP_N,
     val_size: Annotated[
         float, typer.Option("--val_size", "-v", help="Validation size")
-    ] = config.VAL_RATIO,
+    ] = settings.VAL_RATIO,
     test_size: Annotated[
         float, typer.Option("--test_size", "-t", help="Test size")
-    ] = config.TEST_RATIO,
+    ] = settings.TEST_RATIO,
     remove_sparse: Annotated[
         bool,
         typer.Option(
@@ -558,7 +560,7 @@ def train_all_command(
             "-R",
             help="Remove users with less than MIN_INTERACTIONS interactions",
         ),
-    ] = config.REMOVE_SPARSE,
+    ] = settings.REMOVE_SPARSE,
     min_interactions: Annotated[
         int,
         typer.Option(
@@ -566,13 +568,13 @@ def train_all_command(
             "-I",
             help="Minimum number of interactions per user",
         ),
-    ] = config.MIN_INTERACTIONS,
+    ] = settings.MIN_INTERACTIONS,
     adaptive_k: Annotated[
         bool,
         typer.Option(
             "--adaptive_k", "-a", help="Use adaptive k to compute some metrics"
         ),
-    ] = config.ADAPTIVE_K,
+    ] = settings.ADAPTIVE_K,
     retrain_retrieval: Annotated[
         bool,
         typer.Option(
@@ -589,13 +591,13 @@ def train_all_command(
     ] = False,
     use_processed_data: Annotated[
         bool, typer.Option("--use_processed", "-P", help="Use saved processed data")
-    ] = config.SAVE_DATA,
+    ] = settings.SAVE_DATA,
     models_folder: Annotated[
         str,
         typer.Option(
             "--models-folder", "-M", help="Folder where save and load models."
         ),
-    ] = config.MODELS_FOLDER,
+    ] = settings.MODELS_FOLDER,
 ) -> None:
     dm = _build_datamodule(
         dataset=dataset,
@@ -608,7 +610,7 @@ def train_all_command(
     )
 
     if retrain_retrieval:
-        if config.state["verbose"]:
+        if settings.state["verbose"]:
             print("[TRAIN] Forced retrieval retraining.")
         retrieval, _ = _train_retrieval(
             dm=dm,
@@ -633,7 +635,7 @@ def train_all_command(
                 models_folder=models_folder,
             )
         except FileNotFoundError:
-            if config.state["verbose"]:
+            if settings.state["verbose"]:
                 print("[TRAIN] No saved retrieval model found. Training a new one.")
             retrieval, _ = _train_retrieval(
                 dm=dm,
@@ -650,7 +652,7 @@ def train_all_command(
 
     assert dm.i_static_feats is not None
 
-    if config.state["verbose"]:
+    if settings.state["verbose"]:
         print(f"[TRAIN] Generating top-{candidate_top_n} candidates per query")
 
     generate_candidates(
