@@ -31,8 +31,8 @@ class FakeSentenceTransformer:
         for row_idx, text in enumerate(texts):
             for char_idx, byte in enumerate(text.encode("utf-8")):
                 embeddings[row_idx, char_idx % config.TEXT_EMBEDDING_DIM] += (
-                    (byte % 17) + 1
-                )
+                    byte % 17
+                ) + 1
         return embeddings
 
 
@@ -47,7 +47,9 @@ def fake_sentence_model(monkeypatch: pytest.MonkeyPatch):
             models[model_name] = model
         return model
 
-    monkeypatch.setattr(data_processor_module, "_get_sentence_embedding_model", fake_loader)
+    monkeypatch.setattr(
+        data_processor_module, "_get_sentence_embedding_model", fake_loader
+    )
     return models
 
 

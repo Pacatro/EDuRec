@@ -55,7 +55,7 @@ def test_recsys(
     model_path, cfg = load_model(
         models_folder=models_folder,
         dataset_name=dataset.value,
-        model_type=Phase.RANKING,
+        phase=Phase.RANKING,
     )
 
     dm = ElearningDataModule(

@@ -3,7 +3,11 @@ import torch
 import torch.nn.functional as F
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from torchmetrics import MetricCollection
-from torchmetrics.retrieval import RetrievalHitRate, RetrievalRecall
+from torchmetrics.retrieval import (
+    RetrievalHitRate,
+    RetrievalNormalizedDCG,
+    RetrievalRecall,
+)
 
 from .. import config
 from ..datasets import RetrievalBatch
@@ -37,6 +41,7 @@ class Retrieval(L.LightningModule):
             {
                 f"Hit@{top_k}": RetrievalHitRate(top_k=top_k),
                 f"Recall@{top_k}": RetrievalRecall(top_k=top_k),
+                f"NDCG@{top_k}": RetrievalNormalizedDCG(top_k=top_k),
             }
         )
 
@@ -60,6 +65,9 @@ class Retrieval(L.LightningModule):
         history_ctx: torch.Tensor,
         history_valid_mask: torch.Tensor,
     ) -> torch.Tensor:
+        assert isinstance(self.u_static_feats, torch.Tensor)
+        assert isinstance(self.i_static_feats, torch.Tensor)
+
         return self.model.encode_query(
             user_ids=user_ids,
             history_items=history_items,
@@ -70,6 +78,8 @@ class Retrieval(L.LightningModule):
         )
 
     def encode_items(self, item_ids: torch.Tensor) -> torch.Tensor:
+        assert isinstance(self.i_static_feats, torch.Tensor)
+
         return self.model.encode_items(
             item_ids=item_ids,
             i_static_feats=self.i_static_feats,
@@ -82,8 +92,8 @@ class Retrieval(L.LightningModule):
     ) -> torch.Tensor:
         return (query_emb @ item_emb.T) / self.cfg.temperature
 
-    def training_step(self, batch: RetrievalBatch) -> torch.Tensor:
-        return self._step(batch, "train")
+    def training_step(self, batch: RetrievalBatch):
+        self._step(batch, "train")
 
     def validation_step(self, batch: RetrievalBatch):
         self._step(batch, "val", ranking_metrics=self.val_ranking_metrics)
@@ -96,7 +106,7 @@ class Retrieval(L.LightningModule):
         batch: RetrievalBatch,
         prefix: str,
         ranking_metrics: MetricCollection | None = None,
-    ) -> torch.Tensor:
+    ):
         logits = self(batch)
         targets = torch.arange(logits.size(0), device=logits.device)
         loss = F.cross_entropy(logits, targets)
@@ -117,8 +127,6 @@ class Retrieval(L.LightningModule):
             target = torch.eye(num_candidates, device=logits.device).flatten().long()
             indexes = batch.query_id.long().repeat_interleave(num_candidates)
             ranking_metrics.update(preds=preds, target=target, indexes=indexes)
-
-        return loss
 
     def on_validation_epoch_end(self):
         self.log_dict(self.val_ranking_metrics.compute(), prog_bar=True)

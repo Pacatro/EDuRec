@@ -51,23 +51,23 @@ class Ranker(L.LightningModule):
 
         self.gcl_loss = InfoNCELoss(tau=cfg.gnn.tau, reduction=cfg.gnn.loss_reduc)
 
-        ranking_metrics = {
-            f"Precision@{top_k}": RetrievalPrecision(
-                top_k=top_k, adaptive_k=adaptive_k
-            ),
-            f"Recall@{top_k}": RetrievalRecall(top_k=top_k),
-            f"NDCG@{top_k}": RetrievalNormalizedDCG(top_k=top_k),
-            f"Hit@{top_k}": RetrievalHitRate(top_k=top_k),
-            f"MAP@{top_k}": RetrievalMAP(top_k=top_k),
-            f"MRR@{top_k}": RetrievalMRR(top_k=top_k),
-        }
-
         self.val_ranking_metrics = MetricCollection(
-            ranking_metrics[f"NDCG@{top_k}"],
-            prefix="val/",
+            {f"NDCG@{top_k}": RetrievalNormalizedDCG(top_k=top_k)}, prefix="val/"
         )
 
-        self.test_ranking_metrics = MetricCollection(ranking_metrics, prefix="test/")
+        self.test_ranking_metrics = MetricCollection(
+            {
+                f"Precision@{top_k}": RetrievalPrecision(
+                    top_k=top_k, adaptive_k=adaptive_k
+                ),
+                f"Recall@{top_k}": RetrievalRecall(top_k=top_k),
+                f"NDCG@{top_k}": RetrievalNormalizedDCG(top_k=top_k),
+                f"Hit@{top_k}": RetrievalHitRate(top_k=top_k),
+                f"MAP@{top_k}": RetrievalMAP(top_k=top_k),
+                f"MRR@{top_k}": RetrievalMRR(top_k=top_k),
+            },
+            prefix="test/",
+        )
 
         self.model = Ghost(cfg)
         self.model_name = self.__class__.__name__
@@ -91,8 +91,8 @@ class Ranker(L.LightningModule):
 
         return scores
 
-    def training_step(self, batch: RankerBatch) -> torch.Tensor:
-        return self._step(batch, "train")
+    def training_step(self, batch: RankerBatch):
+        self._step(batch, "train")
 
     def validation_step(self, batch: RankerBatch):
         self._step(
@@ -113,7 +113,7 @@ class Ranker(L.LightningModule):
         batch: RankerBatch,
         prefix: str,
         ranking_metrics: MetricCollection | None = None,
-    ) -> torch.Tensor:
+    ):
         scores = self(batch)
         targets = batch.candidate_labels.float()
 
@@ -125,7 +125,7 @@ class Ranker(L.LightningModule):
         )
 
         if scores.numel() == 0 or targets.numel() == 0:
-            return scores.new_zeros(())
+            return
 
         loss, rank_loss, gcl_loss = self.compute_loss(
             scores,
@@ -168,8 +168,6 @@ class Ranker(L.LightningModule):
 
             ranking_metrics.update(preds=preds, target=target, indexes=indexes)
 
-        return loss
-
     def _select_valid_queries(
         self,
         scores: torch.Tensor,
@@ -196,11 +194,9 @@ class Ranker(L.LightningModule):
         targets: torch.Tensor,
         prefix: str,
         positive_position: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[float, float, float]:
         rank_loss = self._compute_rank_loss(scores, targets, positive_position)
-        gcl_loss = (
-            self._compute_gcl_loss() if prefix == "train" else rank_loss.new_zeros(())
-        )
+        gcl_loss = self._compute_gcl_loss() if prefix == "train" else 0.0
 
         loss = rank_loss + self.alpha * gcl_loss
 
@@ -211,17 +207,17 @@ class Ranker(L.LightningModule):
         scores: torch.Tensor,
         targets: torch.Tensor,
         positive_position: torch.Tensor | None = None,
-    ) -> torch.Tensor:
+    ) -> float:
         if scores.ndim == 2 and targets.ndim == 2:
             if positive_position is None:
                 positive_position = targets.argmax(dim=1)
 
-            return F.cross_entropy(scores, positive_position.long())
+            return F.cross_entropy(scores, positive_position.long()).item()
 
         scores = scores.reshape_as(targets)
-        return F.binary_cross_entropy_with_logits(scores, targets.float())
+        return F.binary_cross_entropy_with_logits(scores, targets.float()).item()
 
-    def _compute_gcl_loss(self) -> torch.Tensor:
+    def _compute_gcl_loss(self) -> float:
         p = self.cfg.edge_dropout
 
         assert isinstance(self.edge_index, torch.Tensor)
@@ -246,15 +242,11 @@ class Ranker(L.LightningModule):
 
     def on_validation_epoch_start(self):
         self.val_ranking_metrics.reset()
-
-    def on_validation_epoch_end(self):
         self.log_dict(self.val_ranking_metrics.compute(), prog_bar=True)
-
-    def on_test_epoch_start(self):
-        self.test_ranking_metrics.reset()
 
     def on_test_epoch_end(self):
         self.log_dict(self.test_ranking_metrics.compute())
+        self.test_ranking_metrics.reset()
 
     def predict_step(self, batch: RankerBatch) -> torch.Tensor:
         return self(batch)

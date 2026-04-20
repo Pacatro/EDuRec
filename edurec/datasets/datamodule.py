@@ -262,9 +262,9 @@ class ElearningDataModule(L.LightningDataModule):
     def _load_data(self):
         """Load raw inputs or processed cache depending on configuration."""
         required_files = [
-            "train.csv",
-            "val.csv",
-            "test.csv",
+            self._processed_split_filename("train"),
+            self._processed_split_filename("val"),
+            self._processed_split_filename("test"),
             "static_feats.safetensors",
             "processor.joblib",
             "preprocess_metadata.json",
@@ -418,7 +418,9 @@ class ElearningDataModule(L.LightningDataModule):
         assert self.processed_folder is not None and self.processed_folder.exists()
 
         processed_splits = {
-            split: pd.read_csv(self.processed_folder / f"{split}.csv")
+            split: pd.read_feather(
+                self.processed_folder / self._processed_split_filename(split)
+            )
             for split in ["train", "val", "test"]
         }
 
@@ -698,7 +700,7 @@ class ElearningDataModule(L.LightningDataModule):
         for split, df in self._processed_data.items():
             if df is None:
                 continue
-            df.to_csv(self.processed_folder / f"{split}.csv", index=False)
+            df.to_feather(self.processed_folder / self._processed_split_filename(split))
 
         assert self.u_static_feats is not None and self.i_static_feats is not None
 
@@ -715,6 +717,9 @@ class ElearningDataModule(L.LightningDataModule):
             json.dumps(self._build_cache_metadata(), indent=2),
             encoding="utf-8",
         )
+
+    def _processed_split_filename(self, split: str) -> str:
+        return f"{split}.feather"
 
     def _make_dataset(self, split: str) -> RankerDataset | RetrievalDataset:
         """Create a processed dataset for the selected training phase."""

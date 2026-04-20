@@ -229,9 +229,7 @@ def test_data_processor_processes_all_feature_types(fake_sentence_model):
     assert _has_suffix(processor.feature_metadata["users"].dense_cols, "age")
     assert len(processor.feature_metadata["users"].dense_cols) > 1
     assert processor.feature_metadata["items"].numeric_cols == ["nb_views"]
-    assert _has_suffix(
-        processor.feature_metadata["items"].categorical_cols, "language"
-    )
+    assert _has_suffix(processor.feature_metadata["items"].categorical_cols, "language")
     assert processor.feature_metadata["items"].text_cols == ["description"]
     assert processor.feature_metadata["items"].list_cols == ["tags"]
     assert _has_suffix(processor.feature_metadata["items"].dense_cols, "nb_views")
@@ -247,7 +245,9 @@ def test_data_processor_processes_all_feature_types(fake_sentence_model):
         processor.feature_metadata["users"].categorical_cols,
         "job",
     )
-    assert processor.feature_metadata["users"].categorical_cardinalities[user_job_col] >= 1
+    assert (
+        processor.feature_metadata["users"].categorical_cardinalities[user_job_col] >= 1
+    )
 
     users_groups = processor.column_groups["users"]
     items_groups = processor.column_groups["items"]
@@ -355,9 +355,7 @@ def test_data_processor_respects_global_feature_toggle(monkeypatch: pytest.Monke
 
     assert processor.feature_metadata["users"].dense_cols == ["num__age"]
     assert processor.feature_metadata["items"].dense_cols == ["num__nb_views"]
-    assert processor.feature_metadata["inter"].dense_cols == [
-        "num__watch_percentage"
-    ]
+    assert processor.feature_metadata["inter"].dense_cols == ["num__watch_percentage"]
 
     assert "bio" not in processed.users.columns
     assert "description" not in processed.items.columns
@@ -451,9 +449,7 @@ def test_sentence_embedding_transformer_cleans_truncates_and_serializes(
     assert transformer.get_feature_names_out().shape == (config.TEXT_EMBEDDING_DIM,)
 
     model = fake_sentence_model[config.TEXT_EMBEDDING_MODEL]
-    assert model.last_texts == [
-        "title: hello world [SEP] description: visit for more"
-    ]
+    assert model.last_texts == ["title: hello world [SEP] description: visit for more"]
 
     path = tmp_path / "text_transformer.joblib"
     joblib.dump(transformer, path)

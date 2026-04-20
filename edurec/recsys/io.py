@@ -25,14 +25,16 @@ def save_model(
         raise TypeError("model_config must be a dataclass instance.")
 
     if isinstance(model_config, GhostConfig):
-        model_type = Phase.RANKING
+        phase = Phase.RANKING
     elif isinstance(model_config, RetrievalConfig):
-        model_type = Phase.RETRIEVAL
+        phase = Phase.RETRIEVAL
     else:
         raise TypeError(f"Unsupported model config type: {type(model_config)!r}")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    model_folder = Path(models_folder) / dataset_name / model_type.value / timestamp
+    models_root = Path(models_folder)
+    models_root.mkdir(parents=True, exist_ok=True)
+    model_folder = models_root / dataset_name / phase.value / timestamp
     model_folder.mkdir(parents=True, exist_ok=True)
 
     model_file_path = model_folder / config.MODEL_FILENAME
@@ -41,7 +43,7 @@ def save_model(
     Path(best_model_path).rename(model_file_path)
     model_config_path.write_text(
         json.dumps(
-            {"model_type": model_type.value, "config": asdict(model_config)},
+            {"phase": phase.value, "config": asdict(model_config)},
             indent=2,
             ensure_ascii=False,
         ),
@@ -61,7 +63,7 @@ def save_metrics(metrics: dict[str, float], saving_models_folder: str | Path) ->
 def load_model(
     models_folder: str | Path,
     dataset_name: str,
-    model_type: Phase | str | None = None,
+    phase: Phase | str | None = None,
 ) -> tuple[Path, RecsysConfig]:
     """Load the most recent saved model and rebuild its config."""
     root = Path(models_folder) / dataset_name
@@ -72,7 +74,7 @@ def load_model(
     if not root.is_dir():
         raise NotADirectoryError(f"Models folder is not a directory: {root}")
 
-    requested_type = Phase(model_type) if model_type is not None else None
+    requested_type = Phase(phase) if phase is not None else None
     search_roots = (
         [root / requested_type.value]
         if requested_type is not None
@@ -108,7 +110,7 @@ def load_model(
 
     config_payload = json.loads(config_file.read_text(encoding="utf-8"))
     config_data = config_payload.get("config", config_payload)
-    saved_type = Phase(config_payload.get("model_type", latest_dir.parent.name))
+    saved_type = Phase(config_payload.get("phase", latest_dir.parent.name))
 
     if saved_type == Phase.RANKING:
         return model_file, GhostConfig(**config_data)

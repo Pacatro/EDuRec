@@ -98,6 +98,8 @@ class DataProcessor:
             handle_unknown="use_encoded_value", unknown_value=-1
         )
 
+        self.preprocessors: dict[str, ColumnTransformer | None] = {}
+
         self._initialize_runtime_state()
 
     def fit(
@@ -129,9 +131,17 @@ class DataProcessor:
         ).drop_duplicates()
         self.item_encoder.fit(all_item_ids)
 
-        self._fit_ct_feats(users_train, "users")
-        self._fit_ct_feats(items_train, "items")
-        self._fit_ct_feats(interactions_train, "inter")
+        train_dfs = {
+            "users": users_train,
+            "items": items_train,
+            "inter": interactions_train,
+        }
+        for prefix, df in train_dfs.items():
+            (
+                self.column_groups[prefix],
+                self.preprocessors[prefix],
+                self.feature_metadata[prefix],
+            ) = self._fit_prefix(prefix, df)
 
         return self
 
@@ -140,32 +150,47 @@ class DataProcessor:
             prefix: self._normalize_schema(prefix) for prefix in PREFIXES
         }
 
-        if reset_fitted_state or not hasattr(self, "preprocessors"):
-            self.preprocessors: dict[str, ColumnTransformer | None] = {
-                prefix: None for prefix in PREFIXES
+        legacy_states = getattr(self, "prefix_states", {})
+        if reset_fitted_state:
+            self.preprocessors = {prefix: None for prefix in PREFIXES}
+            self.column_groups = {
+                prefix: self._empty_column_groups(prefix) for prefix in PREFIXES
+            }
+            self.feature_metadata = {prefix: FeatureMetadata() for prefix in PREFIXES}
+            return
+
+        if not hasattr(self, "preprocessors"):
+            self.preprocessors = {
+                prefix: getattr(legacy_states.get(prefix), "preprocessor", None)
+                for prefix in PREFIXES
             }
 
-        if reset_fitted_state or not hasattr(self, "column_groups"):
-            self.column_groups: dict[str, dict[str, list[str]]] = {
-                prefix: self._empty_column_groups() for prefix in PREFIXES
+        if not hasattr(self, "column_groups"):
+            self.column_groups = {
+                prefix: self._coerce_column_groups(
+                    prefix,
+                    getattr(legacy_states.get(prefix), "column_groups", None),
+                )
+                for prefix in PREFIXES
             }
 
-        if reset_fitted_state or not hasattr(self, "feature_metadata"):
-            self.feature_metadata: dict[str, FeatureMetadata] = {
-                prefix: FeatureMetadata() for prefix in PREFIXES
+        if not hasattr(self, "feature_metadata"):
+            self.feature_metadata = {
+                prefix: getattr(
+                    legacy_states.get(prefix),
+                    "feature_metadata",
+                    FeatureMetadata(),
+                )
+                for prefix in PREFIXES
             }
 
         for prefix in PREFIXES:
-            groups = self.column_groups.get(prefix, self._empty_column_groups())
-            self.column_groups[prefix] = groups
-            existing_metadata = self.feature_metadata[prefix]
-            self.feature_metadata[prefix] = self._build_feature_metadata(
-                prefix=prefix,
-                groups=groups,
-                categorical_cardinalities=existing_metadata.categorical_cardinalities,
-                dense_cols=existing_metadata.dense_cols,
-                categorical_cols=existing_metadata.categorical_cols,
+            self.preprocessors.setdefault(prefix, None)
+            self.column_groups[prefix] = self._coerce_column_groups(
+                prefix,
+                self.column_groups.get(prefix),
             )
+            self.feature_metadata.setdefault(prefix, FeatureMetadata())
 
     def _normalize_schema(self, prefix: str) -> SchemaColumns:
         schema_group = self.schema.get(prefix, {})
@@ -177,7 +202,7 @@ class DataProcessor:
             list_cols=list(schema_group.get("list", [])),
         )
 
-    def _empty_column_groups(self) -> dict[str, list[str]]:
+    def _empty_column_groups(self, prefix: str) -> dict[str, list[str]]:
         return {
             "binary": [],
             "numeric": [],
@@ -186,23 +211,30 @@ class DataProcessor:
             "list": [],
             "time": [],
             "input": [],
-            "passthrough": [],
+            "passthrough": self._passthrough_cols(prefix),
         }
 
-    def _fit_ct_feats(self, df: pd.DataFrame, prefix: str):
-        """Build and fit feature preprocessors for one feature group."""
+    def _coerce_column_groups(
+        self,
+        prefix: str,
+        groups: dict[str, list[str]] | None,
+    ) -> dict[str, list[str]]:
+        merged = self._empty_column_groups(prefix)
+        if groups is None:
+            return merged
+        for key, values in groups.items():
+            merged[key] = list(values)
+        return merged
+
+    def _fit_prefix(
+        self,
+        prefix: str,
+        df: pd.DataFrame,
+    ) -> tuple[dict[str, list[str]], ColumnTransformer, FeatureMetadata]:
         groups = self._resolve_column_groups(
             prefix=prefix, available_columns=df.columns
         )
-        df_features = (
-            df[groups["input"]].copy()
-            if groups["input"]
-            else pd.DataFrame(index=df.index)
-        )
-        df_features = self._normalize_categorical_inputs(
-            df_features, groups["categorical"]
-        )
-
+        df_features = self._prepare_feature_frame(df, groups)
         preprocessor = self._build_ct(
             num_cols=groups["numeric"],
             cat_cols=groups["categorical"],
@@ -215,24 +247,33 @@ class DataProcessor:
 
         assert isinstance(transformed_df, pd.DataFrame)
 
-        dense_cols = self._get_output_columns(
-            preprocessor,
-            transformed_df.columns.tolist(),
-            ("num", "text", "list", "time"),
-        )
-        categorical_cols = self._get_output_columns(
-            preprocessor,
-            transformed_df.columns.tolist(),
-            ("cat",),
-        )
+        output_cols = transformed_df.columns.tolist()
+        dense_cols: list[str] = []
+        categorical_cols: list[str] = []
+        for transformer_name, target_cols in (
+            ("num", dense_cols),
+            ("text", dense_cols),
+            ("list", dense_cols),
+            ("time", dense_cols),
+            ("cat", categorical_cols),
+        ):
+            indices = preprocessor.output_indices_.get(transformer_name)
+            if indices is None:
+                continue
+            if isinstance(indices, slice):
+                target_cols.extend(output_cols[indices])
+                continue
+            target_cols.extend(output_cols[index] for index in indices)
 
-        self.column_groups[prefix] = groups
-        self.preprocessors[prefix] = preprocessor
-        self.feature_metadata[prefix] = self._build_feature_metadata(
-            prefix=prefix,
-            groups=groups,
-            dense_cols=dense_cols,
-            categorical_cols=categorical_cols,
+        return (
+            groups,
+            preprocessor,
+            self._build_feature_metadata(
+                groups=groups,
+                preprocessor=preprocessor,
+                dense_cols=dense_cols,
+                categorical_cols=categorical_cols,
+            ),
         )
 
     def _resolve_column_groups(
@@ -300,8 +341,37 @@ class DataProcessor:
             "list": list_cols,
             "time": time_cols,
             "input": input_cols,
-            "passthrough": self._get_passthrough_cols(prefix),
+            "passthrough": self._passthrough_cols(prefix),
         }
+
+    def _passthrough_cols(self, prefix: str) -> list[str]:
+        if prefix == "users":
+            return [config.USER_COL]
+        if prefix == "items":
+            return [config.ITEM_COL]
+        return [
+            config.USER_COL,
+            config.ITEM_COL,
+            config.RATING_COL,
+            config.RELEVANT_COL,
+            config.TIME_COL,
+            config.INTERACTION_ORDER_COL,
+        ]
+
+    def _prepare_feature_frame(
+        self,
+        df: pd.DataFrame,
+        groups: dict[str, list[str]],
+    ) -> pd.DataFrame:
+        df_features = (
+            df[groups["input"]].copy()
+            if groups["input"]
+            else pd.DataFrame(index=df.index)
+        )
+        return self._normalize_categorical_inputs(
+            df_features,
+            groups["categorical"],
+        )
 
     def _build_ct(
         self,
@@ -421,37 +491,27 @@ class DataProcessor:
         if self.preprocessors["users"] is None or self.preprocessors["items"] is None:
             raise RuntimeError("DataProcessor not fitted")
 
-        user_processed = self._transform("users", users) if users is not None else None
-        item_processed = self._transform("items", items) if items is not None else None
-        inter_processed = (
-            self._transform("inter", interactions) if interactions is not None else None
-        )
         return ProcessedFeatures(
-            users=user_processed,
-            items=item_processed,
-            interactions=inter_processed,
+            users=self._transform("users", users),
+            items=self._transform("items", items),
+            interactions=self._transform("inter", interactions),
             preprocessors=self.preprocessors,
         )
 
-    def _transform(self, key: str, df: pd.DataFrame | None) -> pd.DataFrame:
-        ct = self.preprocessors[key]
-        groups = self.column_groups[key]
-
-        if ct is None:
-            raise RuntimeError(f"DataProcessor not fitted for {key}")
-
+    def _transform(
+        self,
+        prefix: str,
+        df: pd.DataFrame | None,
+    ) -> pd.DataFrame | None:
         if df is None:
-            raise RuntimeError(f"Input dataframe for {key} cannot be None")
+            return None
 
-        df_features = (
-            df[groups["input"]].copy()
-            if groups["input"]
-            else pd.DataFrame(index=df.index)
-        )
-        df_features = self._normalize_categorical_inputs(
-            df_features, groups["categorical"]
-        )
-        processed_df = ct.transform(df_features)
+        preprocessor = self.preprocessors[prefix]
+        if preprocessor is None:
+            raise RuntimeError(f"DataProcessor not fitted for {prefix}")
+
+        groups = self.column_groups[prefix]
+        processed_df = preprocessor.transform(self._prepare_feature_frame(df, groups))
 
         assert isinstance(processed_df, pd.DataFrame)
 
@@ -492,9 +552,8 @@ class DataProcessor:
 
     def _build_feature_metadata(
         self,
-        prefix: str,
         groups: dict[str, list[str]],
-        categorical_cardinalities: dict[str, int] | None = None,
+        preprocessor: ColumnTransformer | None = None,
         dense_cols: list[str] | None = None,
         categorical_cols: list[str] | None = None,
     ) -> FeatureMetadata:
@@ -504,13 +563,11 @@ class DataProcessor:
             numeric_cols=list(groups["numeric"]),
             dense_cols=list(dense_cols or groups["numeric"]),
             categorical_cols=resolved_categorical_cols,
-            categorical_cardinalities=dict(categorical_cardinalities or {}),
             text_cols=list(groups["text"]),
             list_cols=list(groups["list"]),
             time_cols=list(groups["time"]),
         )
 
-        preprocessor = self.preprocessors[prefix]
         if preprocessor is None or not groups["categorical"]:
             return metadata
 
@@ -530,22 +587,6 @@ class DataProcessor:
         }
         return metadata
 
-    def _get_passthrough_cols(self, key: str) -> list[str]:
-        if key == "users":
-            return [config.USER_COL]
-
-        if key == "items":
-            return [config.ITEM_COL]
-
-        return [
-            config.USER_COL,
-            config.ITEM_COL,
-            config.RATING_COL,
-            config.RELEVANT_COL,
-            config.TIME_COL,
-            config.INTERACTION_ORDER_COL,
-        ]
-
     def _normalize_feature_types(
         self, feature_types: tuple[str, ...]
     ) -> tuple[str, ...]:
@@ -559,25 +600,6 @@ class DataProcessor:
                 f"Unsupported preprocess feature types: {', '.join(invalid_types)}"
             )
         return tuple(dict.fromkeys(feature_types))
-
-    def _get_output_columns(
-        self,
-        preprocessor: ColumnTransformer,
-        output_cols: list[str],
-        transformer_names: tuple[str, ...],
-    ) -> list[str]:
-        cols: list[str] = []
-
-        for transformer_name in transformer_names:
-            indices = preprocessor.output_indices_.get(transformer_name)
-            if indices is None:
-                continue
-            if isinstance(indices, slice):
-                cols.extend(output_cols[indices])
-                continue
-            cols.extend(output_cols[index] for index in indices)
-
-        return cols
 
     def save(self, path: str | Path):
         """
