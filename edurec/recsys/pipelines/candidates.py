@@ -29,6 +29,7 @@ def generate_candidates(
             top_n=top_n,
             batch_size=effective_batch_size,
             i_static_feats=i_static_feats,
+            split=split,
         )
         for split in ("train", "val", "test")
     }
@@ -48,6 +49,7 @@ def _generate_split_candidates(
     top_n: int,
     batch_size: int,
     i_static_feats: torch.Tensor,
+    split: str,
 ) -> pd.DataFrame | None:
     if interactions is None:
         return None
@@ -122,12 +124,13 @@ def _generate_split_candidates(
                     top_n=effective_k,
                 )
 
-            row_candidates = _ensure_positive_candidate(
-                candidate_ids=row_candidates,
-                target_item_id=int(target_item_ids[row_idx]),
-                target=float(targets[row_idx]),
-                top_n=effective_k,
-            )
+            if split == "train":
+                row_candidates = _ensure_positive_candidate(
+                    candidate_ids=row_candidates,
+                    target_item_id=int(target_item_ids[row_idx]),
+                    target=float(targets[row_idx]),
+                    top_n=effective_k,
+                )
 
             row_labels, positive_position = _build_candidate_labels(
                 candidate_ids=row_candidates,
