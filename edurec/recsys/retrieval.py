@@ -92,8 +92,8 @@ class Retrieval(L.LightningModule):
     ) -> torch.Tensor:
         return (query_emb @ item_emb.T) / self.cfg.temperature
 
-    def training_step(self, batch: RetrievalBatch):
-        self._step(batch, "train")
+    def training_step(self, batch: RetrievalBatch) -> torch.Tensor:
+        return self._step(batch, "train")
 
     def validation_step(self, batch: RetrievalBatch):
         self._step(batch, "val", ranking_metrics=self.val_ranking_metrics)
@@ -106,7 +106,7 @@ class Retrieval(L.LightningModule):
         batch: RetrievalBatch,
         prefix: str,
         ranking_metrics: MetricCollection | None = None,
-    ):
+    ) -> torch.Tensor:
         logits = self(batch)
         targets = torch.arange(logits.size(0), device=logits.device)
         loss = F.cross_entropy(logits, targets)
@@ -128,8 +128,10 @@ class Retrieval(L.LightningModule):
             indexes = batch.query_id.long().repeat_interleave(num_candidates)
             ranking_metrics.update(preds=preds, target=target, indexes=indexes)
 
+        return loss
+
     def on_validation_epoch_end(self):
-        self.log_dict(self.val_ranking_metrics.compute(), prog_bar=True)
+        self.log_dict(self.val_ranking_metrics.compute())
         self.val_ranking_metrics.reset()
 
     def on_test_epoch_end(self):
