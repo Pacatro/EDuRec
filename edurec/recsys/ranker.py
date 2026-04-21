@@ -1,5 +1,6 @@
 import lightning.pytorch as L
 import torch
+from torch import nn
 import torch.nn.functional as F
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from torch_geometric.data import Data
@@ -50,6 +51,7 @@ class Ranker(L.LightningModule):
         self.register_buffer("i_static_feats", i_static_feats, persistent=False)
 
         self.gcl_loss = InfoNCELoss(tau=cfg.gnn.tau, reduction=cfg.gnn.loss_reduc)
+        self.rank_loss = nn.BCEWithLogitsLoss()
 
         self.val_ranking_metrics = MetricCollection(
             {f"NDCG@{top_k}": RetrievalNormalizedDCG(top_k=top_k)}, prefix="val/"
@@ -117,22 +119,10 @@ class Ranker(L.LightningModule):
         scores = self(batch)
         targets = batch.candidate_labels.float()
 
-        scores, targets, positive_position, query_ids = self._select_valid_queries(
-            scores=scores,
-            targets=targets,
-            positive_position=batch.positive_position,
-            query_ids=batch.query_id,
-        )
-
         if scores.numel() == 0 or targets.numel() == 0:
             return
 
-        loss, rank_loss, gcl_loss = self.compute_loss(
-            scores,
-            targets,
-            prefix,
-            positive_position,
-        )
+        loss, rank_loss, gcl_loss = self.compute_loss(scores, targets, prefix)
 
         self.log(
             f"{prefix}/RankLoss",
@@ -160,6 +150,8 @@ class Ranker(L.LightningModule):
 
             num_candidates = targets.size(1) if targets.ndim > 1 else 1
 
+            query_ids = batch.query_id
+
             if targets.ndim == 1:
                 indexes = query_ids.reshape(-1).long()
             else:
@@ -175,16 +167,16 @@ class Ranker(L.LightningModule):
         positive_position: torch.Tensor | None,
         query_ids: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
-        if scores.ndim == 1 or targets.ndim == 1:
-            return scores, targets, positive_position, query_ids
+        # if scores.ndim == 1 or targets.ndim == 1:
+        #     return scores, targets, positive_position, query_ids
 
-        valid_mask = targets.sum(dim=1) == 1
-        scores = scores[valid_mask]
-        targets = targets[valid_mask]
-        query_ids = query_ids[valid_mask]
+        # valid_mask = targets.sum(dim=1) == 1
+        # scores = scores[valid_mask]
+        # targets = targets[valid_mask]
+        # query_ids = query_ids[valid_mask]
 
-        if positive_position is not None:
-            positive_position = positive_position[valid_mask]
+        # if positive_position is not None:
+        #     positive_position = positive_position[valid_mask]
 
         return scores, targets, positive_position, query_ids
 
@@ -193,9 +185,8 @@ class Ranker(L.LightningModule):
         scores: torch.Tensor,
         targets: torch.Tensor,
         prefix: str,
-        positive_position: torch.Tensor | None = None,
     ) -> tuple[float, float, float]:
-        rank_loss = self._compute_rank_loss(scores, targets, positive_position)
+        rank_loss = self._compute_rank_loss(scores, targets)
         gcl_loss = self._compute_gcl_loss() if prefix == "train" else 0.0
 
         loss = rank_loss + self.alpha * gcl_loss
@@ -206,16 +197,9 @@ class Ranker(L.LightningModule):
         self,
         scores: torch.Tensor,
         targets: torch.Tensor,
-        positive_position: torch.Tensor | None = None,
     ) -> float:
-        if scores.ndim == 2 and targets.ndim == 2:
-            if positive_position is None:
-                positive_position = targets.argmax(dim=1)
-
-            return F.cross_entropy(scores, positive_position.long()).item()
-
         scores = scores.reshape_as(targets)
-        return F.binary_cross_entropy_with_logits(scores, targets.float()).item()
+        return self.rank_loss(scores, targets.float()).item()
 
     def _compute_gcl_loss(self) -> float:
         p = self.cfg.edge_dropout
