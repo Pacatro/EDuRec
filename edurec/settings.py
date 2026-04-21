@@ -84,6 +84,12 @@ ADAPTIVE_K: bool = False
 LOSS_ALPHA: float = 0.1
 COMPILE_MODEL: bool = False
 
+# Candidates
+FAISS_HNSW_M = 32
+FAISS_EF_CONSTRUCTION = 80
+FAISS_MIN_EF_SEARCH = 64
+FAISS_SEARCH_MULTIPLIER = 4
+
 # Eval
 SEEDS: list[int] = [0, 1, 42]
 STATS_TEST: bool = False

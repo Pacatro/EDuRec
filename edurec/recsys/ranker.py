@@ -118,7 +118,7 @@ class Ranker(L.LightningModule):
         targets = batch.candidate_labels.float()
 
         if scores.numel() == 0 or targets.numel() == 0:
-            return torch.tensor(0.0)
+            return scores.new_zeros(())
 
         loss, rank_loss, gcl_loss = self.compute_loss(scores, targets, prefix)
 
@@ -184,7 +184,9 @@ class Ranker(L.LightningModule):
         self, scores: torch.Tensor, targets: torch.Tensor, prefix: str
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         rank_loss = self._compute_rank_loss(scores, targets)
-        gcl_loss = self._compute_gcl_loss() if prefix == "train" else torch.tensor(0.0)
+        gcl_loss = (
+            self._compute_gcl_loss() if prefix == "train" else rank_loss.new_zeros(())
+        )
 
         loss = rank_loss + self.alpha * gcl_loss
 
