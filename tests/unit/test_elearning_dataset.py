@@ -2,10 +2,10 @@ import numpy as np
 import pandas as pd
 import pytest
 import torch
+from edurec.datasets.elearnig_dataset import History
 
 from edurec import settings
 from edurec.datasets import DatasetName, ElearningDataModule, RankerDataset
-from edurec.datasets.elearnig_dataset import History
 
 
 @pytest.fixture

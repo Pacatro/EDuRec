@@ -1,7 +1,7 @@
 import lightning.pytorch as L
 import torch
+import torch.nn.functional as F
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
-from torch import nn
 from torch_geometric.data import Data
 from torch_geometric.utils import dropout_edge
 from torchmetrics import MetricCollection
@@ -15,7 +15,7 @@ from torchmetrics.retrieval import (
 )
 
 from .. import settings
-from ..datasets import RankerBatch
+from ..datasets import RankingQuery
 from .ghost import Ghost, GhostConfig
 from .losses import InfoNCELoss
 
@@ -49,7 +49,6 @@ class Ranker(L.LightningModule):
         self.register_buffer("i_static_feats", i_static_feats, persistent=False)
 
         self.gcl_loss = InfoNCELoss(tau=cfg.gnn.tau, reduction=cfg.gnn.loss_reduc)
-        self.rank_loss = nn.BCEWithLogitsLoss()
 
         self.val_ranking_metrics = MetricCollection(
             {f"NDCG@{top_k}": RetrievalNormalizedDCG(top_k=top_k)}, prefix="val/"
@@ -72,7 +71,7 @@ class Ranker(L.LightningModule):
         self.model = Ghost(cfg)
         self.model_name = self.__class__.__name__
 
-    def forward(self, batch: RankerBatch) -> torch.Tensor:
+    def forward(self, batch: RankingQuery) -> torch.Tensor:
         scores = self.model(
             u_ids=batch.user_id,
             h_ids=batch.history_items,
@@ -91,17 +90,17 @@ class Ranker(L.LightningModule):
 
         return scores
 
-    def training_step(self, batch: RankerBatch) -> torch.Tensor:
+    def training_step(self, batch: RankingQuery) -> torch.Tensor:
         return self._step(batch, "train")
 
-    def validation_step(self, batch: RankerBatch):
+    def validation_step(self, batch: RankingQuery):
         self._step(
             batch,
             "val",
             ranking_metrics=self.val_ranking_metrics,
         )
 
-    def test_step(self, batch: RankerBatch):
+    def test_step(self, batch: RankingQuery):
         self._step(
             batch,
             "test",
@@ -110,17 +109,24 @@ class Ranker(L.LightningModule):
 
     def _step(
         self,
-        batch: RankerBatch,
+        batch: RankingQuery,
         prefix: str,
         ranking_metrics: MetricCollection | None = None,
     ) -> torch.Tensor:
         scores = self(batch)
         targets = batch.candidate_labels.float()
+        query_ids = batch.query_id
+        positive_position = batch.positive_position
 
         if scores.numel() == 0 or targets.numel() == 0:
             return scores.new_zeros(())
 
-        loss, rank_loss, gcl_loss = self.compute_loss(scores, targets, prefix)
+        rank_loss = self._compute_rank_loss(scores, targets, positive_position)
+        gcl_loss = (
+            self._compute_gcl_loss() if prefix == "train" else rank_loss.new_zeros(())
+        )
+
+        loss = rank_loss + self.alpha * gcl_loss
 
         self.log(
             f"{prefix}/RankLoss",
@@ -148,8 +154,6 @@ class Ranker(L.LightningModule):
 
             num_candidates = targets.size(1) if targets.ndim > 1 else 1
 
-            query_ids = batch.query_id
-
             if targets.ndim == 1:
                 indexes = query_ids.reshape(-1).long()
             else:
@@ -160,45 +164,20 @@ class Ranker(L.LightningModule):
 
         return loss
 
-    def _select_valid_queries(
-        self,
-        scores: torch.Tensor,
-        targets: torch.Tensor,
-        positive_position: torch.Tensor | None,
-        query_ids: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
-        # if scores.ndim == 1 or targets.ndim == 1:
-        #     return scores, targets, positive_position, query_ids
-
-        # valid_mask = targets.sum(dim=1) == 1
-        # scores = scores[valid_mask]
-        # targets = targets[valid_mask]
-        # query_ids = query_ids[valid_mask]
-
-        # if positive_position is not None:
-        #     positive_position = positive_position[valid_mask]
-
-        return scores, targets, positive_position, query_ids
-
-    def compute_loss(
-        self, scores: torch.Tensor, targets: torch.Tensor, prefix: str
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        rank_loss = self._compute_rank_loss(scores, targets)
-        gcl_loss = (
-            self._compute_gcl_loss() if prefix == "train" else rank_loss.new_zeros(())
-        )
-
-        loss = rank_loss + self.alpha * gcl_loss
-
-        return loss, rank_loss, gcl_loss
-
     def _compute_rank_loss(
         self,
         scores: torch.Tensor,
         targets: torch.Tensor,
+        positive_position: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        if scores.ndim == 2 and targets.ndim == 2:
+            if positive_position is None:
+                positive_position = targets.argmax(dim=1)
+
+            return F.cross_entropy(scores, positive_position.long())
+
         scores = scores.reshape_as(targets)
-        return self.rank_loss(scores, targets.float())
+        return F.binary_cross_entropy_with_logits(scores, targets.float())
 
     def _compute_gcl_loss(self) -> torch.Tensor:
         p = self.cfg.edge_dropout
@@ -227,7 +206,7 @@ class Ranker(L.LightningModule):
         self.val_ranking_metrics.reset()
 
     def on_validation_epoch_end(self):
-        self.log_dict(self.val_ranking_metrics.compute(), prog_bar=True)
+        self.log_dict(self.val_ranking_metrics.compute())
 
     def on_test_epoch_start(self):
         self.test_ranking_metrics.reset()
@@ -235,7 +214,7 @@ class Ranker(L.LightningModule):
     def on_test_epoch_end(self):
         self.log_dict(self.test_ranking_metrics.compute())
 
-    def predict_step(self, batch: RankerBatch) -> torch.Tensor:
+    def predict_step(self, batch: RankingQuery) -> torch.Tensor:
         return self(batch)
 
     def configure_optimizers(self) -> OptimizerLRScheduler:

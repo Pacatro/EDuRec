@@ -1,13 +1,13 @@
 import torch
+from edurec.recsys.engine import RecSys
 from torch_geometric.data import Data
 
 from edurec.recsys.ghost import (
+    GhostConfig,
     GraphEncoder,
     GraphEncoderConfig,
     InfoNCELoss,
-    GhostConfig,
 )
-from edurec.recsys.engine import RecSys
 
 
 def test_gnn_encoder_shapes():

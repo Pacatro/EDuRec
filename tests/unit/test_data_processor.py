@@ -1,7 +1,7 @@
+import joblib
 import numpy as np
 import pandas as pd
 import pytest
-import joblib
 
 from edurec import settings
 from edurec.datasets import DataProcessor

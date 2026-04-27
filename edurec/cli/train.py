@@ -406,6 +406,7 @@ def train_ranker_command(
         int,
         typer.Option(
             "--candidate_top_n",
+            "-n",
             help="Number of retrieval candidates generated before reranking",
         ),
     ] = settings.TOP_N,

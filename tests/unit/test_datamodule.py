@@ -40,7 +40,7 @@ def test_setup(dm: ElearningDataModule):
     assert dm.artifacts.val is not None
     assert dm.artifacts.test is not None
     assert set(dm.seen_items_by_split) == {"train", "val", "test"}
-    assert set(dm.history_prefixes_by_split) == {"train", "val", "test"}
+    assert set(dm.next_item_hist_by_split) == {"train", "val", "test"}
     assert settings.RELEVANT_COL in dm.interactions.columns
     assert (
         dm.interactions.groupby(settings.USER_COL).size().min() >= dm.min_interactions
@@ -49,9 +49,9 @@ def test_setup(dm: ElearningDataModule):
         dm.interactions[settings.USER_COL]
     )
     assert settings.INTERACTION_ORDER_COL in dm.artifacts.train.columns
-    assert len(dm.history_prefixes_by_split["train"].items) == len(dm.artifacts.train)
-    assert len(dm.history_prefixes_by_split["val"].items) == len(dm.artifacts.val)
-    assert len(dm.history_prefixes_by_split["test"].items) == len(dm.artifacts.test)
+    assert len(dm.next_item_hist_by_split["train"].items) == len(dm.artifacts.train)
+    assert len(dm.next_item_hist_by_split["val"].items) == len(dm.artifacts.val)
+    assert len(dm.next_item_hist_by_split["test"].items) == len(dm.artifacts.test)
 
 
 def test_seen_items_by_split_are_monotonic(dm: ElearningDataModule):
@@ -174,7 +174,7 @@ def test_history_prefix_repeated_item_uses_immediate_prior_prefix():
     empty_df = train_df.iloc[0:0].copy()
     dm = _build_synthetic_dm(train_df, empty_df, empty_df, num_items=3)
 
-    train_history = dm.history_prefixes_by_split["train"]
+    train_history = dm.next_item_hist_by_split["train"]
     assert train_history.valid_mask[0].sum().item() == 0
     assert train_history.items[1, :1].tolist() == [1]
     assert train_history.items[2, :2].tolist() == [1, 2]
@@ -204,7 +204,7 @@ def test_history_includes_non_relevant_prior_interactions():
     empty_df = train_df.iloc[0:0].copy()
     dm = _build_synthetic_dm(train_df, empty_df, empty_df, num_items=6)
 
-    train_history = dm.history_prefixes_by_split["train"]
+    train_history = dm.next_item_hist_by_split["train"]
     assert train_history.valid_mask[0].sum().item() == 0
     assert train_history.valid_mask[1, :1].tolist() == [True]
     assert train_history.items[1, :1].tolist() == [3]
@@ -235,7 +235,7 @@ def test_current_interaction_never_appears_in_its_own_history():
     empty_df = train_df.iloc[0:0].copy()
     dm = _build_synthetic_dm(train_df, empty_df, empty_df, num_items=3)
 
-    train_history = dm.history_prefixes_by_split["train"]
+    train_history = dm.next_item_hist_by_split["train"]
     assert train_history.valid_mask[0].sum().item() == 0
     assert train_history.valid_mask[1, :1].tolist() == [True]
     assert train_history.items[0, 0].item() == 0
@@ -276,7 +276,7 @@ def test_history_prefixes_differ_within_val_when_train_has_no_item():
     empty_df = val_df.iloc[0:0].copy()
     dm = _build_synthetic_dm(train_df, val_df, empty_df, num_items=3)
 
-    val_history = dm.history_prefixes_by_split["val"]
+    val_history = dm.next_item_hist_by_split["val"]
     assert val_history.valid_mask[0].sum().item() == 0
     assert val_history.items[1, :1].tolist() == [1]
 
@@ -309,7 +309,7 @@ def test_val_history_inherits_non_relevant_events_from_train():
     empty_df = val_df.iloc[0:0].copy()
     dm = _build_synthetic_dm(train_df, val_df, empty_df, num_items=6)
 
-    val_history = dm.history_prefixes_by_split["val"]
+    val_history = dm.next_item_hist_by_split["val"]
     assert val_history.valid_mask[0, :1].tolist() == [True]
     assert val_history.items[0, :1].tolist() == [3]
 
@@ -361,7 +361,7 @@ def test_test_history_includes_train_val_and_prior_test():
     )
     dm = _build_synthetic_dm(train_df, val_df, test_df, num_items=5)
 
-    test_history = dm.history_prefixes_by_split["test"]
+    test_history = dm.next_item_hist_by_split["test"]
     assert test_history.items[0, :2].tolist() == [1, 2]
     assert test_history.items[1, :3].tolist() == [1, 2, 3]
 
@@ -413,7 +413,7 @@ def test_test_history_inherits_non_relevant_events_from_train_and_val():
     )
     dm = _build_synthetic_dm(train_df, val_df, test_df, num_items=5)
 
-    test_history = dm.history_prefixes_by_split["test"]
+    test_history = dm.next_item_hist_by_split["test"]
     assert test_history.valid_mask[0, :3].tolist() == [True, True, True]
     assert test_history.items[0, :3].tolist() == [1, 3, 2]
 
@@ -447,7 +447,7 @@ def test_history_fallback_uses_interaction_order_without_timestamp():
     empty_df = train_df.iloc[0:0].copy()
     dm = _build_synthetic_dm(train_df, empty_df, empty_df, num_items=4)
 
-    train_history = dm.history_prefixes_by_split["train"]
+    train_history = dm.next_item_hist_by_split["train"]
     assert train_history.valid_mask[1].sum().item() == 0
     assert train_history.items[2, :1].tolist() == [1]
     assert train_history.items[0, :2].tolist() == [1, 2]
@@ -495,7 +495,7 @@ def test_history_truncates_to_max_history_len(monkeypatch: pytest.MonkeyPatch):
     empty_df = train_df.iloc[0:0].copy()
     dm = _build_synthetic_dm(train_df, empty_df, empty_df, num_items=5)
 
-    train_history = dm.history_prefixes_by_split["train"]
+    train_history = dm.next_item_hist_by_split["train"]
     assert train_history.items.shape[1] == 2
     assert train_history.items[3, :2].tolist() == [2, 3]
 
@@ -544,7 +544,7 @@ def test_history_truncates_with_mixed_relevant_and_non_relevant_events(
     empty_df = train_df.iloc[0:0].copy()
     dm = _build_synthetic_dm(train_df, empty_df, empty_df, num_items=5)
 
-    train_history = dm.history_prefixes_by_split["train"]
+    train_history = dm.next_item_hist_by_split["train"]
     assert train_history.items.shape[1] == 2
     assert train_history.items[3, :2].tolist() == [2, 3]
     assert train_history.ctx[3, 0, 0].item() == pytest.approx(0.2)

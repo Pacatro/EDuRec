@@ -1,10 +1,10 @@
+import json
 from pathlib import Path
 
 import pytest
-import json
 
-from edurec.recsys.io import load_model
 from edurec.recsys.ghost import GhostConfig
+from edurec.recsys.io import load_model
 
 
 def test_load_model_returns_latest_saved_artifacts(tmp_path: Path):

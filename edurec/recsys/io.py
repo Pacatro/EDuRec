@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pandas as pd
 
+from .. import settings
+from ..datasets import Phase
 from .ghost import GhostConfig
 from .two_tower import RetrievalConfig
-from ..datasets import Phase
-from .. import settings
 
 type RecsysConfig = GhostConfig | RetrievalConfig
 
@@ -21,15 +21,8 @@ def save_model(
     metrics: dict[str, float] | None = None,
 ) -> tuple[Path, Path, Path | None]:
     """Save the best model and its config to the expected folder structure."""
-    if not is_dataclass(model_config):
-        raise TypeError("model_config must be a dataclass instance.")
 
-    if isinstance(model_config, GhostConfig):
-        phase = Phase.RANKING
-    elif isinstance(model_config, RetrievalConfig):
-        phase = Phase.RETRIEVAL
-    else:
-        raise TypeError(f"Unsupported model config type: {type(model_config)!r}")
+    phase = Phase.RANKING if isinstance(model_config, GhostConfig) else Phase.RETRIEVAL
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     models_root = Path(models_folder)

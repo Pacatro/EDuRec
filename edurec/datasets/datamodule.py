@@ -13,8 +13,9 @@ from torch_geometric.data import Data
 
 from .. import settings
 from .data_processor import DataProcessor
+from .user_history import UserHistory
 from .loaders import DatasetName, RawDataset, Schema, load_raw_data
-from .ranker_dataset import History, RankerDataset
+from .ranker_dataset import RankerDataset
 from .retrieval_dataset import RetrievalDataset
 
 
@@ -90,7 +91,7 @@ class ElearningDataModule(L.LightningDataModule):
 
         self.raw_dataset: RawDataset | None = None
         self.artifacts = ProcessedArtifacts()
-        self.history_prefixes_by_split: dict[str, History] = {}
+        self.next_item_hist_by_split: dict[str, UserHistory] = {}
         self.phase: Phase | None = None
         self._loaded_processed_cache = False
 
@@ -573,12 +574,12 @@ class ElearningDataModule(L.LightningDataModule):
         )
 
     def _build_runtime_state(self):
-        self.history_prefixes_by_split = {}
+        self.next_item_hist_by_split = {}
         user_history_state = {}
 
         for split in ("train", "val", "test"):
             split_df = getattr(self.artifacts, split)
-            self.history_prefixes_by_split[split], user_history_state = (
+            self.next_item_hist_by_split[split], user_history_state = (
                 self._precompute_history_for_split(split_df, user_history_state)
             )
 
@@ -586,11 +587,11 @@ class ElearningDataModule(L.LightningDataModule):
         self,
         df: pd.DataFrame | None,
         initial_state: dict[int, list[tuple[int, list[float]]]],
-    ) -> tuple[History, dict[int, list[tuple[int, list[float]]]]]:
+    ) -> tuple[UserHistory, dict[int, list[tuple[int, list[float]]]]]:
         if df is None:
             num_rows = 0
             history_shape = (num_rows, settings.MAX_HISTORY_LEN)
-            empty_history = History(
+            empty_history = UserHistory(
                 items=torch.zeros(history_shape, dtype=torch.long),
                 ctx=torch.zeros(
                     (num_rows, settings.MAX_HISTORY_LEN, self.num_ctx_feats),
@@ -605,7 +606,7 @@ class ElearningDataModule(L.LightningDataModule):
         num_rows = len(df)
 
         history_shape = (num_rows, settings.MAX_HISTORY_LEN)
-        history = History(
+        history = UserHistory(
             items=torch.zeros(history_shape, dtype=torch.long),
             ctx=torch.zeros(
                 (num_rows, settings.MAX_HISTORY_LEN, self.num_ctx_feats),
@@ -629,11 +630,11 @@ class ElearningDataModule(L.LightningDataModule):
         for row in ordered_df.itertuples(index=False):
             row_pos = int(row.row_pos)  # type: ignore
             user_id = int(getattr(row, settings.USER_COL))
-            history_entries = user_history_state.get(user_id, [])
+            past_interactions = user_history_state.get(user_id, [])
             self._write_history_row(
                 history=history,
                 row_pos=row_pos,
-                history_entries=history_entries,
+                past_interactions=past_interactions,
             )
 
             item_id = int(getattr(row, settings.ITEM_COL))
@@ -660,11 +661,11 @@ class ElearningDataModule(L.LightningDataModule):
 
     def _write_history_row(
         self,
-        history: History,
+        history: UserHistory,
         row_pos: int,
-        history_entries: list[tuple[int, list[float]]],
+        past_interactions: list[tuple[int, list[float]]],
     ):
-        truncated_history = history_entries[-settings.MAX_HISTORY_LEN :]
+        truncated_history = past_interactions[-settings.MAX_HISTORY_LEN :]
         hist_len = len(truncated_history)
 
         if hist_len == 0:
@@ -736,17 +737,34 @@ class ElearningDataModule(L.LightningDataModule):
             case Phase.RETRIEVAL:
                 return RetrievalDataset(
                     interactions=df,
-                    precomputed_history=self.history_prefixes_by_split[split],
+                    precomputed_history=self.next_item_hist_by_split[split],
                     num_ctx_feats=self.num_ctx_feats,
                 )
             case Phase.RANKING:
+                ranking_df, ranking_history = self._build_ranking_split(df, split)
                 return RankerDataset(
-                    interactions=df,
-                    precomputed_history=self.history_prefixes_by_split[split],
+                    interactions=ranking_df,
+                    precomputed_history=ranking_history,
                     num_ctx_feats=self.num_ctx_feats,
                 )
             case _:
                 raise RuntimeError(f"Unsupported phase: {self.phase!r}")
+
+    def _build_ranking_split(
+        self, df: pd.DataFrame, split: str
+    ) -> tuple[pd.DataFrame, UserHistory]:
+        positive_mask = (df[settings.RELEVANT_COL] > 0).to_numpy(copy=True)
+        ranking_df = df.loc[positive_mask].reset_index(drop=True)
+
+        split_history = self.next_item_hist_by_split[split]
+        history_index = torch.as_tensor(positive_mask, dtype=torch.bool)
+        ranking_history = UserHistory(
+            items=split_history.items[history_index],
+            ctx=split_history.ctx[history_index],
+            valid_mask=split_history.valid_mask[history_index],
+        )
+
+        return ranking_df, ranking_history
 
     def _require_data_processor(self) -> DataProcessor:
         if self.data_processor is None:

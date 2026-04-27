@@ -1,14 +1,15 @@
-from typing import NamedTuple
+from dataclasses import dataclass
 
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
 from .. import settings
-from .ranker_dataset import History
+from .user_history import UserHistory
 
 
-class RetrievalBatch(NamedTuple):
+@dataclass
+class RetrievalQuery:
     query_id: torch.Tensor
     user_id: torch.Tensor
     history_items: torch.Tensor
@@ -21,7 +22,7 @@ class RetrievalDataset(Dataset):
     def __init__(
         self,
         interactions: pd.DataFrame,
-        precomputed_history: History,
+        precomputed_history: UserHistory,
         num_ctx_feats: int,
         positives_only: bool = True,
     ):
@@ -58,11 +59,11 @@ class RetrievalDataset(Dataset):
     def __len__(self) -> int:
         return len(self.user_ids)
 
-    def __getitem__(self, idx: int) -> RetrievalBatch:
+    def __getitem__(self, idx: int) -> RetrievalQuery:
         user_id = int(self.user_ids[idx])
         positive_item_id = int(self.positive_item_ids[idx])
 
-        return RetrievalBatch(
+        return RetrievalQuery(
             query_id=torch.tensor(idx, dtype=torch.long),
             user_id=torch.tensor(user_id, dtype=torch.long),
             history_items=self.history_items[idx],

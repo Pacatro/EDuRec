@@ -1,6 +1,6 @@
-from pathlib import Path
 from enum import StrEnum
 from functools import wraps
+from pathlib import Path
 from typing import Callable, NamedTuple
 
 import pandas as pd

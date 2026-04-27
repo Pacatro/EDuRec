@@ -2,12 +2,12 @@ import warnings
 from enum import StrEnum
 from typing import Annotated
 
-import typer
 import torch
+import typer
 from dotenv import load_dotenv
 
 from . import settings
-from .cli import train_app, test_app, dataset_app
+from .cli import dataset_app, test_app, train_app
 
 # Ignore pandas future warnings
 warnings.filterwarnings("ignore", category=FutureWarning)

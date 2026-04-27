@@ -7,7 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
   "pandas<3.0.0",
   "scikit-learn>=1.6.1",
-  "torch>=2.8.0",
+  "torch>=2.11.0",
   "matplotlib>=3.10.1",
   "torchmetrics>=1.8.0",
   "lightning[extra]>=2.5.2",

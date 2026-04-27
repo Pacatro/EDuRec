@@ -1,10 +1,10 @@
+import faiss
 import numpy as np
 import pandas as pd
 import torch
-import faiss
 
 from ... import settings
-from ...datasets import ElearningDataModule, History, Phase
+from ...datasets import ElearningDataModule, UserHistory, Phase
 from ..retrieval import Retrieval
 
 
@@ -38,12 +38,11 @@ def generate_candidates(
         split_df = _generate_split_candidates(
             retrieval=retrieval,
             interactions=getattr(dm.artifacts, split),
-            history=dm.history_prefixes_by_split[split],
+            history=dm.next_item_hist_by_split[split],
             ann_index=ann_index,
             num_items=num_items,
             top_n=top_n,
             batch_size=bs,
-            split=split,
         )
         setattr(dm.artifacts, split, split_df)
         results[split] = split_df
@@ -55,12 +54,11 @@ def generate_candidates(
 def _generate_split_candidates(
     retrieval: Retrieval,
     interactions: pd.DataFrame | None,
-    history: History,
+    history: UserHistory,
     ann_index: faiss.IndexHNSWFlat,
     num_items: int,
     top_n: int,
     batch_size: int,
-    split: str,
 ) -> pd.DataFrame | None:
     if interactions is None:
         return None
@@ -133,7 +131,7 @@ def _generate_split_candidates(
                 seen_items=seen_items,
                 top_n=effective_k,
                 num_items=num_items,
-                force_positive=(split == "train"),
+                force_positive=(target > 0),
                 target_item_id=target_item_id,
                 target=target,
             )
@@ -228,8 +226,7 @@ def _build_ann_index(item_embeddings: torch.Tensor) -> faiss.IndexHNSWFlat:
     matrix = item_embeddings.detach().cpu().contiguous().numpy().astype(np.float32)
     dim = matrix.shape[1]
 
-    index = faiss.IndexHNSWFlat(dim, settings.FAISS_HNSW_M)
-    index.metric_type = faiss.METRIC_INNER_PRODUCT
+    index = faiss.IndexHNSWFlat(dim, settings.FAISS_HNSW_M, faiss.METRIC_INNER_PRODUCT)
     index.hnsw.efConstruction = max(settings.FAISS_MIN_EF_SEARCH, 40)
     index.add(matrix)  # type: ignore
     return index

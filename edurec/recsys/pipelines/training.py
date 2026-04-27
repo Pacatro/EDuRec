@@ -9,7 +9,8 @@ from lightning.pytorch.loggers import WandbLogger
 from edurec import settings
 
 from ...datasets import ElearningDataModule
-from .. import Ranker, Retrieval
+from ..ranker import Ranker
+from ..retrieval import Retrieval
 
 type Model = Ranker | Retrieval
 

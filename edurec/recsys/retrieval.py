@@ -10,7 +10,7 @@ from torchmetrics.retrieval import (
 )
 
 from .. import settings
-from ..datasets import RetrievalBatch
+from ..datasets import RetrievalQuery
 from .two_tower import RetrievalConfig, TwoTowerRetrieval
 
 
@@ -48,7 +48,7 @@ class Retrieval(L.LightningModule):
         self.val_ranking_metrics = ranking_metrics.clone(prefix="val/")
         self.test_ranking_metrics = ranking_metrics.clone(prefix="test/")
 
-    def forward(self, batch: RetrievalBatch) -> torch.Tensor:
+    def forward(self, batch: RetrievalQuery) -> torch.Tensor:
         query_emb = self.encode_query(
             user_ids=batch.user_id,
             history_items=batch.history_items,
@@ -56,7 +56,7 @@ class Retrieval(L.LightningModule):
             history_valid_mask=batch.history_valid_mask,
         )
         item_emb = self.encode_items(batch.positive_item_id)
-        return self.compute_logits(query_emb, item_emb)
+        return (query_emb @ item_emb.T) / self.cfg.temperature
 
     def encode_query(
         self,
@@ -85,25 +85,18 @@ class Retrieval(L.LightningModule):
             i_static_feats=self.i_static_feats,
         )
 
-    def compute_logits(
-        self,
-        query_emb: torch.Tensor,
-        item_emb: torch.Tensor,
-    ) -> torch.Tensor:
-        return (query_emb @ item_emb.T) / self.cfg.temperature
-
-    def training_step(self, batch: RetrievalBatch) -> torch.Tensor:
+    def training_step(self, batch: RetrievalQuery) -> torch.Tensor:
         return self._step(batch, "train")
 
-    def validation_step(self, batch: RetrievalBatch):
+    def validation_step(self, batch: RetrievalQuery):
         self._step(batch, "val", ranking_metrics=self.val_ranking_metrics)
 
-    def test_step(self, batch: RetrievalBatch):
+    def test_step(self, batch: RetrievalQuery):
         self._step(batch, "test", ranking_metrics=self.test_ranking_metrics)
 
     def _step(
         self,
-        batch: RetrievalBatch,
+        batch: RetrievalQuery,
         prefix: str,
         ranking_metrics: MetricCollection | None = None,
     ) -> torch.Tensor:

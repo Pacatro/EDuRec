@@ -6,8 +6,8 @@ import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule, Phase
-from ..recsys.ranker import Ranker
 from ..recsys.io import load_model, save_metrics
+from ..recsys.ranker import Ranker
 
 app = typer.Typer(no_args_is_help=True)
 
