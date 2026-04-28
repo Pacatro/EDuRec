@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from typing import NamedTuple
 
 import pandas as pd
 import torch
@@ -8,8 +8,7 @@ from .. import settings
 from .user_history import UserHistory
 
 
-@dataclass
-class RetrievalQuery:
+class RetrievalQuery(NamedTuple):
     query_id: torch.Tensor
     user_id: torch.Tensor
     history_items: torch.Tensor
