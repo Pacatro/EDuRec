@@ -9,7 +9,32 @@
 - [x] Add other cols preprocessing
 - [x] Add retrieval model
 - [x] Simplify candidate selection
-- [ ] Add evaluation system
+- [ ] Implement Evaluation System:
+  - [ ] **Primary: Leave-One-Out (LOO) Inference** (Selected)
+    - Train model once with full data.
+    - For each user, hold out last interaction (temporal if available, else random).
+    - Evaluate target item against 99 sampled negative items.
+    - Metrics: Hit Rate@K, NDCG@K.
+  - [ ] **Alternative 1: Temporal K-Fold (5 folds)**
+    - Split data chronologically per user.
+    - Re-train for each fold (higher compute cost).
+  - [ ] **Alternative 2: Single Split × Multiple Seeds (3 seeds)**
+    - One train/val/test split, repeated 3 times with different random seeds.
+    - Fastest method, provides mean ± std.
+  - [ ] **Alternative 3: Cohort Evaluation (Year-based)**
+    - Train on academic year N, test on year N+1 (specifically for DORIS).
 - [ ] Fix bugs with DORIS dataset
-- [ ] Add fairness
+- [ ] Add multi-task learning per dataset (predict relevance + rating + engagement/watch_percentage for MARS, app_usability/data_quality for ITM, etc.) using shared GNN+Transformer body with task-specific heads and uncertainty-based loss weighting
+- [ ] Add fairness (3 approaches, generic algorithms + per-dataset config):
+  - [ ] **Pre-processing** (User Demographic Fairness — sample re-weighting):
+    - MARS: `user_language` (from EN/FR split)
+    - ITM: `age` (age groups)
+    - DORIS: `education` or `major` (education level)
+  - [ ] **In-processing** (Item Exposure Fairness — popularity bias regularization in loss):
+    - MARS: explicit `nb_views` column
+    - ITM/DORIS: implicit popularity via interaction count per item (computed from train set)
+  - [ ] **Post-processing** (Item Diversity Fairness — constrained difficulty re-ranking):
+    - MARS: explicit `difficulty` column
+    - DORIS: `grade` as proxy (discretize to easy/medium/hard)
+    - ITM: infer difficulty from avg rating per item or `duration` if available
 - [ ] Add XAI
