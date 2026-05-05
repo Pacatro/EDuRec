@@ -1,5 +1,5 @@
 import json
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
