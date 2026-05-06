@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 import torch
 from torch import nn
 
-from .. import settings
+from ... import settings
 from .graph_encoder import GraphEncoder, GraphEncoderConfig, LossReduction
 from .scorer import Scorer, ScorerConfig
 

@@ -4,8 +4,8 @@ import torch
 from torch import nn
 from torch_geometric.nn import LGConv
 
-from .. import settings
-from .losses import LossReduction
+from ... import settings
+from ..losses import LossReduction
 from .static_feats_encoder import StaticFeatureEncoder
 
 

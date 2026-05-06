@@ -2,7 +2,7 @@ import torch
 from edurec.recsys.engine import RecSys
 from torch_geometric.data import Data
 
-from edurec.recsys.ghost import (
+from edurec.recsys.pipelines.ghost import (
     GhostConfig,
     GraphEncoder,
     GraphEncoderConfig,

@@ -11,7 +11,7 @@ from torchmetrics.retrieval import (
 
 from .. import settings
 from ..datasets import RetrievalQuery
-from .two_tower import RetrievalConfig, TwoTowerRetrieval
+from .architecture.two_tower import RetrievalConfig, TwoTowerRetrieval
 
 
 class Retrieval(L.LightningModule):

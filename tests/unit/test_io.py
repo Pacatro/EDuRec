@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from edurec.recsys.ghost import GhostConfig
+from edurec.recsys.pipelines.ghost import GhostConfig
 from edurec.recsys.io import load_model
 
 

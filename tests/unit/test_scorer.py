@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from edurec.recsys.ghost import Scorer, ScorerConfig
+from edurec.recsys.pipelines.ghost import Scorer, ScorerConfig
 
 
 @pytest.fixture

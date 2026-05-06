@@ -6,7 +6,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from .. import settings
+from ... import settings
 from .static_feats_encoder import StaticFeatureEncoder
 
 

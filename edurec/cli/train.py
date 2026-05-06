@@ -6,11 +6,11 @@ import typer
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule, Phase
 from ..recsys import generate_candidates, train_model
-from ..recsys.ghost import GhostConfig
+from ..recsys.architecture.ghost import GhostConfig
 from ..recsys.io import load_model, save_model
 from ..recsys.ranker import Ranker
 from ..recsys.retrieval import Retrieval
-from ..recsys.two_tower import RetrievalConfig
+from ..recsys.architecture.two_tower import RetrievalConfig
 
 app = typer.Typer(no_args_is_help=True)
 
