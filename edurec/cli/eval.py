@@ -107,7 +107,7 @@ def eval_command(
         use_processed_data=settings.SAVE_DATA,
         remove_sparse=remove_sparse,
         min_interactions=min_interactions,
-        top_ks=[5, 10, top_k],
+        top_ks=[5, 10, 20],
     )
 
     if settings.state["verbose"]:

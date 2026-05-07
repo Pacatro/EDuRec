@@ -3,11 +3,7 @@ import torch
 import torch.nn.functional as F
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from torchmetrics import MetricCollection
-from torchmetrics.retrieval import (
-    RetrievalHitRate,
-    RetrievalNormalizedDCG,
-    RetrievalRecall,
-)
+from torchmetrics.retrieval import RetrievalHitRate, RetrievalRecall
 
 from .. import settings
 from ..datasets import RetrievalQuery
@@ -41,7 +37,6 @@ class Retrieval(L.LightningModule):
             {
                 f"Hit@{top_k}": RetrievalHitRate(top_k=top_k),
                 f"Recall@{top_k}": RetrievalRecall(top_k=top_k),
-                f"NDCG@{top_k}": RetrievalNormalizedDCG(top_k=top_k),
             }
         )
 

@@ -69,7 +69,7 @@ RETRIEVAL_TOP_K: int = 50
 RANKER_LR: float = 3e-4
 RANKER_WEIGHT_DECAY: float = 2e-4
 RANKER_BATCH_SIZE: int = 128
-RANKER_PATIENCE: int = 5
+RANKER_PATIENCE: int = 3
 RANKER_TOP_K: int = 20
 
 # Training (General)

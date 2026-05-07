@@ -1,6 +1,5 @@
 from typing import Annotated, Mapping, cast
 
-import torch
 import typer
 
 from .. import settings
@@ -175,7 +174,7 @@ def train_ranker(
         u_static_feats=dm.u_static_feats,
         i_static_feats=dm.i_static_feats,
         top_k=top_k,
-        map_location=torch.device("cpu"),
+        map_location="cpu",
         weights_only=False,
     )
 
