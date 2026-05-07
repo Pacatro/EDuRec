@@ -7,8 +7,7 @@ import pandas as pd
 
 from .. import settings
 from ..datasets import Phase
-from .architecture.ghost import GhostConfig
-from .architecture.two_tower import RetrievalConfig
+from .architecture import GhostConfig, RetrievalConfig
 
 type RecsysConfig = GhostConfig | RetrievalConfig
 

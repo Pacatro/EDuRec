@@ -16,7 +16,7 @@ from torchmetrics.retrieval import (
 
 from .. import settings
 from ..datasets import RankingQuery
-from .architecture.ghost import Ghost, GhostConfig
+from .architecture import Ghost, GhostConfig
 from .losses import InfoNCELoss
 
 
