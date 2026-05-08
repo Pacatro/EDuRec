@@ -26,12 +26,14 @@ class RankerDataset(Dataset):
         interactions: pd.DataFrame,
         precomputed_history: UserHistory,
         num_ctx_feats: int,
+        split: str,
     ):
         if len(precomputed_history.items) != len(interactions):
             raise RuntimeError("Precomputed history must align with interactions.")
 
         interactions = interactions.reset_index(drop=True)
 
+        self.split = split
         self.num_ctx_feats = num_ctx_feats
         self.user_ids = interactions[settings.USER_COL].to_numpy(copy=True)
         self.item_ids = interactions[settings.ITEM_COL].to_numpy(copy=True)
@@ -127,9 +129,16 @@ class RankerDataset(Dataset):
     def _get_positive_position(self, candidate_labels: torch.Tensor) -> torch.Tensor:
         positive_positions = (candidate_labels > 0).nonzero(as_tuple=True)[0]
 
-        if positive_positions.numel() != 1:
-            raise RuntimeError(
-                "Next-item ranking requires exactly one positive candidate per query."
-            )
+        if positive_positions.numel() == 1:
+            return positive_positions[0]
 
-        return positive_positions[0]
+        if positive_positions.numel() == 0:
+            if self.split == "train":
+                raise RuntimeError(
+                    "Training ranking queries require exactly one positive candidate."
+                )
+            return torch.tensor(-1, dtype=torch.long)
+
+        raise RuntimeError(
+            "Next-item ranking requires at most one positive candidate per query."
+        )

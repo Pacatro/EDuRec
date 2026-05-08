@@ -36,6 +36,7 @@ def generate_candidates(
 
     for split in ("train", "val", "test"):
         split_df = _generate_split_candidates(
+            split=split,
             retrieval=retrieval,
             interactions=getattr(dm.artifacts, split),
             history=dm.next_item_hist_by_split[split],
@@ -52,6 +53,7 @@ def generate_candidates(
 
 @torch.no_grad()
 def _generate_split_candidates(
+    split: str,
     retrieval: Retrieval,
     interactions: pd.DataFrame | None,
     history: UserHistory,
@@ -65,11 +67,15 @@ def _generate_split_candidates(
 
     df = interactions.reset_index(drop=True).copy()
     effective_k = min(top_n, num_items)
+    force_positive = split == "train"
+    exclude_target_from_fallback = split != "train"
 
     if df.empty:
         df[settings.CANDIDATE_IDS_COL] = [[] for _ in range(len(df))]
         df[settings.CANDIDATE_LABELS_COL] = [[] for _ in range(len(df))]
         df[settings.POSITIVE_POSITION_COL] = [None for _ in range(len(df))]
+        df[settings.TARGET_IN_CANDIDATES_COL] = [False for _ in range(len(df))]
+        df[settings.TARGET_FORCED_COL] = [False for _ in range(len(df))]
         return df
 
     search_k = min(
@@ -94,6 +100,8 @@ def _generate_split_candidates(
     candidate_ids: list[list[int]] = []
     candidate_labels: list[list[float]] = []
     positive_positions: list[int | None] = []
+    target_in_candidates: list[bool] = []
+    target_forced: list[bool] = []
 
     device = retrieval.device
 
@@ -126,12 +134,13 @@ def _generate_split_candidates(
             target_item_id = int(target_item_ids[row_idx])
             target = float(targets[row_idx])
 
-            row_candidates = _finalize_candidates(
+            row_candidates, was_forced = _finalize_candidates(
                 retrieved_ids=retrieved_ids,
                 seen_items=seen_items,
                 top_n=effective_k,
                 num_items=num_items,
-                force_positive=(target > 0),
+                force_positive=force_positive and target > 0,
+                exclude_target_from_fallback=exclude_target_from_fallback,
                 target_item_id=target_item_id,
                 target=target,
             )
@@ -145,10 +154,14 @@ def _generate_split_candidates(
             candidate_ids.append(row_candidates)
             candidate_labels.append(labels)
             positive_positions.append(pos)
+            target_in_candidates.append(pos is not None)
+            target_forced.append(was_forced)
 
     df[settings.CANDIDATE_IDS_COL] = candidate_ids
     df[settings.CANDIDATE_LABELS_COL] = candidate_labels
     df[settings.POSITIVE_POSITION_COL] = positive_positions
+    df[settings.TARGET_IN_CANDIDATES_COL] = target_in_candidates
+    df[settings.TARGET_FORCED_COL] = target_forced
     return df
 
 
@@ -158,11 +171,13 @@ def _finalize_candidates(
     top_n: int,
     num_items: int,
     force_positive: bool,
+    exclude_target_from_fallback: bool,
     target_item_id: int,
     target: float,
-) -> list[int]:
+) -> tuple[list[int], bool]:
     candidates: list[int] = []
     selected: set[int] = set()
+    was_forced = False
 
     for item_id in retrieved_ids:
         if item_id < 0 or item_id >= num_items:
@@ -178,13 +193,17 @@ def _finalize_candidates(
         if len(candidates) < top_n:
             candidates.append(target_item_id)
             selected.add(target_item_id)
+            was_forced = True
         elif top_n > 0:
             selected.discard(candidates[-1])
             candidates[-1] = target_item_id
             selected.add(target_item_id)
+            was_forced = True
 
     if len(candidates) < top_n:
         for item_id in range(num_items):
+            if exclude_target_from_fallback and item_id == target_item_id:
+                continue
             if item_id in selected or item_id in seen_items:
                 continue
             candidates.append(item_id)
@@ -194,6 +213,8 @@ def _finalize_candidates(
 
     if len(candidates) < top_n:
         for item_id in range(num_items):
+            if exclude_target_from_fallback and item_id == target_item_id:
+                continue
             if item_id in selected:
                 continue
             candidates.append(item_id)
@@ -201,7 +222,7 @@ def _finalize_candidates(
             if len(candidates) == top_n:
                 break
 
-    return candidates
+    return candidates, was_forced
 
 
 def _build_candidate_labels(

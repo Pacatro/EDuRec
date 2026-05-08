@@ -5,10 +5,11 @@ state = {"verbose": False, "random_state": 42, "device": "auto"}
 EXPERIMENT_NAME: str = "TFM"
 
 # Filenames and Folders
+DATA_FOLDER: str = "data"
 RESULTS_FOLDER: str = "evaluations"
 MODELS_FOLDER: str = "models"
-DATA_FOLDER: str = "data"
 MODEL_FILENAME = "model.pt"
+RECBOLE_INTER_FILES_FOLDER: str = f"{DATA_FOLDER}/inter"
 MODEL_METADATA_FILENAME = "metadata.json"
 METRICS_FILENAME = "metrics.csv"
 
@@ -22,6 +23,8 @@ RELEVANT_COL: str = "relevant"
 CANDIDATE_IDS_COL: str = "candidate_ids"
 CANDIDATE_LABELS_COL: str = "candidate_labels"
 POSITIVE_POSITION_COL: str = "positive_position"
+TARGET_IN_CANDIDATES_COL: str = "target_in_candidates"
+TARGET_FORCED_COL: str = "target_forced"
 MIN_INTERACTIONS: int = 3
 
 # Preprocessing
@@ -45,18 +48,18 @@ TEXT_PREPROCESS_STRATEGY: str = "sentence-transformer"
 DROP_EDGES_P: float = 0.1
 TAU: float = 0.2
 LOSS_REDUCTION: str = "mean"
-GNN_LAYERS: int = 2
+GNN_LAYERS: int = 4
 
 # Ranker
-NUM_HEADS: int = 4
-NUM_BLOCKS: int = 2
-FF_DIM: int = 256
+NUM_HEADS: int = 8
+NUM_BLOCKS: int = 4
+FF_DIM: int = 512
 DROPOUT: float = 0.1
 MAX_HISTORY_LEN: int = 30
 NUM_SCORES: int = 1
 
 # Embeddings
-EMB_DIM: int = 128
+EMB_DIM: int = 512
 
 # Training (Retreival)
 RETRIEVAL_LR: float = 0.001

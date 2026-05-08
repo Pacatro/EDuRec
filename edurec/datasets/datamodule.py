@@ -105,6 +105,8 @@ class ElearningDataModule(L.LightningDataModule):
             settings.CANDIDATE_IDS_COL,
             settings.CANDIDATE_LABELS_COL,
             settings.POSITIVE_POSITION_COL,
+            settings.TARGET_IN_CANDIDATES_COL,
+            settings.TARGET_FORCED_COL,
         ]
 
         self._load_data()
@@ -746,6 +748,7 @@ class ElearningDataModule(L.LightningDataModule):
                     interactions=ranking_df,
                     precomputed_history=ranking_history,
                     num_ctx_feats=self.num_ctx_feats,
+                    split=split,
                 )
             case _:
                 raise RuntimeError(f"Unsupported phase: {self.phase!r}")

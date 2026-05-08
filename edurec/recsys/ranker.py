@@ -53,7 +53,12 @@ class Ranker(L.LightningModule):
         self.gcl_loss = InfoNCELoss(tau=cfg.gnn.tau, reduction=cfg.gnn.loss_reduc)
 
         self.val_ranking_metrics = MetricCollection(
-            {f"NDCG@{self.val_topk}": RetrievalNormalizedDCG(top_k=self.val_topk)},
+            {
+                f"NDCG@{self.val_topk}": RetrievalNormalizedDCG(
+                    top_k=self.val_topk,
+                    empty_target_action="neg",
+                )
+            },
             prefix="val/",
         )
 
@@ -69,7 +74,11 @@ class Ranker(L.LightningModule):
 
             self.test_ranking_metrics = MetricCollection(
                 {
-                    f"{name}@{k}": cls(top_k=k, **kwargs)
+                    f"{name}@{k}": cls(
+                        top_k=k,
+                        empty_target_action="neg",
+                        **kwargs,
+                    )
                     for k in top_ks
                     for name, (cls, kwargs) in metrics.items()
                 },
@@ -129,7 +138,12 @@ class Ranker(L.LightningModule):
         if scores.numel() == 0 or targets.numel() == 0:
             return scores.new_zeros(())
 
-        rank_loss = self._compute_rank_loss(scores, targets, positive_position)
+        rank_loss = self._compute_rank_loss(
+            scores=scores,
+            targets=targets,
+            positive_position=positive_position,
+            is_train=(prefix == "train"),
+        )
         gcl_loss = (
             self._compute_gcl_loss() if prefix == "train" else rank_loss.new_zeros(())
         )
@@ -191,12 +205,34 @@ class Ranker(L.LightningModule):
         scores: torch.Tensor,
         targets: torch.Tensor,
         positive_position: torch.Tensor | None = None,
+        is_train: bool = True,
     ) -> torch.Tensor:
         if scores.ndim == 2 and targets.ndim == 2:
             if positive_position is None:
+                positive_counts = (targets > 0).sum(dim=1)
                 positive_position = targets.argmax(dim=1)
+                positive_position = positive_position.masked_fill(
+                    positive_counts == 0, -1
+                )
 
-            return F.cross_entropy(scores, positive_position.long())
+                if (positive_counts > 1).any():
+                    raise RuntimeError(
+                        "Next-item ranking requires at most one positive "
+                        "candidate per query."
+                    )
+
+            positive_position = positive_position.reshape(-1).long()
+            valid_rows = positive_position >= 0
+
+            if is_train and (~valid_rows).any():
+                raise RuntimeError(
+                    "Training ranking queries must include one positive candidate."
+                )
+
+            if not valid_rows.any():
+                return scores.sum() * 0.0
+
+            return F.cross_entropy(scores[valid_rows], positive_position[valid_rows])
 
         scores = scores.reshape_as(targets)
         return F.binary_cross_entropy_with_logits(scores, targets.float())
