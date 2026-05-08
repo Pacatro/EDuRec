@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 import torch
 from torch import nn
 
-from .. import config
+from ... import settings
 from .graph_encoder import GraphEncoder, GraphEncoderConfig, LossReduction
 from .scorer import Scorer, ScorerConfig
 
@@ -13,24 +13,24 @@ class GhostConfig:
     num_users: int
     num_items: int
     num_ctx_feats: int
-    emb_dim: int = config.EMB_DIM
+    emb_dim: int = settings.EMB_DIM
     num_user_dense_feats: int = 0
     num_item_dense_feats: int = 0
     user_cat_cardinalities: list[int] = field(default_factory=list)
     item_cat_cardinalities: list[int] = field(default_factory=list)
 
     # GCL Defaults
-    edge_dropout: float = config.DROP_EDGES_P
-    temperature: float = config.TAU
-    loss_reduction: str = config.LOSS_REDUCTION
-    gnn_layers: int = config.GNN_LAYERS
+    edge_dropout: float = settings.DROP_EDGES_P
+    temperature: float = settings.TAU
+    loss_reduction: str = settings.LOSS_REDUCTION
+    gnn_layers: int = settings.GNN_LAYERS
 
     # Scorer Defaults
-    n_heads: int = config.NUM_HEADS
-    n_blocks: int = config.NUM_BLOCKS
-    ff_dim: int = config.FF_DIM
-    dropout: float = config.DROPOUT
-    num_scores: int = config.NUM_SCORES
+    n_heads: int = settings.NUM_HEADS
+    n_blocks: int = settings.NUM_BLOCKS
+    ff_dim: int = settings.FF_DIM
+    dropout: float = settings.DROPOUT
+    num_scores: int = settings.NUM_SCORES
 
     @property
     def gnn(self) -> GraphEncoderConfig:

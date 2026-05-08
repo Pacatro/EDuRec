@@ -11,10 +11,11 @@ from safetensors.torch import load_file, save_file
 from torch.utils.data import DataLoader
 from torch_geometric.data import Data
 
-from .. import config
+from .. import settings
 from .data_processor import DataProcessor
+from .user_history import UserHistory
 from .loaders import DatasetName, RawDataset, Schema, load_raw_data
-from .ranker_dataset import History, RankerDataset
+from .ranker_dataset import RankerDataset
 from .retrieval_dataset import RetrievalDataset
 
 
@@ -68,8 +69,8 @@ class ElearningDataModule(L.LightningDataModule):
         batch_size: int,
         test_ratio: float,
         val_ratio: float,
-        min_interactions: int = config.MIN_INTERACTIONS,
-        remove_sparse: bool = config.REMOVE_SPARSE,
+        min_interactions: int = settings.MIN_INTERACTIONS,
+        remove_sparse: bool = settings.REMOVE_SPARSE,
         use_processed_data: bool = False,
         random_state: int | None = None,
     ):
@@ -84,24 +85,26 @@ class ElearningDataModule(L.LightningDataModule):
         self.use_processed_data = use_processed_data
         self.random_state = random_state
 
-        self.processed_folder = Path(config.PROCESSED_FOLDER) / self.dataset_name.value
+        self.processed_folder = (
+            Path(settings.PROCESSED_FOLDER) / self.dataset_name.value
+        )
 
         self.raw_dataset: RawDataset | None = None
         self.artifacts = ProcessedArtifacts()
-        self.history_prefixes_by_split: dict[str, History] = {}
+        self.next_item_hist_by_split: dict[str, UserHistory] = {}
         self.phase: Phase | None = None
         self._loaded_processed_cache = False
 
         self.excluded_cols = [
-            config.USER_COL,
-            config.ITEM_COL,
-            config.RELEVANT_COL,
-            config.RATING_COL,
-            config.TIME_COL,
-            config.INTERACTION_ORDER_COL,
-            config.CANDIDATE_IDS_COL,
-            config.CANDIDATE_LABELS_COL,
-            config.POSITIVE_POSITION_COL,
+            settings.USER_COL,
+            settings.ITEM_COL,
+            settings.RELEVANT_COL,
+            settings.RATING_COL,
+            settings.TIME_COL,
+            settings.INTERACTION_ORDER_COL,
+            settings.CANDIDATE_IDS_COL,
+            settings.CANDIDATE_LABELS_COL,
+            settings.POSITIVE_POSITION_COL,
         ]
 
         self._load_data()
@@ -262,9 +265,9 @@ class ElearningDataModule(L.LightningDataModule):
     def _load_data(self):
         """Load raw inputs or processed cache depending on configuration."""
         required_files = [
-            "train.csv",
-            "val.csv",
-            "test.csv",
+            self._processed_split_filename("train"),
+            self._processed_split_filename("val"),
+            self._processed_split_filename("test"),
             "static_feats.safetensors",
             "processor.joblib",
             "preprocess_metadata.json",
@@ -298,11 +301,11 @@ class ElearningDataModule(L.LightningDataModule):
 
     def _build_cache_metadata(self) -> dict[str, int | str | list[str]]:
         return {
-            "preprocess_cache_version": config.PREPROCESS_CACHE_VERSION,
-            "feature_types": list(config.PREPROCESS_FEATURE_TYPES),
-            "text_preprocess_strategy": config.TEXT_PREPROCESS_STRATEGY,
-            "text_embedding_model": config.TEXT_EMBEDDING_MODEL,
-            "text_embedding_dim": config.TEXT_EMBEDDING_DIM,
+            "preprocess_cache_version": settings.PREPROCESS_CACHE_VERSION,
+            "feature_types": list(settings.PREPROCESS_FEATURE_TYPES),
+            "text_preprocess_strategy": settings.TEXT_PREPROCESS_STRATEGY,
+            "text_embedding_model": settings.TEXT_EMBEDDING_MODEL,
+            "text_embedding_dim": settings.TEXT_EMBEDDING_DIM,
         }
 
     def _prepare_raw_dataset(self, raw_dataset: RawDataset) -> RawDataset:
@@ -347,14 +350,14 @@ class ElearningDataModule(L.LightningDataModule):
             interactions, users = self._filter_sparse(
                 interactions=interactions,
                 features=users,
-                col=config.USER_COL,
+                col=settings.USER_COL,
                 min_interactions=self.min_interactions,
             )
 
             interactions, items = self._filter_sparse(
                 interactions=interactions,
                 features=items,
-                col=config.ITEM_COL,
+                col=settings.ITEM_COL,
                 min_interactions=self.min_interactions,
             )
 
@@ -384,14 +387,14 @@ class ElearningDataModule(L.LightningDataModule):
 
     def _add_relevant_col(self, interactions: pd.DataFrame) -> pd.DataFrame:
         if (
-            config.RELEVANT_COL in interactions.columns
-            or config.RATING_COL not in interactions.columns
+            settings.RELEVANT_COL in interactions.columns
+            or settings.RATING_COL not in interactions.columns
         ):
             return interactions
 
         interactions = interactions.copy()
-        global_threshold = interactions[config.RATING_COL].mean()
-        user_stats = interactions.groupby(config.USER_COL)[config.RATING_COL]
+        global_threshold = interactions[settings.RATING_COL].mean()
+        user_stats = interactions.groupby(settings.USER_COL)[settings.RATING_COL]
         mean_user_ratings = user_stats.transform("mean")
         count_user_ratings = user_stats.transform("count")
 
@@ -400,15 +403,15 @@ class ElearningDataModule(L.LightningDataModule):
             global_threshold,
             mean_user_ratings,
         )
-        interactions[config.RELEVANT_COL] = (
-            interactions[config.RATING_COL] >= thresholds
+        interactions[settings.RELEVANT_COL] = (
+            interactions[settings.RATING_COL] >= thresholds
         )
 
         return interactions
 
     def _add_interaction_order(self, interactions: pd.DataFrame) -> pd.DataFrame:
         interactions = interactions.copy()
-        interactions[config.INTERACTION_ORDER_COL] = np.arange(
+        interactions[settings.INTERACTION_ORDER_COL] = np.arange(
             len(interactions), dtype=np.int64
         )
         return interactions
@@ -418,7 +421,9 @@ class ElearningDataModule(L.LightningDataModule):
         assert self.processed_folder is not None and self.processed_folder.exists()
 
         processed_splits = {
-            split: pd.read_csv(self.processed_folder / f"{split}.csv")
+            split: pd.read_feather(
+                self.processed_folder / self._processed_split_filename(split)
+            )
             for split in ["train", "val", "test"]
         }
 
@@ -474,15 +479,15 @@ class ElearningDataModule(L.LightningDataModule):
         df = self.interactions
         rng = np.random.default_rng(self.random_state)
 
-        if config.TIME_COL in df.columns:
+        if settings.TIME_COL in df.columns:
             df = df.sort_values(
-                by=[config.TIME_COL, config.INTERACTION_ORDER_COL],
+                by=[settings.TIME_COL, settings.INTERACTION_ORDER_COL],
                 kind="mergesort",
             )
 
         train_parts, val_parts, test_parts = [], [], []
 
-        for _, g in df.groupby(config.USER_COL, sort=False):
+        for _, g in df.groupby(settings.USER_COL, sort=False):
             n = len(g)
 
             if n < self.min_interactions:
@@ -495,7 +500,7 @@ class ElearningDataModule(L.LightningDataModule):
             if n_test + n_val >= n:
                 n_test, n_val = 1, 1
 
-            if config.TIME_COL in g.columns:
+            if settings.TIME_COL in g.columns:
                 test_g = g.iloc[-n_test:]
                 val_g = g.iloc[-(n_test + n_val) : -n_test]
                 train_g = g.iloc[: -(n_test + n_val)]
@@ -549,10 +554,10 @@ class ElearningDataModule(L.LightningDataModule):
         assert processed_all.users is not None and processed_all.items is not None
 
         u_static_feats = self._generate_static_feats(
-            processed_all.users, config.USER_COL
+            processed_all.users, settings.USER_COL
         )
         i_static_feats = self._generate_static_feats(
-            processed_all.items, config.ITEM_COL
+            processed_all.items, settings.ITEM_COL
         )
 
         p_train = data_processor.transform(interactions=train_raw)
@@ -569,12 +574,12 @@ class ElearningDataModule(L.LightningDataModule):
         )
 
     def _build_runtime_state(self):
-        self.history_prefixes_by_split = {}
+        self.next_item_hist_by_split = {}
         user_history_state = {}
 
         for split in ("train", "val", "test"):
             split_df = getattr(self.artifacts, split)
-            self.history_prefixes_by_split[split], user_history_state = (
+            self.next_item_hist_by_split[split], user_history_state = (
                 self._precompute_history_for_split(split_df, user_history_state)
             )
 
@@ -582,14 +587,14 @@ class ElearningDataModule(L.LightningDataModule):
         self,
         df: pd.DataFrame | None,
         initial_state: dict[int, list[tuple[int, list[float]]]],
-    ) -> tuple[History, dict[int, list[tuple[int, list[float]]]]]:
+    ) -> tuple[UserHistory, dict[int, list[tuple[int, list[float]]]]]:
         if df is None:
             num_rows = 0
-            history_shape = (num_rows, config.MAX_HISTORY_LEN)
-            empty_history = History(
+            history_shape = (num_rows, settings.MAX_HISTORY_LEN)
+            empty_history = UserHistory(
                 items=torch.zeros(history_shape, dtype=torch.long),
                 ctx=torch.zeros(
-                    (num_rows, config.MAX_HISTORY_LEN, self.num_ctx_feats),
+                    (num_rows, settings.MAX_HISTORY_LEN, self.num_ctx_feats),
                     dtype=torch.float32,
                 ),
                 valid_mask=torch.zeros(history_shape, dtype=torch.bool),
@@ -600,11 +605,11 @@ class ElearningDataModule(L.LightningDataModule):
         ctx_cols = [col for col in df.columns if col not in self.excluded_cols]
         num_rows = len(df)
 
-        history_shape = (num_rows, config.MAX_HISTORY_LEN)
-        history = History(
+        history_shape = (num_rows, settings.MAX_HISTORY_LEN)
+        history = UserHistory(
             items=torch.zeros(history_shape, dtype=torch.long),
             ctx=torch.zeros(
-                (num_rows, config.MAX_HISTORY_LEN, self.num_ctx_feats),
+                (num_rows, settings.MAX_HISTORY_LEN, self.num_ctx_feats),
                 dtype=torch.float32,
             ),
             valid_mask=torch.zeros(history_shape, dtype=torch.bool),
@@ -624,15 +629,15 @@ class ElearningDataModule(L.LightningDataModule):
 
         for row in ordered_df.itertuples(index=False):
             row_pos = int(row.row_pos)  # type: ignore
-            user_id = int(getattr(row, config.USER_COL))
-            history_entries = user_history_state.get(user_id, [])
+            user_id = int(getattr(row, settings.USER_COL))
+            past_interactions = user_history_state.get(user_id, [])
             self._write_history_row(
                 history=history,
                 row_pos=row_pos,
-                history_entries=history_entries,
+                past_interactions=past_interactions,
             )
 
-            item_id = int(getattr(row, config.ITEM_COL))
+            item_id = int(getattr(row, settings.ITEM_COL))
             ctx_values = [float(getattr(row, col)) for col in ctx_cols]
             user_history_state.setdefault(user_id, []).append((item_id, ctx_values))
 
@@ -648,19 +653,19 @@ class ElearningDataModule(L.LightningDataModule):
         }
 
     def _get_history_sort_columns(self, df: pd.DataFrame) -> list[str]:
-        sort_cols = [config.USER_COL]
-        if config.TIME_COL in df.columns:
-            sort_cols.append(config.TIME_COL)
-        sort_cols.append(config.INTERACTION_ORDER_COL)
+        sort_cols = [settings.USER_COL]
+        if settings.TIME_COL in df.columns:
+            sort_cols.append(settings.TIME_COL)
+        sort_cols.append(settings.INTERACTION_ORDER_COL)
         return sort_cols
 
     def _write_history_row(
         self,
-        history: History,
+        history: UserHistory,
         row_pos: int,
-        history_entries: list[tuple[int, list[float]]],
+        past_interactions: list[tuple[int, list[float]]],
     ):
-        truncated_history = history_entries[-config.MAX_HISTORY_LEN :]
+        truncated_history = past_interactions[-settings.MAX_HISTORY_LEN :]
         hist_len = len(truncated_history)
 
         if hist_len == 0:
@@ -686,7 +691,7 @@ class ElearningDataModule(L.LightningDataModule):
         """
         df_sorted = df.sort_values(id_col)
         data_processor = self._require_data_processor()
-        prefix = "users" if id_col == config.USER_COL else "items"
+        prefix = "users" if id_col == settings.USER_COL else "items"
         metadata = data_processor.feature_metadata[prefix]
         feat_cols = metadata.dense_cols + metadata.categorical_cols
         return torch.tensor(df_sorted[feat_cols].values, dtype=torch.float32)
@@ -698,7 +703,7 @@ class ElearningDataModule(L.LightningDataModule):
         for split, df in self._processed_data.items():
             if df is None:
                 continue
-            df.to_csv(self.processed_folder / f"{split}.csv", index=False)
+            df.to_feather(self.processed_folder / self._processed_split_filename(split))
 
         assert self.u_static_feats is not None and self.i_static_feats is not None
 
@@ -716,6 +721,9 @@ class ElearningDataModule(L.LightningDataModule):
             encoding="utf-8",
         )
 
+    def _processed_split_filename(self, split: str) -> str:
+        return f"{split}.feather"
+
     def _make_dataset(self, split: str) -> RankerDataset | RetrievalDataset:
         """Create a processed dataset for the selected training phase."""
         df = getattr(self.artifacts, split)
@@ -729,17 +737,34 @@ class ElearningDataModule(L.LightningDataModule):
             case Phase.RETRIEVAL:
                 return RetrievalDataset(
                     interactions=df,
-                    precomputed_history=self.history_prefixes_by_split[split],
+                    precomputed_history=self.next_item_hist_by_split[split],
                     num_ctx_feats=self.num_ctx_feats,
                 )
             case Phase.RANKING:
+                ranking_df, ranking_history = self._build_ranking_split(df, split)
                 return RankerDataset(
-                    interactions=df,
-                    precomputed_history=self.history_prefixes_by_split[split],
+                    interactions=ranking_df,
+                    precomputed_history=ranking_history,
                     num_ctx_feats=self.num_ctx_feats,
                 )
             case _:
                 raise RuntimeError(f"Unsupported phase: {self.phase!r}")
+
+    def _build_ranking_split(
+        self, df: pd.DataFrame, split: str
+    ) -> tuple[pd.DataFrame, UserHistory]:
+        positive_mask = (df[settings.RELEVANT_COL] > 0).to_numpy(copy=True)
+        ranking_df = df.loc[positive_mask].reset_index(drop=True)
+
+        split_history = self.next_item_hist_by_split[split]
+        history_index = torch.as_tensor(positive_mask, dtype=torch.bool)
+        ranking_history = UserHistory(
+            items=split_history.items[history_index],
+            ctx=split_history.ctx[history_index],
+            valid_mask=split_history.valid_mask[history_index],
+        )
+
+        return ranking_df, ranking_history
 
     def _require_data_processor(self) -> DataProcessor:
         if self.data_processor is None:
@@ -781,11 +806,11 @@ class ElearningDataModule(L.LightningDataModule):
         if df_train is None or self.u_static_feats is None:
             raise RuntimeError("Data must be processed before creating the graph")
 
-        pos_train = df_train[df_train[config.RELEVANT_COL] > 0]
+        pos_train = df_train[df_train[settings.RELEVANT_COL] > 0]
 
-        u_idx = torch.tensor(pos_train[config.USER_COL].values, dtype=torch.long)
+        u_idx = torch.tensor(pos_train[settings.USER_COL].values, dtype=torch.long)
         i_idx = (
-            torch.tensor(pos_train[config.ITEM_COL].values, dtype=torch.long)
+            torch.tensor(pos_train[settings.ITEM_COL].values, dtype=torch.long)
             + self.num_users
         )
 
@@ -814,7 +839,7 @@ class ElearningDataModule(L.LightningDataModule):
         return DataLoader(
             self.train_ds,
             batch_size=self.batch_size,
-            num_workers=config.NUM_WORKERS,
+            num_workers=settings.NUM_WORKERS,
             shuffle=True,
         )
 
@@ -822,7 +847,7 @@ class ElearningDataModule(L.LightningDataModule):
         return DataLoader(
             self.val_ds,
             batch_size=self.batch_size,
-            num_workers=config.NUM_WORKERS,
+            num_workers=settings.NUM_WORKERS,
             shuffle=False,
         )
 
@@ -830,6 +855,6 @@ class ElearningDataModule(L.LightningDataModule):
         return DataLoader(
             self.test_ds,
             batch_size=self.batch_size,
-            num_workers=config.NUM_WORKERS,
+            num_workers=settings.NUM_WORKERS,
             shuffle=False,
         )

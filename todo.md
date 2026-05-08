@@ -1,9 +1,5 @@
 # TODOs
 
-List of TODOs for the project.
-
-## Recommender system
-
 - [x] Change data prerpocessing
 - [x] GCL
 - [x] Transformer Ranking Model
@@ -12,17 +8,20 @@ List of TODOs for the project.
 - [x] Implement new arquitecture
 - [x] Add other cols preprocessing
 - [x] Add retrieval model
-- [ ] Simplify candidate selection
-- [ ] Add evaluation system
+- [x] Simplify candidate selection
+- [ ] Implement Evaluation System: Temporal split if TIME_COL is available, otherwise, random split by user.
 - [ ] Fix bugs with DORIS dataset
-- [ ] Add fairness
+- [ ] Add multi-task learning per dataset (predict relevance + rating + engagement/watch_percentage for MARS, app_usability/data_quality for ITM, etc.) using shared GNN+Transformer body with task-specific heads and uncertainty-based loss weighting
+- [ ] Add fairness (3 approaches, generic algorithms + per-dataset config):
+  - [ ] **Pre-processing** (User Demographic Fairness — sample re-weighting):
+    - MARS: `user_language` (from EN/FR split)
+    - ITM: `age` (age groups)
+    - DORIS: `education` or `major` (education level)
+  - [ ] **In-processing** (Item Exposure Fairness — popularity bias regularization in loss):
+    - MARS: explicit `nb_views` column
+    - ITM/DORIS: implicit popularity via interaction count per item (computed from train set)
+  - [ ] **Post-processing** (Item Diversity Fairness — constrained difficulty re-ranking):
+    - MARS: explicit `difficulty` column
+    - DORIS: `grade` as proxy (discretize to easy/medium/hard)
+    - ITM: infer difficulty from avg rating per item or `duration` if available
 - [ ] Add XAI
-
-## Datasets
-
-Datasets to use for the project:
-
-- [x] [MARS](https://www.sciencedirect.com/science/article/pii/S2352340923000604)
-- [x] [ITM](https://www.kaggle.com/datasets/irecsys/itmrec?select=items.csv)
-- [ ] [Open MOOC Review](https://www.sciencedirect.com/science/article/pii/S0957417422015081) --> Requests to the authors
-- [ ] [OULAD](https://www.kaggle.com/datasets/rocki37/open-university-learning-analytics-dataset?select=courses.csv) --> No texts

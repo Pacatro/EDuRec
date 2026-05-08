@@ -6,7 +6,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from .. import config
+from ... import settings
 from .static_feats_encoder import StaticFeatureEncoder
 
 
@@ -16,10 +16,10 @@ class RetrievalConfig:
     num_items: int
     num_ctx_feats: int
 
-    emb_dim: int = config.EMB_DIM
-    proj_dim: int = config.EMB_DIM
-    dropout: float = config.DROPOUT
-    temperature: float = config.TAU
+    emb_dim: int = settings.EMB_DIM
+    proj_dim: int = settings.EMB_DIM
+    dropout: float = settings.DROPOUT
+    temperature: float = settings.TAU
 
     num_user_dense_feats: int = 0
     num_item_dense_feats: int = 0

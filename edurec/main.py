@@ -2,17 +2,17 @@ import warnings
 from enum import StrEnum
 from typing import Annotated
 
-import typer
 import torch
+import typer
 from dotenv import load_dotenv
 
-from . import config
-from .cli import train_app, test_app, dataset_app
+from . import settings
+from .cli import dataset_app, test_app, train_app, eval_app
 
 # Ignore pandas future warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-torch.manual_seed(config.state["random_state"])
+torch.manual_seed(settings.state["random_state"])
 
 load_dotenv()
 
@@ -25,7 +25,7 @@ app = typer.Typer(
 app.add_typer(train_app)
 app.add_typer(test_app)
 app.add_typer(dataset_app)
-# app.add_typer(eval_app)
+app.add_typer(eval_app)
 # app.add_typer(train_comp_app)
 # app.add_typer(predict_app)
 
@@ -41,19 +41,19 @@ def main(
     device: Annotated[
         Device,
         typer.Option("--device", "-d", help="Device to use"),
-    ] = Device(config.state["device"]),
+    ] = Device(settings.state["device"]),
     random_state: Annotated[
         int | None,
         typer.Option("--random-state", "-r", help="Random state"),
-    ] = config.state["random_state"],
+    ] = settings.state["random_state"],
     verbose: Annotated[
         bool,
         typer.Option("--verbose", "-v", help="Verbose mode"),
-    ] = config.state["verbose"],
+    ] = settings.state["verbose"],
 ):
-    config.state["verbose"] = verbose
-    config.state["random_state"] = random_state
-    config.state["device"] = device.value
+    settings.state["verbose"] = verbose
+    settings.state["random_state"] = random_state
+    settings.state["device"] = device.value
 
     if verbose:
         print(f"[CONFIG] Device: {device.value}")

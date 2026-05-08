@@ -14,11 +14,10 @@ from torchmetrics.retrieval import (
     RetrievalRecall,
 )
 
-
-from .. import config
-from .ghost import Ghost, GhostConfig
+from .. import settings
+from ..datasets import RankingQuery
+from .architecture import Ghost, GhostConfig
 from .losses import InfoNCELoss
-from ..datasets import RankerBatch
 
 
 class Ranker(L.LightningModule):
@@ -28,11 +27,12 @@ class Ranker(L.LightningModule):
         inter_graph: Data,
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
-        lr: float = config.RANKER_LR,
-        weight_decay: float = config.RANKER_WEIGHT_DECAY,
-        top_k: int = config.RANKER_TOP_K,
-        alpha: float = config.LOSS_ALPHA,
-        adaptive_k: bool = config.ADAPTIVE_K,
+        val_topk: int = settings.RANKER_TOP_K,
+        lr: float = settings.RANKER_LR,
+        weight_decay: float = settings.RANKER_WEIGHT_DECAY,
+        top_ks: list[int] = [10, 20, 50],
+        alpha: float = settings.LOSS_ALPHA,
+        adaptive_k: bool = settings.ADAPTIVE_K,
     ):
         super().__init__()
         self.save_hyperparameters(
@@ -42,8 +42,9 @@ class Ranker(L.LightningModule):
         self.lr = lr
         self.weight_decay = weight_decay
         self.alpha = alpha
-        self.top_k = top_k
-        self.monitor = f"val/NDCG@{top_k}"
+        self.val_topk = val_topk
+        self.top_ks = top_ks if top_ks else [settings.RANKER_TOP_K]
+        self.monitor = f"val/NDCG@{val_topk}"
 
         self.register_buffer("edge_index", inter_graph.edge_index)
         self.register_buffer("u_static_feats", u_static_feats, persistent=False)
@@ -52,27 +53,33 @@ class Ranker(L.LightningModule):
         self.gcl_loss = InfoNCELoss(tau=cfg.gnn.tau, reduction=cfg.gnn.loss_reduc)
 
         self.val_ranking_metrics = MetricCollection(
-            {f"NDCG@{top_k}": RetrievalNormalizedDCG(top_k=top_k)}, prefix="val/"
+            {f"NDCG@{self.val_topk}": RetrievalNormalizedDCG(top_k=self.val_topk)},
+            prefix="val/",
         )
 
-        self.test_ranking_metrics = MetricCollection(
-            {
-                f"Precision@{top_k}": RetrievalPrecision(
-                    top_k=top_k, adaptive_k=adaptive_k
-                ),
-                f"Recall@{top_k}": RetrievalRecall(top_k=top_k),
-                f"NDCG@{top_k}": RetrievalNormalizedDCG(top_k=top_k),
-                f"Hit@{top_k}": RetrievalHitRate(top_k=top_k),
-                f"MAP@{top_k}": RetrievalMAP(top_k=top_k),
-                f"MRR@{top_k}": RetrievalMRR(top_k=top_k),
-            },
-            prefix="test/",
-        )
+        if self.top_ks:
+            metrics = {
+                "Precision": (RetrievalPrecision, {"adaptive_k": adaptive_k}),
+                "Recall": (RetrievalRecall, {}),
+                "NDCG": (RetrievalNormalizedDCG, {}),
+                "Hit": (RetrievalHitRate, {}),
+                "MAP": (RetrievalMAP, {}),
+                "MRR": (RetrievalMRR, {}),
+            }
+
+            self.test_ranking_metrics = MetricCollection(
+                {
+                    f"{name}@{k}": cls(top_k=k, **kwargs)
+                    for k in top_ks
+                    for name, (cls, kwargs) in metrics.items()
+                },
+                prefix="test/",
+            )
 
         self.model = Ghost(cfg)
         self.model_name = self.__class__.__name__
 
-    def forward(self, batch: RankerBatch) -> torch.Tensor:
+    def forward(self, batch: RankingQuery) -> torch.Tensor:
         scores = self.model(
             u_ids=batch.user_id,
             h_ids=batch.history_items,
@@ -91,17 +98,17 @@ class Ranker(L.LightningModule):
 
         return scores
 
-    def training_step(self, batch: RankerBatch) -> torch.Tensor:
+    def training_step(self, batch: RankingQuery) -> torch.Tensor:
         return self._step(batch, "train")
 
-    def validation_step(self, batch: RankerBatch):
+    def validation_step(self, batch: RankingQuery):
         self._step(
             batch,
             "val",
             ranking_metrics=self.val_ranking_metrics,
         )
 
-    def test_step(self, batch: RankerBatch):
+    def test_step(self, batch: RankingQuery):
         self._step(
             batch,
             "test",
@@ -110,19 +117,14 @@ class Ranker(L.LightningModule):
 
     def _step(
         self,
-        batch: RankerBatch,
+        batch: RankingQuery,
         prefix: str,
         ranking_metrics: MetricCollection | None = None,
     ) -> torch.Tensor:
         scores = self(batch)
-        targets = batch.candidate_labels.float()
-
-        scores, targets, positive_position, query_ids = self._select_valid_queries(
-            scores=scores,
-            targets=targets,
-            positive_position=batch.positive_position,
-            query_ids=batch.query_id,
-        )
+        targets = batch.candidate_labels
+        query_ids = batch.query_id
+        positive_position = batch.positive_position
 
         if scores.numel() == 0 or targets.numel() == 0:
             return scores.new_zeros(())
@@ -155,40 +157,34 @@ class Ranker(L.LightningModule):
         )
 
         if ranking_metrics is not None:
-            preds = scores.flatten()
-            target = targets.flatten().long()
-
-            num_candidates = targets.size(1) if targets.ndim > 1 else 1
+            if scores.ndim == 3 and scores.size(-1) == 1:
+                scores = scores.squeeze(-1)
 
             if targets.ndim == 1:
-                indexes = query_ids.reshape(-1).long()
-            else:
-                num_candidates = targets.size(1)
-                indexes = query_ids.reshape(-1).long().repeat_interleave(num_candidates)
+                scores = scores.reshape(-1, 1)
+                targets = targets.reshape(-1, 1)
+
+            if scores.shape != targets.shape:
+                raise RuntimeError(
+                    f"scores and targets must have the same shape, "
+                    f"got {scores.shape} and {targets.shape}"
+                )
+
+            preds = scores.reshape(-1).float()
+            target = targets.reshape(-1) > 0
+
+            num_candidates = targets.size(1)
+            indexes = query_ids.reshape(-1).long().repeat_interleave(num_candidates)
+
+            if preds.numel() != target.numel() or preds.numel() != indexes.numel():
+                raise RuntimeError(
+                    f"preds, target and indexes must have same length: "
+                    f"{preds.numel()}, {target.numel()}, {indexes.numel()}"
+                )
 
             ranking_metrics.update(preds=preds, target=target, indexes=indexes)
 
         return loss
-
-    def _select_valid_queries(
-        self,
-        scores: torch.Tensor,
-        targets: torch.Tensor,
-        positive_position: torch.Tensor | None,
-        query_ids: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
-        if scores.ndim == 1 or targets.ndim == 1:
-            return scores, targets, positive_position, query_ids
-
-        valid_mask = targets.sum(dim=1) == 1
-        scores = scores[valid_mask]
-        targets = targets[valid_mask]
-        query_ids = query_ids[valid_mask]
-
-        if positive_position is not None:
-            positive_position = positive_position[valid_mask]
-
-        return scores, targets, positive_position, query_ids
 
     def _compute_rank_loss(
         self,
@@ -235,12 +231,14 @@ class Ranker(L.LightningModule):
         self.log_dict(self.val_ranking_metrics.compute())
 
     def on_test_epoch_start(self):
-        self.test_ranking_metrics.reset()
+        if self.test_ranking_metrics:
+            self.test_ranking_metrics.reset()
 
     def on_test_epoch_end(self):
-        self.log_dict(self.test_ranking_metrics.compute())
+        if self.test_ranking_metrics:
+            self.log_dict(self.test_ranking_metrics.compute())
 
-    def predict_step(self, batch: RankerBatch) -> torch.Tensor:
+    def predict_step(self, batch: RankingQuery) -> torch.Tensor:
         return self(batch)
 
     def configure_optimizers(self) -> OptimizerLRScheduler:

@@ -69,7 +69,7 @@ RETRIEVAL_TOP_K: int = 50
 RANKER_LR: float = 3e-4
 RANKER_WEIGHT_DECAY: float = 2e-4
 RANKER_BATCH_SIZE: int = 128
-RANKER_PATIENCE: int = 5
+RANKER_PATIENCE: int = 3
 RANKER_TOP_K: int = 20
 
 # Training (General)
@@ -83,6 +83,12 @@ SAVE_DATA: bool = False
 ADAPTIVE_K: bool = False
 LOSS_ALPHA: float = 0.1
 COMPILE_MODEL: bool = False
+
+# Candidates
+FAISS_HNSW_M = 32
+FAISS_EF_CONSTRUCTION = 80
+FAISS_MIN_EF_SEARCH = 64
+FAISS_SEARCH_MULTIPLIER = 4
 
 # Eval
 SEEDS: list[int] = [0, 1, 42]

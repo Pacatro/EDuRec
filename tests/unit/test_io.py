@@ -1,10 +1,10 @@
+import json
 from pathlib import Path
 
 import pytest
-import json
 
+from edurec.recsys.pipelines.ghost import GhostConfig
 from edurec.recsys.io import load_model
-from edurec.recsys.ghost import GhostConfig
 
 
 def test_load_model_returns_latest_saved_artifacts(tmp_path: Path):
@@ -31,11 +31,11 @@ def test_load_model_returns_latest_saved_artifacts(tmp_path: Path):
     older_file.write_bytes(b"old")
     newer_file.write_bytes(b"new")
     older_cfg.write_text(
-        json.dumps({"model_type": "ranking", "config": cfg.__dict__}),
+        json.dumps({"phase": "ranking", "config": cfg.__dict__}),
         encoding="utf-8",
     )
     newer_cfg.write_text(
-        json.dumps({"model_type": "ranking", "config": cfg.__dict__}),
+        json.dumps({"phase": "ranking", "config": cfg.__dict__}),
         encoding="utf-8",
     )
 

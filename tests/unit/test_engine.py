@@ -1,9 +1,9 @@
 import torch
+from edurec.recsys.engine import RecSys
 from torch.utils.data import DataLoader
 
 from edurec.datasets import DatasetName, ElearningDataModule
-from edurec.recsys.ghost import GhostConfig
-from edurec.recsys.engine import RecSys
+from edurec.recsys.architecture.ghost import GhostConfig
 
 
 def test_recsys_step_and_metrics():

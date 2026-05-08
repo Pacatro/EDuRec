@@ -1,6 +1,6 @@
 import pytest
 
-from edurec import config
+from edurec import settings
 from edurec.datasets import DatasetName, load_raw_data
 from edurec.datasets.loaders import RawDataset
 
@@ -18,7 +18,7 @@ def test_data_loaders_mars():
     assert len(raw_dataset.u_feats) == n_users
     assert len(raw_dataset.i_feats) == n_items
     assert len(raw_dataset.interactions) == n_interactions
-    assert config.RELEVANT_COL not in raw_dataset.interactions.columns
+    assert settings.RELEVANT_COL not in raw_dataset.interactions.columns
 
     # Check dataset features
     assert set(raw_dataset.u_feats.columns) == set(["user_id", "job"])
@@ -40,11 +40,11 @@ def test_data_loaders_mars():
     )
     assert set(raw_dataset.interactions.columns) == set(
         [
-            config.USER_COL,
-            config.ITEM_COL,
+            settings.USER_COL,
+            settings.ITEM_COL,
             "watch_percentage",
-            config.TIME_COL,
-            config.RATING_COL,
+            settings.TIME_COL,
+            settings.RATING_COL,
         ]
     )
 
@@ -62,20 +62,20 @@ def test_data_loaders_itm():
     assert len(raw_dataset.u_feats) == n_users
     assert len(raw_dataset.i_feats) == n_items
     assert len(raw_dataset.interactions) == n_interactions
-    assert config.RELEVANT_COL not in raw_dataset.interactions.columns
+    assert settings.RELEVANT_COL not in raw_dataset.interactions.columns
 
     # Check dataset features
     assert set(raw_dataset.u_feats.columns) == set(
-        [config.USER_COL, " Gender", " Age", "Married"]
+        [settings.USER_COL, " Gender", " Age", "Married"]
     )
     assert set(raw_dataset.i_feats.columns) == set(
-        [config.ITEM_COL, "Title", "Descriptions"]
+        [settings.ITEM_COL, "Title", "Descriptions"]
     )
     assert set(raw_dataset.interactions.columns) == set(
         [
-            config.USER_COL,
-            config.ITEM_COL,
-            config.RATING_COL,
+            settings.USER_COL,
+            settings.ITEM_COL,
+            settings.RATING_COL,
             "Class",
             "Lockdown",
             "Data",

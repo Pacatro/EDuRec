@@ -2,10 +2,10 @@ import numpy as np
 import pandas as pd
 import pytest
 import torch
-
-from edurec import config
-from edurec.datasets import DatasetName, ElearningDataModule, RankerDataset
 from edurec.datasets.elearnig_dataset import History
+
+from edurec import settings
+from edurec.datasets import DatasetName, ElearningDataModule, RankerDataset
 
 
 @pytest.fixture
@@ -37,11 +37,11 @@ def test_elearning_dataset_contract(dm: ElearningDataModule):
 
     assert set(elem.keys()) == expected_keys
     assert all(isinstance(elem[k], torch.Tensor) for k in expected_keys)
-    assert elem["history_items"].shape == torch.Size([config.MAX_HISTORY_LEN])
+    assert elem["history_items"].shape == torch.Size([settings.MAX_HISTORY_LEN])
     assert elem["history_ctx"].shape == torch.Size(
-        [config.MAX_HISTORY_LEN, dm.train_ds.num_ctx_feats]
+        [settings.MAX_HISTORY_LEN, dm.train_ds.num_ctx_feats]
     )
-    assert elem["history_valid_mask"].shape == torch.Size([config.MAX_HISTORY_LEN])
+    assert elem["history_valid_mask"].shape == torch.Size([settings.MAX_HISTORY_LEN])
     assert elem["candidate_ids"].min().item() >= 1
     assert elem["candidate_labels"].sum().item() == 1.0
     assert elem["positive_position"].item() == int(elem["candidate_labels"].argmax())
@@ -117,18 +117,18 @@ def test_negative_sampling_allows_future_items_but_never_current_positive(
 ):
     interactions = pd.DataFrame(
         {
-            config.USER_COL: [0],
-            config.ITEM_COL: [1],
-            config.RELEVANT_COL: [1.0],
+            settings.USER_COL: [0],
+            settings.ITEM_COL: [1],
+            settings.RELEVANT_COL: [1.0],
         }
     )
 
     dataset = RankerDataset(
         interactions=interactions,
         precomputed_history=History(
-            items=torch.zeros((1, config.MAX_HISTORY_LEN), dtype=torch.long),
-            ctx=torch.zeros((1, config.MAX_HISTORY_LEN, 0), dtype=torch.float32),
-            valid_mask=torch.zeros((1, config.MAX_HISTORY_LEN), dtype=torch.bool),
+            items=torch.zeros((1, settings.MAX_HISTORY_LEN), dtype=torch.long),
+            ctx=torch.zeros((1, settings.MAX_HISTORY_LEN, 0), dtype=torch.float32),
+            valid_mask=torch.zeros((1, settings.MAX_HISTORY_LEN), dtype=torch.bool),
         ),
         seen_items_by_user={0: {0}},
         num_ctx_feats=0,

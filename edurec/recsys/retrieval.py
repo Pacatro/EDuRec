@@ -5,9 +5,9 @@ from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from torchmetrics import MetricCollection
 from torchmetrics.retrieval import RetrievalHitRate, RetrievalRecall
 
-from .. import config
-from ..datasets import RetrievalBatch
-from .two_tower import RetrievalConfig, TwoTowerRetrieval
+from .. import settings
+from ..datasets import RetrievalQuery
+from .architecture import RetrievalConfig, TwoTowerRetrieval
 
 
 class Retrieval(L.LightningModule):
@@ -16,9 +16,9 @@ class Retrieval(L.LightningModule):
         cfg: RetrievalConfig,
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
-        lr: float = config.RETRIEVAL_LR,
-        weight_decay: float = config.RETRIEVAL_WEIGHT_DECAY,
-        top_k: int = config.RETRIEVAL_TOP_K,
+        lr: float = settings.RETRIEVAL_LR,
+        weight_decay: float = settings.RETRIEVAL_WEIGHT_DECAY,
+        top_k: int = settings.RETRIEVAL_TOP_K,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["u_static_feats", "i_static_feats"])
@@ -43,7 +43,7 @@ class Retrieval(L.LightningModule):
         self.val_ranking_metrics = ranking_metrics.clone(prefix="val/")
         self.test_ranking_metrics = ranking_metrics.clone(prefix="test/")
 
-    def forward(self, batch: RetrievalBatch) -> torch.Tensor:
+    def forward(self, batch: RetrievalQuery) -> torch.Tensor:
         query_emb = self.encode_query(
             user_ids=batch.user_id,
             history_items=batch.history_items,
@@ -51,7 +51,7 @@ class Retrieval(L.LightningModule):
             history_valid_mask=batch.history_valid_mask,
         )
         item_emb = self.encode_items(batch.positive_item_id)
-        return self.compute_logits(query_emb, item_emb)
+        return (query_emb @ item_emb.T) / self.cfg.temperature
 
     def encode_query(
         self,
@@ -60,6 +60,9 @@ class Retrieval(L.LightningModule):
         history_ctx: torch.Tensor,
         history_valid_mask: torch.Tensor,
     ) -> torch.Tensor:
+        assert isinstance(self.u_static_feats, torch.Tensor)
+        assert isinstance(self.i_static_feats, torch.Tensor)
+
         return self.model.encode_query(
             user_ids=user_ids,
             history_items=history_items,
@@ -70,30 +73,25 @@ class Retrieval(L.LightningModule):
         )
 
     def encode_items(self, item_ids: torch.Tensor) -> torch.Tensor:
+        assert isinstance(self.i_static_feats, torch.Tensor)
+
         return self.model.encode_items(
             item_ids=item_ids,
             i_static_feats=self.i_static_feats,
         )
 
-    def compute_logits(
-        self,
-        query_emb: torch.Tensor,
-        item_emb: torch.Tensor,
-    ) -> torch.Tensor:
-        return (query_emb @ item_emb.T) / self.cfg.temperature
-
-    def training_step(self, batch: RetrievalBatch) -> torch.Tensor:
+    def training_step(self, batch: RetrievalQuery) -> torch.Tensor:
         return self._step(batch, "train")
 
-    def validation_step(self, batch: RetrievalBatch):
+    def validation_step(self, batch: RetrievalQuery):
         self._step(batch, "val", ranking_metrics=self.val_ranking_metrics)
 
-    def test_step(self, batch: RetrievalBatch):
+    def test_step(self, batch: RetrievalQuery):
         self._step(batch, "test", ranking_metrics=self.test_ranking_metrics)
 
     def _step(
         self,
-        batch: RetrievalBatch,
+        batch: RetrievalQuery,
         prefix: str,
         ranking_metrics: MetricCollection | None = None,
     ) -> torch.Tensor:
@@ -121,7 +119,7 @@ class Retrieval(L.LightningModule):
         return loss
 
     def on_validation_epoch_end(self):
-        self.log_dict(self.val_ranking_metrics.compute(), prog_bar=True)
+        self.log_dict(self.val_ranking_metrics.compute())
         self.val_ranking_metrics.reset()
 
     def on_test_epoch_end(self):

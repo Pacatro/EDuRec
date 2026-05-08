@@ -4,11 +4,11 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from .. import config
-from .ranker_dataset import History
+from .. import settings
+from .user_history import UserHistory
 
 
-class RetrievalBatch(NamedTuple):
+class RetrievalQuery(NamedTuple):
     query_id: torch.Tensor
     user_id: torch.Tensor
     history_items: torch.Tensor
@@ -21,7 +21,7 @@ class RetrievalDataset(Dataset):
     def __init__(
         self,
         interactions: pd.DataFrame,
-        precomputed_history: History,
+        precomputed_history: UserHistory,
         num_ctx_feats: int,
         positives_only: bool = True,
     ):
@@ -39,7 +39,7 @@ class RetrievalDataset(Dataset):
         df = interactions.reset_index(drop=True)
 
         if positives_only:
-            positive_mask = (df[config.RELEVANT_COL] > 0).to_numpy(
+            positive_mask = (df[settings.RELEVANT_COL] > 0).to_numpy(
                 dtype=bool, copy=False
             )
             df = df[positive_mask].reset_index(drop=True)
@@ -47,9 +47,9 @@ class RetrievalDataset(Dataset):
             history_ctx = history_ctx[positive_mask]
             history_valid_mask = history_valid_mask[positive_mask]
 
-        self.user_ids = df[config.USER_COL].to_numpy(copy=True)
-        self.positive_item_ids = df[config.ITEM_COL].to_numpy(copy=True)
-        self.targets = df[config.RELEVANT_COL].astype("float32").to_numpy(copy=True)
+        self.user_ids = df[settings.USER_COL].to_numpy(copy=True)
+        self.positive_item_ids = df[settings.ITEM_COL].to_numpy(copy=True)
+        self.targets = df[settings.RELEVANT_COL].astype("float32").to_numpy(copy=True)
 
         self.history_items = history_items
         self.history_ctx = history_ctx
@@ -58,11 +58,11 @@ class RetrievalDataset(Dataset):
     def __len__(self) -> int:
         return len(self.user_ids)
 
-    def __getitem__(self, idx: int) -> RetrievalBatch:
+    def __getitem__(self, idx: int) -> RetrievalQuery:
         user_id = int(self.user_ids[idx])
         positive_item_id = int(self.positive_item_ids[idx])
 
-        return RetrievalBatch(
+        return RetrievalQuery(
             query_id=torch.tensor(idx, dtype=torch.long),
             user_id=torch.tensor(user_id, dtype=torch.long),
             history_items=self.history_items[idx],

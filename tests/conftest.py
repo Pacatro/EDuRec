@@ -1,18 +1,18 @@
 import numpy as np
 import pytest
 
-from edurec import config
+from edurec import settings
 from edurec.datasets import data_processor as data_processor_module
 
 
 class FakeSentenceTransformer:
     def __init__(self, model_name: str):
         self.model_name = model_name
-        self.max_seq_length = config.TEXT_MAX_TOKENS
+        self.max_seq_length = settings.TEXT_MAX_TOKENS
         self.last_texts: list[str] = []
 
     def get_sentence_embedding_dimension(self) -> int:
-        return config.TEXT_EMBEDDING_DIM
+        return settings.TEXT_EMBEDDING_DIM
 
     def encode(
         self,
@@ -25,14 +25,14 @@ class FakeSentenceTransformer:
         self.last_texts = list(texts)
 
         embeddings = np.zeros(
-            (len(texts), config.TEXT_EMBEDDING_DIM),
+            (len(texts), settings.TEXT_EMBEDDING_DIM),
             dtype=np.float32,
         )
         for row_idx, text in enumerate(texts):
             for char_idx, byte in enumerate(text.encode("utf-8")):
-                embeddings[row_idx, char_idx % config.TEXT_EMBEDDING_DIM] += (
-                    (byte % 17) + 1
-                )
+                embeddings[row_idx, char_idx % settings.TEXT_EMBEDDING_DIM] += (
+                    byte % 17
+                ) + 1
         return embeddings
 
 
@@ -47,7 +47,9 @@ def fake_sentence_model(monkeypatch: pytest.MonkeyPatch):
             models[model_name] = model
         return model
 
-    monkeypatch.setattr(data_processor_module, "_get_sentence_embedding_model", fake_loader)
+    monkeypatch.setattr(
+        data_processor_module, "_get_sentence_embedding_model", fake_loader
+    )
     return models
 
 

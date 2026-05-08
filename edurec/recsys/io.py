@@ -1,14 +1,13 @@
 import json
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 
-from .ghost import GhostConfig
-from .two_tower import RetrievalConfig
+from .. import settings
 from ..datasets import Phase
-from .. import config
+from .architecture import GhostConfig, RetrievalConfig
 
 type RecsysConfig = GhostConfig | RetrievalConfig
 
@@ -21,27 +20,22 @@ def save_model(
     metrics: dict[str, float] | None = None,
 ) -> tuple[Path, Path, Path | None]:
     """Save the best model and its config to the expected folder structure."""
-    if not is_dataclass(model_config):
-        raise TypeError("model_config must be a dataclass instance.")
 
-    if isinstance(model_config, GhostConfig):
-        model_type = Phase.RANKING
-    elif isinstance(model_config, RetrievalConfig):
-        model_type = Phase.RETRIEVAL
-    else:
-        raise TypeError(f"Unsupported model config type: {type(model_config)!r}")
+    phase = Phase.RANKING if isinstance(model_config, GhostConfig) else Phase.RETRIEVAL
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    model_folder = Path(models_folder) / dataset_name / model_type.value / timestamp
+    models_root = Path(models_folder)
+    models_root.mkdir(parents=True, exist_ok=True)
+    model_folder = models_root / dataset_name / phase.value / timestamp
     model_folder.mkdir(parents=True, exist_ok=True)
 
-    model_file_path = model_folder / config.MODEL_FILENAME
-    model_config_path = model_folder / config.MODEL_METADATA_FILENAME
+    model_file_path = model_folder / settings.MODEL_FILENAME
+    model_config_path = model_folder / settings.MODEL_METADATA_FILENAME
 
     Path(best_model_path).rename(model_file_path)
     model_config_path.write_text(
         json.dumps(
-            {"model_type": model_type.value, "config": asdict(model_config)},
+            {"phase": phase.value, "config": asdict(model_config)},
             indent=2,
             ensure_ascii=False,
         ),
@@ -53,7 +47,7 @@ def save_model(
 
 
 def save_metrics(metrics: dict[str, float], saving_models_folder: str | Path) -> Path:
-    file_path = Path(saving_models_folder) / config.METRICS_FILENAME
+    file_path = Path(saving_models_folder) / settings.METRICS_FILENAME
     pd.DataFrame.from_dict(metrics, orient="index").to_csv(file_path, index=True)
     return file_path
 
@@ -61,7 +55,7 @@ def save_metrics(metrics: dict[str, float], saving_models_folder: str | Path) ->
 def load_model(
     models_folder: str | Path,
     dataset_name: str,
-    model_type: Phase | str | None = None,
+    phase: Phase | str | None = None,
 ) -> tuple[Path, RecsysConfig]:
     """Load the most recent saved model and rebuild its config."""
     root = Path(models_folder) / dataset_name
@@ -72,7 +66,7 @@ def load_model(
     if not root.is_dir():
         raise NotADirectoryError(f"Models folder is not a directory: {root}")
 
-    requested_type = Phase(model_type) if model_type is not None else None
+    requested_type = Phase(phase) if phase is not None else None
     search_roots = (
         [root / requested_type.value]
         if requested_type is not None
@@ -84,8 +78,8 @@ def load_model(
         if phase_root.exists()
         for path in phase_root.iterdir()
         if path.is_dir()
-        and (path / config.MODEL_FILENAME).exists()
-        and (path / config.MODEL_METADATA_FILENAME).exists()
+        and (path / settings.MODEL_FILENAME).exists()
+        and (path / settings.MODEL_METADATA_FILENAME).exists()
     ]
 
     if not model_dirs:
@@ -94,8 +88,8 @@ def load_model(
         raise FileNotFoundError(f"No models of type {requested_type!r} found in {root}")
 
     latest_dir = max(model_dirs, key=lambda path: path.stat().st_mtime)
-    model_file = latest_dir / config.MODEL_FILENAME
-    config_file = latest_dir / config.MODEL_METADATA_FILENAME
+    model_file = latest_dir / settings.MODEL_FILENAME
+    config_file = latest_dir / settings.MODEL_METADATA_FILENAME
 
     if not model_file.exists():
         raise FileNotFoundError(f"Model file {model_file} does not exist")
@@ -108,7 +102,7 @@ def load_model(
 
     config_payload = json.loads(config_file.read_text(encoding="utf-8"))
     config_data = config_payload.get("config", config_payload)
-    saved_type = Phase(config_payload.get("model_type", latest_dir.parent.name))
+    saved_type = Phase(config_payload.get("phase", latest_dir.parent.name))
 
     if saved_type == Phase.RANKING:
         return model_file, GhostConfig(**config_data)

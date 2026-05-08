@@ -4,9 +4,8 @@ import torch
 from torch import nn
 from torch_geometric.nn import LGConv
 
-from .losses import LossReduction
-
-from .. import config
+from ... import settings
+from ..losses import LossReduction
 from .static_feats_encoder import StaticFeatureEncoder
 
 
@@ -15,10 +14,10 @@ class GraphEncoderConfig:
     num_users: int
     num_items: int
     emb_dim: int
-    drop_edges_p: float = config.DROP_EDGES_P
-    tau: float = config.TAU
-    loss_reduc: LossReduction = LossReduction(config.LOSS_REDUCTION)
-    num_layers: int = config.GNN_LAYERS
+    drop_edges_p: float = settings.DROP_EDGES_P
+    tau: float = settings.TAU
+    loss_reduc: LossReduction = LossReduction(settings.LOSS_REDUCTION)
+    num_layers: int = settings.GNN_LAYERS
     num_user_dense_feats: int = 0
     num_item_dense_feats: int = 0
     user_cat_cardinalities: list[int] = field(default_factory=list)
