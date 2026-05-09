@@ -48,18 +48,18 @@ TEXT_PREPROCESS_STRATEGY: str = "sentence-transformer"
 DROP_EDGES_P: float = 0.1
 TAU: float = 0.2
 LOSS_REDUCTION: str = "mean"
-GNN_LAYERS: int = 4
+GNN_LAYERS: int = 2
 
 # Ranker
-NUM_HEADS: int = 8
-NUM_BLOCKS: int = 4
-FF_DIM: int = 512
+NUM_HEADS: int = 4
+NUM_BLOCKS: int = 2
+FF_DIM: int = 256
 DROPOUT: float = 0.1
 MAX_HISTORY_LEN: int = 30
 NUM_SCORES: int = 1
 
 # Embeddings
-EMB_DIM: int = 512
+EMB_DIM: int = 128
 
 # Training (Retreival)
 RETRIEVAL_LR: float = 0.001
