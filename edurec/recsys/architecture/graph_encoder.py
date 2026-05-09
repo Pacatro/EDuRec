@@ -6,7 +6,7 @@ from torch_geometric.nn import LGConv
 
 from ... import settings
 from ..losses import LossReduction
-from .static_feats_encoder import StaticFeatureEncoder
+from .static_feats_encoder import FeatureInteractionEncoder
 
 
 @dataclass
@@ -34,10 +34,10 @@ class GraphEncoder(nn.Module):
         self.user_emb = nn.Embedding(self.num_users, cfg.emb_dim)
         self.item_emb = nn.Embedding(self.num_items, cfg.emb_dim)
 
-        self.user_static_encoder = StaticFeatureEncoder(
+        self.user_static_encoder = FeatureInteractionEncoder(
             cfg.num_user_dense_feats, cfg.user_cat_cardinalities, cfg.emb_dim
         )
-        self.item_static_encoder = StaticFeatureEncoder(
+        self.item_static_encoder = FeatureInteractionEncoder(
             cfg.num_item_dense_feats, cfg.item_cat_cardinalities, cfg.emb_dim
         )
 
@@ -50,8 +50,8 @@ class GraphEncoder(nn.Module):
         user_static_feats: torch.Tensor,
         item_static_feats: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        u_x = self.user_emb.weight + self.user_static_encoder(user_static_feats)
-        i_x = self.item_emb.weight + self.item_static_encoder(item_static_feats)
+        u_x = self.user_static_encoder(self.user_emb.weight, user_static_feats)
+        i_x = self.item_static_encoder(self.item_emb.weight, item_static_feats)
 
         x = torch.cat([u_x, i_x], dim=0)
         x = self.norm(x)

@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torch import nn
 
 from ... import settings
-from .static_feats_encoder import StaticFeatureEncoder
+from .static_feats_encoder import FeatureInteractionEncoder
 
 
 @dataclass
@@ -57,12 +57,12 @@ class TwoTowerRetrieval(nn.Module):
             cfg.num_items + 1, cfg.emb_dim, padding_idx=0
         )
 
-        self.user_static_encoder = StaticFeatureEncoder(
+        self.user_static_encoder = FeatureInteractionEncoder(
             num_dense_features=cfg.num_user_dense_feats,
             categorical_cardinalities=cfg.user_cat_cardinalities,
             emb_dim=cfg.emb_dim,
         )
-        self.item_static_encoder = StaticFeatureEncoder(
+        self.item_static_encoder = FeatureInteractionEncoder(
             num_dense_features=cfg.num_item_dense_feats,
             categorical_cardinalities=cfg.item_cat_cardinalities,
             emb_dim=cfg.emb_dim,
@@ -121,15 +121,18 @@ class TwoTowerRetrieval(nn.Module):
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
     ) -> torch.Tensor:
-        user_static_repr = self.user_static_encoder(u_static_feats[user_ids])
         user_id_repr = self.user_id_embedding(user_ids)
-
-        padded_item_static = self._pad_item_static_features(i_static_feats)
-        history_static_repr = self.item_static_encoder(
-            padded_item_static[history_items]
+        user_static_repr = self.user_static_encoder(
+            user_id_repr,
+            u_static_feats[user_ids],
         )
 
+        padded_item_static = self._pad_item_static_features(i_static_feats)
         history_item_repr = self.item_id_embedding(history_items.clamp(min=0))
+        history_static_repr = self.item_static_encoder(
+            history_item_repr,
+            padded_item_static[history_items]
+        )
 
         history_mask = history_valid_mask.unsqueeze(-1).float()
 
@@ -159,8 +162,11 @@ class TwoTowerRetrieval(nn.Module):
             raise RuntimeError("item_ids must be a 1D or 2D tensor.")
 
         flat_ids = item_ids.reshape(-1)
-        item_static_repr = self.item_static_encoder(i_static_feats[flat_ids])
         item_id_repr = self.item_id_embedding(flat_ids + 1)
+        item_static_repr = self.item_static_encoder(
+            item_id_repr,
+            i_static_feats[flat_ids],
+        )
 
         item_emb = self.item_proj(torch.cat([item_id_repr, item_static_repr], dim=-1))
         item_emb = F.normalize(item_emb, dim=-1)

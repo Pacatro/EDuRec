@@ -5,7 +5,7 @@ from .pipelines.training import train_model
 from .ranker import Ranker
 from .retrieval import Retrieval
 from .architecture.scorer import Scorer, ScorerConfig
-from .architecture.static_feats_encoder import StaticFeatureEncoder
+from .architecture.static_feats_encoder import FeatureInteractionEncoder
 
 __all__ = [
     "Ranker",
@@ -16,7 +16,7 @@ __all__ = [
     "Ghost",
     "GhostConfig",
     "LossReduction",
-    "StaticFeatureEncoder",
+    "FeatureInteractionEncoder",
     "Retrieval",
     "generate_candidates",
     "train_model",

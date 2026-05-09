@@ -162,7 +162,7 @@ def load_itm() -> RawDataset:
 
     schema = {
         "users": {
-            "bin": ["genre", "married"],
+            "bin": ["gender", "married"],
             "num": [],
             "cat": ["age"],
             "text": [],

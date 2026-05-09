@@ -91,17 +91,13 @@ class Ghost(nn.Module):
         padded_item_embs = torch.cat(
             [item_embs.new_zeros(1, item_embs.size(1)), item_embs], dim=0
         )
-        padded_i_static = self._pad_item_static_features(i_static_feats)
 
         user_emb = user_embs[u_ids]
         candidate_emb = padded_item_embs[c_ids]
         hist_emb = self._build_hist_emb(padded_item_embs, h_ids, h_ctx, h_mask)
 
-        u_feat_res = self.gnn.user_static_encoder(u_static_feats[u_ids])
-        c_feat_res = self.gnn.item_static_encoder(padded_i_static[c_ids])
-
-        user_emb = self.norm(user_emb + u_feat_res)
-        candidate_emb = self.norm(candidate_emb + c_feat_res)
+        user_emb = self.norm(user_emb)
+        candidate_emb = self.norm(candidate_emb)
 
         scores = self.ranker(user_emb, hist_emb, candidate_emb, h_mask)
         return scores
@@ -114,10 +110,3 @@ class Ghost(nn.Module):
             hist_emb = self.norm(hist_emb + ctx_emb)
 
         return hist_emb * history_mask.unsqueeze(-1).float()
-
-    def _pad_item_static_features(self, item_static: torch.Tensor) -> torch.Tensor:
-        pad_row = item_static.new_zeros((1, item_static.size(1)))
-        num_dense = self.cfg.num_item_dense_feats
-        if len(self.cfg.item_cat_cardinalities) > 0:
-            pad_row[:, num_dense:] = -1
-        return torch.cat([pad_row, item_static], dim=0)
