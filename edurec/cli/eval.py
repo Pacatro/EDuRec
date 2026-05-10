@@ -17,7 +17,7 @@ def eval_command(
     dataset: Annotated[
         DatasetName,
         typer.Option("--dataset", "-d", help="Dataset to use"),
-    ] = DatasetName.MARS,
+    ] = DatasetName.MARS_EXPLICIT,
     batch_size: Annotated[
         int, typer.Option("--batch_size", "-b", help="Batch size")
     ] = settings.RANKER_BATCH_SIZE,
@@ -122,7 +122,7 @@ def eval_sota_command(
     dataset: Annotated[
         DatasetName,
         typer.Option("--dataset", "-d", help="Dataset to use"),
-    ] = DatasetName.MARS,
+    ] = DatasetName.MARS_EXPLICIT,
     epochs: Annotated[
         int,
         typer.Option("--epochs", "-e", help="RecBole training epochs per fold"),

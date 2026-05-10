@@ -12,7 +12,7 @@ app = typer.Typer(no_args_is_help=True)
 def dataset_command(
     dataset: Annotated[
         DatasetName, typer.Option("--dataset", "-d", help="Dataset to use")
-    ] = DatasetName.MARS,
+    ] = DatasetName.MARS_EXPLICIT,
     max_rows: Annotated[
         int, typer.Option("--max_rows", "-m", help="Maximum number of rows to show")
     ] = 10,
@@ -23,7 +23,6 @@ def dataset_command(
         test_ratio=settings.TEST_RATIO,
         val_ratio=settings.VAL_RATIO,
         use_processed_data=False,
-        random_state=settings.state["random_state"],
         remove_sparse=False,
     )
 

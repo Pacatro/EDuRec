@@ -16,7 +16,9 @@ app = typer.Typer(no_args_is_help=True)
 
 @app.command(name="train_retrieval", help="Train the retrieval model.")
 def train_retrieval(
-    dataset: Annotated[DatasetName, typer.Option("--dataset", "-d")] = DatasetName.MARS,
+    dataset: Annotated[
+        DatasetName, typer.Option("--dataset", "-d")
+    ] = DatasetName.MARS_EXPLICIT,
     epochs: Annotated[int, typer.Option("--epochs", "-e")] = settings.EPOCHS,
     lr: Annotated[float, typer.Option("--lr", "-l")] = settings.RETRIEVAL_LR,
     batch_size: Annotated[
@@ -30,6 +32,9 @@ def train_retrieval(
         float, typer.Option("--test_size", "-t")
     ] = settings.TEST_RATIO,
     top_k: Annotated[int, typer.Option("--top_k", "-k")] = settings.RETRIEVAL_TOP_K,
+    num_negatives: Annotated[
+        int, typer.Option("--num_negatives", "-n")
+    ] = settings.RETRIEVAL_NUM_NEGATIVES,
     remove_sparse: Annotated[
         bool, typer.Option("--remove_sparse", "-R")
     ] = settings.REMOVE_SPARSE,
@@ -54,6 +59,7 @@ def train_retrieval(
         use_processed_data,
         remove_sparse,
         min_interactions,
+        num_negatives,
     )
 
     dm.setup(phase=Phase.RETRIEVAL)
@@ -107,7 +113,9 @@ def train_retrieval(
 
 @app.command(name="train_ranker", help="Train the reranker model.")
 def train_ranker(
-    dataset: Annotated[DatasetName, typer.Option("--dataset", "-d")] = DatasetName.MARS,
+    dataset: Annotated[
+        DatasetName, typer.Option("--dataset", "-d")
+    ] = DatasetName.MARS_EXPLICIT,
     epochs: Annotated[int, typer.Option("--epochs", "-e")] = settings.EPOCHS,
     lr: Annotated[float, typer.Option("--lr", "-l")] = settings.RANKER_LR,
     batch_size: Annotated[
@@ -244,11 +252,13 @@ def build_datamodule(
     use_processed_data: bool,
     remove_sparse: bool,
     min_interactions: int,
+    retrieval_num_negatives: int = settings.RETRIEVAL_NUM_NEGATIVES,
 ) -> ElearningDataModule:
     if settings.state["verbose"]:
         print(f"[TRAIN] Using dataset {dataset.value}")
         print(f"[TRAIN] Removing sparse users: {remove_sparse}")
         print(f"[TRAIN] Minimum interactions per user: {min_interactions}")
+        print(f"[TRAIN] Retrieval negatives per query: {retrieval_num_negatives}")
 
         if use_processed_data:
             print(
@@ -268,6 +278,7 @@ def build_datamodule(
         random_state=settings.state["random_state"],
         min_interactions=min_interactions,
         remove_sparse=remove_sparse,
+        retrieval_num_negatives=retrieval_num_negatives,
     )
 
 

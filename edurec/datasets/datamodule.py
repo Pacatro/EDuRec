@@ -71,6 +71,7 @@ class ElearningDataModule(L.LightningDataModule):
         val_ratio: float,
         min_interactions: int = settings.MIN_INTERACTIONS,
         remove_sparse: bool = settings.REMOVE_SPARSE,
+        retrieval_num_negatives: int = settings.RETRIEVAL_NUM_NEGATIVES,
         use_processed_data: bool = False,
         random_state: int | None = None,
     ):
@@ -82,6 +83,7 @@ class ElearningDataModule(L.LightningDataModule):
         self.val_ratio = val_ratio
         self.min_interactions = min_interactions
         self.remove_sparse = remove_sparse
+        self.retrieval_num_negatives = retrieval_num_negatives
         self.use_processed_data = use_processed_data
         self.random_state = random_state
 
@@ -388,13 +390,16 @@ class ElearningDataModule(L.LightningDataModule):
         return filtered_interactions, filtered_features
 
     def _add_relevant_col(self, interactions: pd.DataFrame) -> pd.DataFrame:
+        interactions = interactions.copy()
         if (
             settings.RELEVANT_COL in interactions.columns
             or settings.RATING_COL not in interactions.columns
         ):
+            # Little hack to avoid errors in the datamodule
+            # when the relevant column is not present.
+            interactions[settings.RELEVANT_COL] = 1
             return interactions
 
-        interactions = interactions.copy()
         global_threshold = interactions[settings.RATING_COL].mean()
         user_stats = interactions.groupby(settings.USER_COL)[settings.RATING_COL]
         mean_user_ratings = user_stats.transform("mean")
@@ -736,6 +741,9 @@ class ElearningDataModule(L.LightningDataModule):
                     interactions=df,
                     precomputed_history=self.next_item_hist_by_split[split],
                     num_ctx_feats=self.num_ctx_feats,
+                    num_items=self.num_items,
+                    num_negatives=self.retrieval_num_negatives,
+                    sample_negatives=(split == "train"),
                 )
             case Phase.RANKING:
                 ranking_df, ranking_history = self._build_ranking_split(df, split)

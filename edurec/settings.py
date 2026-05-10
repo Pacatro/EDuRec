@@ -66,7 +66,8 @@ RETRIEVAL_LR: float = 0.001
 RETRIEVAL_WEIGHT_DECAY: float = 1e-4
 RETRIEVAL_BATCH_SIZE: int = 256
 RETRIEVAL_PATIENCE: int = 5
-RETRIEVAL_TOP_K: int = 50
+RETRIEVAL_TOP_K: int = 100
+RETRIEVAL_NUM_NEGATIVES: int = 64
 
 # Training (Ranker)
 RANKER_LR: float = 3e-4
@@ -77,11 +78,11 @@ RANKER_TOP_K: int = 20
 
 # Training (General)
 EPOCHS: int = 100
-TOP_N: int = 100
+TOP_N: int = 50
 DELTA: float = 0.0005
 NUM_WORKERS: int = 4
-VAL_RATIO: float = 0.2
-TEST_RATIO: float = 0.4
+VAL_RATIO: float = 0.1
+TEST_RATIO: float = 0.2
 SAVE_DATA: bool = False
 ADAPTIVE_K: bool = False
 LOSS_ALPHA: float = 0.1

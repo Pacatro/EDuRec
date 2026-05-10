@@ -29,6 +29,11 @@ class Retrieval(L.LightningModule):
 
         self.register_buffer("u_static_feats", u_static_feats, persistent=False)
         self.register_buffer("i_static_feats", i_static_feats, persistent=False)
+        self.register_buffer(
+            "all_item_ids",
+            torch.arange(cfg.num_items, dtype=torch.long),
+            persistent=False,
+        )
 
         self.model = TwoTowerRetrieval(cfg)
         self.model_name = self.model.__class__.__name__
@@ -50,8 +55,11 @@ class Retrieval(L.LightningModule):
             history_ctx=batch.history_ctx,
             history_valid_mask=batch.history_valid_mask,
         )
-        item_emb = self.encode_items(batch.positive_item_id)
-        return (query_emb @ item_emb.T) / self.cfg.temperature
+        candidate_item_ids = torch.cat(
+            [batch.positive_item_id.unsqueeze(1), batch.negative_item_ids],
+            dim=1,
+        )
+        return self._score_candidates(query_emb, candidate_item_ids)
 
     def encode_query(
         self,
@@ -95,8 +103,19 @@ class Retrieval(L.LightningModule):
         prefix: str,
         ranking_metrics: MetricCollection | None = None,
     ) -> torch.Tensor:
-        logits = self(batch)
-        targets = torch.arange(logits.size(0), device=logits.device)
+        if prefix == "train":
+            logits = self(batch)
+            targets = torch.zeros(logits.size(0), device=logits.device, dtype=torch.long)
+        else:
+            query_emb = self.encode_query(
+                user_ids=batch.user_id,
+                history_items=batch.history_items,
+                history_ctx=batch.history_ctx,
+                history_valid_mask=batch.history_valid_mask,
+            )
+            logits = self._score_candidates(query_emb, self.all_item_ids)
+            targets = batch.positive_item_id.long()
+
         loss = F.cross_entropy(logits, targets)
 
         batch_size = batch.user_id.size(0)
@@ -112,11 +131,30 @@ class Retrieval(L.LightningModule):
         if ranking_metrics is not None:
             num_candidates = logits.size(1)
             preds = logits.flatten()
-            target = torch.eye(num_candidates, device=logits.device).flatten().long()
+            target = torch.zeros_like(logits, dtype=torch.long)
+            target.scatter_(1, batch.positive_item_id.unsqueeze(1), 1)
             indexes = batch.query_id.long().repeat_interleave(num_candidates)
-            ranking_metrics.update(preds=preds, target=target, indexes=indexes)
+            ranking_metrics.update(
+                preds=preds,
+                target=target.flatten(),
+                indexes=indexes,
+            )
 
         return loss
+
+    def _score_candidates(
+        self,
+        query_emb: torch.Tensor,
+        item_ids: torch.Tensor,
+    ) -> torch.Tensor:
+        item_emb = self.encode_items(item_ids)
+
+        if item_ids.ndim == 1:
+            return (query_emb @ item_emb.T) / self.cfg.temperature
+
+        return (
+            (query_emb.unsqueeze(1) * item_emb).sum(dim=-1) / self.cfg.temperature
+        )
 
     def on_validation_epoch_end(self):
         self.log_dict(self.val_ranking_metrics.compute())

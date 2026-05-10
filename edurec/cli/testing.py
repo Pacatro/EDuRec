@@ -20,7 +20,7 @@ def test_recsys(
     dataset: Annotated[
         DatasetName,
         typer.Option("--dataset", "-d", help="Dataset to use"),
-    ] = DatasetName.MARS,
+    ] = DatasetName.MARS_EXPLICIT,
     batch_size: Annotated[
         int, typer.Option("--batch_size", "-b", help="Batch size")
     ] = settings.RANKER_BATCH_SIZE,
