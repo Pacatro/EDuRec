@@ -1,9 +1,8 @@
 from .data_processor import DataProcessor, FeatureMetadata
-from .datamodule import ElearningDataModule, Phase
+from .datamodule import ElearningDataModule
 from .user_history import UserHistory
 from .loaders import DatasetName, load_raw_data
 from .ranker_dataset import RankerDataset, RankingQuery
-from .retrieval_dataset import RetrievalDataset, RetrievalQuery
 
 __all__ = [
     "DatasetName",
@@ -11,10 +10,7 @@ __all__ = [
     "DataProcessor",
     "FeatureMetadata",
     "ElearningDataModule",
-    "Phase",
     "RankerDataset",
     "RankingQuery",
-    "RetrievalDataset",
-    "RetrievalQuery",
     "UserHistory",
 ]

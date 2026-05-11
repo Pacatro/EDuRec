@@ -5,7 +5,7 @@ import torch
 import typer
 
 from .. import settings
-from ..datasets import DatasetName, ElearningDataModule, Phase
+from ..datasets import DatasetName, ElearningDataModule
 from ..recsys.io import load_model, save_metrics
 from ..recsys.ranker import Ranker
 
@@ -55,7 +55,6 @@ def test_recsys(
     model_path, cfg = load_model(
         models_folder=models_folder,
         dataset_name=dataset.value,
-        phase=Phase.RANKING,
     )
 
     dm = ElearningDataModule(
@@ -67,7 +66,7 @@ def test_recsys(
         random_state=settings.state["random_state"],
         remove_sparse=remove_sparse,
     )
-    dm.setup(phase=Phase.RANKING)
+    dm.setup()
 
     assert dm.u_static_feats is not None and dm.i_static_feats is not None
 
@@ -77,7 +76,7 @@ def test_recsys(
         inter_graph=dm.create_inter_graph(),
         u_static_feats=dm.u_static_feats,
         i_static_feats=dm.i_static_feats,
-        top_k=top_k,
+        val_topk=top_k,
         adaptive_k=adaptive_k,
         map_location=torch.device("cpu"),
         weights_only=False,

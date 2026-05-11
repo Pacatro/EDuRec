@@ -1,6 +1,6 @@
 import pandas as pd
 
-from ..datasets import ElearningDataModule, DatasetName, Phase
+from ..datasets import ElearningDataModule, DatasetName
 from ..recsys import GhostConfig, Ranker, train_model
 from .. import settings
 
@@ -26,12 +26,10 @@ def eval_ghost(
         remove_sparse=remove_sparse,
     )
 
-    dm.setup(phase=Phase.RANKING)
+    dm.setup()
 
     inter_graph = dm.create_inter_graph()
     assert dm.u_static_feats is not None and dm.i_static_feats is not None
-
-    print(dm.train_ds[0])
 
     u_feats = dm.u_static_feats
     i_feats = dm.i_static_feats

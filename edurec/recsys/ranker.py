@@ -49,6 +49,11 @@ class Ranker(L.LightningModule):
         self.register_buffer("edge_index", inter_graph.edge_index)
         self.register_buffer("u_static_feats", u_static_feats, persistent=False)
         self.register_buffer("i_static_feats", i_static_feats, persistent=False)
+        self.register_buffer(
+            "all_item_ids",
+            torch.arange(1, cfg.num_items + 1, dtype=torch.long),
+            persistent=False,
+        )
 
         self.gcl_loss = InfoNCELoss(tau=cfg.gnn.tau, reduction=cfg.gnn.loss_reduc)
 
@@ -89,12 +94,13 @@ class Ranker(L.LightningModule):
         self.model_name = self.__class__.__name__
 
     def forward(self, batch: RankingQuery) -> torch.Tensor:
+        item_ids = self.all_item_ids.unsqueeze(0).expand(batch.user_id.size(0), -1)
         scores = self.model(
             u_ids=batch.user_id,
             h_ids=batch.history_items,
             h_ctx=batch.history_ctx,
             h_mask=batch.history_valid_mask,
-            c_ids=batch.candidate_ids,
+            c_ids=item_ids,
             edge_index=self.edge_index,
             u_static_feats=self.u_static_feats,
             i_static_feats=self.i_static_feats,
@@ -131,18 +137,12 @@ class Ranker(L.LightningModule):
         ranking_metrics: MetricCollection | None = None,
     ) -> torch.Tensor:
         scores = self(batch)
-        targets = batch.candidate_labels
         query_ids = batch.query_id
-        positive_position = batch.positive_position
-
-        if scores.numel() == 0 or targets.numel() == 0:
-            return scores.new_zeros(())
+        target_item_ids = batch.target_item_id.long()
 
         rank_loss = self._compute_rank_loss(
             scores=scores,
-            targets=targets,
-            positive_position=positive_position,
-            is_train=(prefix == "train"),
+            target_item_ids=target_item_ids,
         )
         gcl_loss = (
             self._compute_gcl_loss() if prefix == "train" else rank_loss.new_zeros(())
@@ -171,24 +171,13 @@ class Ranker(L.LightningModule):
         )
 
         if ranking_metrics is not None:
-            if scores.ndim == 3 and scores.size(-1) == 1:
-                scores = scores.squeeze(-1)
-
-            if targets.ndim == 1:
-                scores = scores.reshape(-1, 1)
-                targets = targets.reshape(-1, 1)
-
-            if scores.shape != targets.shape:
-                raise RuntimeError(
-                    f"scores and targets must have the same shape, "
-                    f"got {scores.shape} and {targets.shape}"
-                )
-
+            targets = torch.zeros_like(scores, dtype=torch.bool)
+            targets.scatter_(1, target_item_ids.unsqueeze(1), True)
             preds = scores.reshape(-1).float()
-            target = targets.reshape(-1) > 0
+            target = targets.reshape(-1)
 
-            num_candidates = targets.size(1)
-            indexes = query_ids.reshape(-1).long().repeat_interleave(num_candidates)
+            num_items = scores.size(1)
+            indexes = query_ids.reshape(-1).long().repeat_interleave(num_items)
 
             if preds.numel() != target.numel() or preds.numel() != indexes.numel():
                 raise RuntimeError(
@@ -203,39 +192,21 @@ class Ranker(L.LightningModule):
     def _compute_rank_loss(
         self,
         scores: torch.Tensor,
-        targets: torch.Tensor,
-        positive_position: torch.Tensor | None = None,
-        is_train: bool = True,
+        target_item_ids: torch.Tensor,
     ) -> torch.Tensor:
-        if scores.ndim == 2 and targets.ndim == 2:
-            if positive_position is None:
-                positive_counts = (targets > 0).sum(dim=1)
-                positive_position = targets.argmax(dim=1)
-                positive_position = positive_position.masked_fill(
-                    positive_counts == 0, -1
-                )
+        if scores.ndim != 2:
+            raise RuntimeError(
+                f"Ranker must return [batch, num_items] scores, got {scores.shape}."
+            )
 
-                if (positive_counts > 1).any():
-                    raise RuntimeError(
-                        "Next-item ranking requires at most one positive "
-                        "candidate per query."
-                    )
+        target_item_ids = target_item_ids.reshape(-1).long()
 
-            positive_position = positive_position.reshape(-1).long()
-            valid_rows = positive_position >= 0
+        if target_item_ids.numel() != scores.size(0):
+            raise RuntimeError(
+                "target_item_ids must have one target item per batch row."
+            )
 
-            if is_train and (~valid_rows).any():
-                raise RuntimeError(
-                    "Training ranking queries must include one positive candidate."
-                )
-
-            if not valid_rows.any():
-                return scores.sum() * 0.0
-
-            return F.cross_entropy(scores[valid_rows], positive_position[valid_rows])
-
-        scores = scores.reshape_as(targets)
-        return F.binary_cross_entropy_with_logits(scores, targets.float())
+        return F.cross_entropy(scores, target_item_ids)
 
     def _compute_gcl_loss(self) -> torch.Tensor:
         p = self.cfg.edge_dropout

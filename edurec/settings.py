@@ -20,11 +20,6 @@ TIME_COL: str = "timestamp"
 INTERACTION_ORDER_COL: str = "interaction_order"
 RATING_COL: str = "rating"
 RELEVANT_COL: str = "relevant"
-CANDIDATE_IDS_COL: str = "candidate_ids"
-CANDIDATE_LABELS_COL: str = "candidate_labels"
-POSITIVE_POSITION_COL: str = "positive_position"
-TARGET_IN_CANDIDATES_COL: str = "target_in_candidates"
-TARGET_FORCED_COL: str = "target_forced"
 MIN_INTERACTIONS: int = 3
 
 # Preprocessing
@@ -61,14 +56,6 @@ NUM_SCORES: int = 1
 # Embeddings
 EMB_DIM: int = 128
 
-# Training (Retreival)
-RETRIEVAL_LR: float = 0.001
-RETRIEVAL_WEIGHT_DECAY: float = 1e-4
-RETRIEVAL_BATCH_SIZE: int = 256
-RETRIEVAL_PATIENCE: int = 5
-RETRIEVAL_TOP_K: int = 100
-RETRIEVAL_NUM_NEGATIVES: int = 64
-
 # Training (Ranker)
 RANKER_LR: float = 3e-4
 RANKER_WEIGHT_DECAY: float = 2e-4
@@ -78,7 +65,6 @@ RANKER_TOP_K: int = 20
 
 # Training (General)
 EPOCHS: int = 100
-TOP_N: int = 50
 DELTA: float = 0.0005
 NUM_WORKERS: int = 4
 VAL_RATIO: float = 0.1
@@ -87,12 +73,6 @@ SAVE_DATA: bool = False
 ADAPTIVE_K: bool = False
 LOSS_ALPHA: float = 0.1
 COMPILE_MODEL: bool = False
-
-# Candidates
-FAISS_HNSW_M = 32
-FAISS_EF_CONSTRUCTION = 80
-FAISS_MIN_EF_SEARCH = 64
-FAISS_SEARCH_MULTIPLIER = 4
 
 # Eval
 SEEDS: list[int] = [0, 1, 42]

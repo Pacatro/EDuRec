@@ -1,6 +1,5 @@
 import json
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 
 import lightning as L
@@ -16,12 +15,6 @@ from .data_processor import DataProcessor
 from .user_history import UserHistory
 from .loaders import DatasetName, RawDataset, Schema, load_raw_data
 from .ranker_dataset import RankerDataset
-from .retrieval_dataset import RetrievalDataset
-
-
-class Phase(StrEnum):
-    RETRIEVAL = "retrieval"
-    RANKING = "ranking"
 
 
 @dataclass
@@ -71,7 +64,6 @@ class ElearningDataModule(L.LightningDataModule):
         val_ratio: float,
         min_interactions: int = settings.MIN_INTERACTIONS,
         remove_sparse: bool = settings.REMOVE_SPARSE,
-        retrieval_num_negatives: int = settings.RETRIEVAL_NUM_NEGATIVES,
         use_processed_data: bool = False,
         random_state: int | None = None,
     ):
@@ -83,7 +75,6 @@ class ElearningDataModule(L.LightningDataModule):
         self.val_ratio = val_ratio
         self.min_interactions = min_interactions
         self.remove_sparse = remove_sparse
-        self.retrieval_num_negatives = retrieval_num_negatives
         self.use_processed_data = use_processed_data
         self.random_state = random_state
 
@@ -94,7 +85,6 @@ class ElearningDataModule(L.LightningDataModule):
         self.raw_dataset: RawDataset | None = None
         self.artifacts = ProcessedArtifacts()
         self.next_item_hist_by_split: dict[str, UserHistory] = {}
-        self.phase: Phase | None = None
         self._loaded_processed_cache = False
 
         self.excluded_cols = [
@@ -104,11 +94,6 @@ class ElearningDataModule(L.LightningDataModule):
             settings.RATING_COL,
             settings.TIME_COL,
             settings.INTERACTION_ORDER_COL,
-            settings.CANDIDATE_IDS_COL,
-            settings.CANDIDATE_LABELS_COL,
-            settings.POSITIVE_POSITION_COL,
-            settings.TARGET_IN_CANDIDATES_COL,
-            settings.TARGET_FORCED_COL,
         ]
 
         self._load_data()
@@ -445,13 +430,8 @@ class ElearningDataModule(L.LightningDataModule):
         )
         self._loaded_processed_cache = True
 
-    def setup(self, stage: str | None = None, phase: Phase | None = None):
+    def setup(self, stage: str | None = None):
         """Prepare processed datasets for training/validation/testing stages."""
-        if phase is not None:
-            self.phase = phase
-        elif self.phase is None:
-            raise RuntimeError("setup() requires a phase before building datasets.")
-
         if not self.is_processed:
             train_raw, val_raw, test_raw = self._split_data()
             self.artifacts = self._prepare_processed_artifacts(
@@ -726,7 +706,7 @@ class ElearningDataModule(L.LightningDataModule):
             encoding="utf-8",
         )
 
-    def _make_dataset(self, split: str) -> RankerDataset | RetrievalDataset:
+    def _make_dataset(self, split: str) -> RankerDataset:
         """Create a processed dataset for the selected training phase."""
         df = getattr(self.artifacts, split)
 
@@ -735,26 +715,12 @@ class ElearningDataModule(L.LightningDataModule):
                 f"Data must be processed before creating the dataset for {split}"
             )
 
-        match self.phase:
-            case Phase.RETRIEVAL:
-                return RetrievalDataset(
-                    interactions=df,
-                    precomputed_history=self.next_item_hist_by_split[split],
-                    num_ctx_feats=self.num_ctx_feats,
-                    num_items=self.num_items,
-                    num_negatives=self.retrieval_num_negatives,
-                    sample_negatives=(split == "train"),
-                )
-            case Phase.RANKING:
-                ranking_df, ranking_history = self._build_ranking_split(df, split)
-                return RankerDataset(
-                    interactions=ranking_df,
-                    precomputed_history=ranking_history,
-                    num_ctx_feats=self.num_ctx_feats,
-                    split=split,
-                )
-            case _:
-                raise RuntimeError(f"Unsupported phase: {self.phase!r}")
+        ranking_df, ranking_history = self._build_ranking_split(df, split)
+        return RankerDataset(
+            interactions=ranking_df,
+            precomputed_history=ranking_history,
+            num_ctx_feats=self.num_ctx_feats,
+        )
 
     def _build_ranking_split(
         self, df: pd.DataFrame, split: str

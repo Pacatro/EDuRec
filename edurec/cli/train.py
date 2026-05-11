@@ -3,115 +3,16 @@ from typing import Annotated, Mapping, cast
 import typer
 
 from .. import settings
-from ..datasets import DatasetName, ElearningDataModule, Phase
-from ..recsys import generate_candidates, train_model
+from ..datasets import DatasetName, ElearningDataModule
+from ..recsys import train_model
 from ..recsys.architecture.ghost import GhostConfig
-from ..recsys.io import load_model, save_model
+from ..recsys.io import save_model
 from ..recsys.ranker import Ranker
-from ..recsys.retrieval import Retrieval
-from ..recsys.architecture.two_tower import RetrievalConfig
 
 app = typer.Typer(no_args_is_help=True)
 
 
-@app.command(name="train_retrieval", help="Train the retrieval model.")
-def train_retrieval(
-    dataset: Annotated[
-        DatasetName, typer.Option("--dataset", "-d")
-    ] = DatasetName.MARS_EXPLICIT,
-    epochs: Annotated[int, typer.Option("--epochs", "-e")] = settings.EPOCHS,
-    lr: Annotated[float, typer.Option("--lr", "-l")] = settings.RETRIEVAL_LR,
-    batch_size: Annotated[
-        int, typer.Option("--batch_size", "-b")
-    ] = settings.RETRIEVAL_BATCH_SIZE,
-    patience: Annotated[
-        int, typer.Option("--patience", "-p")
-    ] = settings.RETRIEVAL_PATIENCE,
-    val_size: Annotated[float, typer.Option("--val_size", "-v")] = settings.VAL_RATIO,
-    test_size: Annotated[
-        float, typer.Option("--test_size", "-t")
-    ] = settings.TEST_RATIO,
-    top_k: Annotated[int, typer.Option("--top_k", "-k")] = settings.RETRIEVAL_TOP_K,
-    num_negatives: Annotated[
-        int, typer.Option("--num_negatives", "-n")
-    ] = settings.RETRIEVAL_NUM_NEGATIVES,
-    remove_sparse: Annotated[
-        bool, typer.Option("--remove_sparse", "-R")
-    ] = settings.REMOVE_SPARSE,
-    min_interactions: Annotated[
-        int, typer.Option("--min_interactions", "-I")
-    ] = settings.MIN_INTERACTIONS,
-    use_logger: Annotated[bool, typer.Option("--use_logger", "-L")] = False,
-    debug: Annotated[bool, typer.Option("--debug", "-D")] = False,
-    save: Annotated[bool, typer.Option("--save_model", "-S")] = False,
-    use_processed_data: Annotated[
-        bool, typer.Option("--use_processed", "-P")
-    ] = settings.SAVE_DATA,
-    models_folder: Annotated[
-        str, typer.Option("--models-folder", "-M")
-    ] = settings.MODELS_FOLDER,
-) -> None:
-    dm = build_datamodule(
-        dataset,
-        batch_size,
-        val_size,
-        test_size,
-        use_processed_data,
-        remove_sparse,
-        min_interactions,
-        num_negatives,
-    )
-
-    dm.setup(phase=Phase.RETRIEVAL)
-    print_datamodule_stats(dm)
-
-    assert dm.u_static_feats is not None
-    assert dm.i_static_feats is not None
-
-    cfg = RetrievalConfig(
-        num_users=dm.num_users,
-        num_items=dm.num_items,
-        num_ctx_feats=dm.train_ds.num_ctx_feats,
-        num_user_dense_feats=dm.num_user_dense_feats,
-        num_item_dense_feats=dm.num_item_dense_feats,
-        user_cat_cardinalities=dm.user_cat_cardinalities,
-        item_cat_cardinalities=dm.item_cat_cardinalities,
-    )
-
-    retrieval = Retrieval(
-        cfg=cfg,
-        u_static_feats=dm.u_static_feats,
-        i_static_feats=dm.i_static_feats,
-        lr=lr,
-        top_k=top_k,
-    )
-
-    trainer, best_model_path = train_model(
-        model=retrieval,
-        dm=dm,
-        top_k=top_k,
-        debug=debug,
-        use_logger=use_logger,
-        epochs=epochs,
-        patience=patience,
-        monitor=f"val/Recall@{top_k}",
-    )
-
-    if debug:
-        print("[TRAIN] Debug mode: Skipping evaluation")
-        return
-
-    metrics = trainer.test(
-        ckpt_path="best",
-        datamodule=dm,
-        weights_only=False,
-    )[0]
-
-    if save:
-        save_trained_model(cfg, dataset, models_folder, best_model_path, metrics)
-
-
-@app.command(name="train_ranker", help="Train the reranker model.")
+@app.command(name="train", help="Train the reranker model.")
 def train_ranker(
     dataset: Annotated[
         DatasetName, typer.Option("--dataset", "-d")
@@ -129,9 +30,6 @@ def train_ranker(
         float, typer.Option("--test_size", "-t")
     ] = settings.TEST_RATIO,
     top_k: Annotated[int, typer.Option("--top_k", "-k")] = settings.RANKER_TOP_K,
-    candidate_top_n: Annotated[
-        int, typer.Option("--candidate_top_n", "-n")
-    ] = settings.TOP_N,
     remove_sparse: Annotated[
         bool, typer.Option("--remove_sparse", "-R")
     ] = settings.REMOVE_SPARSE,
@@ -151,53 +49,36 @@ def train_ranker(
         str, typer.Option("--models-folder", "-M")
     ] = settings.MODELS_FOLDER,
 ) -> None:
-    dm = build_datamodule(
-        dataset,
-        batch_size,
-        val_size,
-        test_size,
-        use_processed_data,
-        remove_sparse,
-        min_interactions,
+    if settings.state["verbose"]:
+        print(f"[TRAIN] Using dataset {dataset.value}")
+        print(f"[TRAIN] Removing sparse users: {remove_sparse}")
+        print(f"[TRAIN] Minimum interactions per user: {min_interactions}")
+
+        if use_processed_data:
+            print(
+                f"[TRAIN] Using saved processed data from {settings.PROCESSED_FOLDER}"
+            )
+        else:
+            print(
+                f"[TRAIN] Processing raw data from {settings.DATA_FOLDER}/{dataset.value}"
+            )
+
+    dm = ElearningDataModule(
+        dataset=dataset,
+        batch_size=batch_size,
+        test_ratio=test_size,
+        val_ratio=val_size,
+        use_processed_data=use_processed_data,
+        random_state=settings.state["random_state"],
+        min_interactions=min_interactions,
+        remove_sparse=remove_sparse,
     )
 
-    dm.setup(phase=Phase.RETRIEVAL)
+    dm.setup()
     print_datamodule_stats(dm)
-
-    retrieval_model_path, retrieval_cfg = load_model(
-        models_folder=models_folder,
-        dataset_name=dataset.value,
-        phase=Phase.RETRIEVAL,
-    )
-
-    if not isinstance(retrieval_cfg, RetrievalConfig):
-        raise RuntimeError("The loaded model is not a retrieval model.")
 
     assert dm.u_static_feats is not None
     assert dm.i_static_feats is not None
-
-    retrieval = Retrieval.load_from_checkpoint(
-        checkpoint_path=str(retrieval_model_path),
-        cfg=retrieval_cfg,
-        u_static_feats=dm.u_static_feats,
-        i_static_feats=dm.i_static_feats,
-        top_k=top_k,
-        map_location="cpu",
-        weights_only=False,
-    )
-
-    if settings.state["verbose"]:
-        print(f"[TRAIN] Loaded retrieval model from: {retrieval_model_path}")
-        print(f"[TRAIN] Generating top-{candidate_top_n} candidates per query")
-
-    generate_candidates(
-        retrieval=retrieval,
-        dm=dm,
-        top_n=candidate_top_n,
-        i_static_feats=dm.i_static_feats,
-    )
-
-    dm.setup(phase=Phase.RANKING)
 
     cfg = GhostConfig(
         num_users=dm.num_users,
@@ -244,44 +125,6 @@ def train_ranker(
         save_trained_model(cfg, dataset, models_folder, best_model_path, metrics)
 
 
-def build_datamodule(
-    dataset: DatasetName,
-    batch_size: int,
-    val_size: float,
-    test_size: float,
-    use_processed_data: bool,
-    remove_sparse: bool,
-    min_interactions: int,
-    retrieval_num_negatives: int = settings.RETRIEVAL_NUM_NEGATIVES,
-) -> ElearningDataModule:
-    if settings.state["verbose"]:
-        print(f"[TRAIN] Using dataset {dataset.value}")
-        print(f"[TRAIN] Removing sparse users: {remove_sparse}")
-        print(f"[TRAIN] Minimum interactions per user: {min_interactions}")
-        print(f"[TRAIN] Retrieval negatives per query: {retrieval_num_negatives}")
-
-        if use_processed_data:
-            print(
-                f"[TRAIN] Using saved processed data from {settings.PROCESSED_FOLDER}"
-            )
-        else:
-            print(
-                f"[TRAIN] Processing raw data from {settings.DATA_FOLDER}/{dataset.value}"
-            )
-
-    return ElearningDataModule(
-        dataset=dataset,
-        batch_size=batch_size,
-        test_ratio=test_size,
-        val_ratio=val_size,
-        use_processed_data=use_processed_data,
-        random_state=settings.state["random_state"],
-        min_interactions=min_interactions,
-        remove_sparse=remove_sparse,
-        retrieval_num_negatives=retrieval_num_negatives,
-    )
-
-
 def print_datamodule_stats(dm: ElearningDataModule) -> None:
     if not settings.state["verbose"]:
         return
@@ -296,7 +139,7 @@ def print_datamodule_stats(dm: ElearningDataModule) -> None:
 
 
 def save_trained_model(
-    cfg: GhostConfig | RetrievalConfig,
+    cfg: GhostConfig,
     dataset: DatasetName,
     models_folder: str,
     best_model_path,

@@ -10,9 +10,8 @@ from edurec import settings
 
 from ...datasets import ElearningDataModule
 from ..ranker import Ranker
-from ..retrieval import Retrieval
 
-type Model = Ranker | Retrieval
+type Model = Ranker
 
 
 def train_model(
