@@ -2,8 +2,8 @@ import lightning.pytorch as L
 import torch
 import torch.nn.functional as F
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
-from torch_geometric.data import Data
 from torch_geometric.utils import dropout_edge
+from torch_geometric.data import Data
 from torchmetrics import MetricCollection
 from torchmetrics.retrieval import (
     RetrievalHitRate,
@@ -17,7 +17,7 @@ from torchmetrics.retrieval import (
 from .. import settings
 from ..datasets import RankingQuery
 from .architecture import Ghost, GhostConfig
-from .losses import InfoNCELoss
+from .losses import InfoNCELoss, LossReduction
 
 
 class Ranker(L.LightningModule):
@@ -36,7 +36,7 @@ class Ranker(L.LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters(
-            ignore=["inter_graph", "u_static_feats", "i_static_feats"]
+            ignore=["edge_index", "u_static_feats", "i_static_feats"]
         )
         self.cfg = cfg
         self.lr = lr
@@ -49,13 +49,16 @@ class Ranker(L.LightningModule):
         self.register_buffer("edge_index", inter_graph.edge_index)
         self.register_buffer("u_static_feats", u_static_feats, persistent=False)
         self.register_buffer("i_static_feats", i_static_feats, persistent=False)
-        self.register_buffer(
-            "all_item_ids",
-            torch.arange(1, cfg.num_items + 1, dtype=torch.long),
-            persistent=False,
-        )
+        # self.register_buffer(
+        #     "all_item_ids",
+        #     torch.arange(1, cfg.num_items + 1, dtype=torch.long),
+        #     persistent=False,
+        # )
 
-        self.gcl_loss = InfoNCELoss(tau=cfg.gnn.tau, reduction=cfg.gnn.loss_reduc)
+        self.gcl_loss = InfoNCELoss(
+            tau=cfg.temperature,
+            reduction=LossReduction(cfg.loss_reduction),
+        )
 
         self.val_ranking_metrics = MetricCollection(
             {
@@ -94,7 +97,9 @@ class Ranker(L.LightningModule):
         self.model_name = self.__class__.__name__
 
     def forward(self, batch: RankingQuery) -> torch.Tensor:
-        item_ids = self.all_item_ids.unsqueeze(0).expand(batch.user_id.size(0), -1)
+        all_item_ids = torch.arange(1, self.cfg.num_items + 1, dtype=torch.long)
+
+        item_ids = all_item_ids.unsqueeze(0).expand(batch.user_id.size(0), -1)
         scores = self.model(
             u_ids=batch.user_id,
             h_ids=batch.history_items,

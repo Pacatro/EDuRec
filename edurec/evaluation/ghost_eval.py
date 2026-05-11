@@ -27,8 +27,7 @@ def eval_ghost(
     )
 
     dm.setup()
-
-    inter_graph = dm.create_inter_graph()
+    train_edge_index = dm.train_ds.inter_graph.edge_index
     assert dm.u_static_feats is not None and dm.i_static_feats is not None
 
     u_feats = dm.u_static_feats
@@ -48,7 +47,7 @@ def eval_ghost(
 
     ranker = Ranker(
         cfg=cfg,
-        inter_graph=inter_graph,
+        edge_index=train_edge_index,
         u_static_feats=u_feats,
         i_static_feats=i_feats,
         top_ks=top_ks,

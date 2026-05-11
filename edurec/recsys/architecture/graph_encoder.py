@@ -5,7 +5,6 @@ from torch import nn
 from torch_geometric.nn import LGConv
 
 from ... import settings
-from ..losses import LossReduction
 from .static_feats_encoder import FeatureInteractionEncoder
 
 
@@ -14,9 +13,6 @@ class GraphEncoderConfig:
     num_users: int
     num_items: int
     emb_dim: int
-    drop_edges_p: float = settings.DROP_EDGES_P
-    tau: float = settings.TAU
-    loss_reduc: LossReduction = LossReduction(settings.LOSS_REDUCTION)
     num_layers: int = settings.GNN_LAYERS
     num_user_dense_feats: int = 0
     num_item_dense_feats: int = 0
@@ -29,7 +25,6 @@ class GraphEncoder(nn.Module):
         super().__init__()
         self.num_users = cfg.num_users
         self.num_items = cfg.num_items
-        self.drop_edges_p = cfg.drop_edges_p
 
         self.user_emb = nn.Embedding(self.num_users, cfg.emb_dim)
         self.item_emb = nn.Embedding(self.num_items, cfg.emb_dim)

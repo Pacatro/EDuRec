@@ -4,7 +4,7 @@ import torch
 from torch import nn
 
 from ... import settings
-from .graph_encoder import GraphEncoder, GraphEncoderConfig, LossReduction
+from .graph_encoder import GraphEncoder, GraphEncoderConfig
 from .scorer import Scorer, ScorerConfig
 
 
@@ -38,9 +38,6 @@ class GhostConfig:
             num_users=self.num_users,
             num_items=self.num_items,
             emb_dim=self.emb_dim,
-            drop_edges_p=self.edge_dropout,
-            tau=self.temperature,
-            loss_reduc=LossReduction(self.loss_reduction),
             num_layers=self.gnn_layers,
             num_user_dense_feats=self.num_user_dense_feats,
             num_item_dense_feats=self.num_item_dense_feats,

@@ -90,9 +90,11 @@ def train_ranker(
         item_cat_cardinalities=dm.item_cat_cardinalities,
     )
 
+    train_graph = dm.build_inter_graph("train")
+
     ranker = Ranker(
         cfg=cfg,
-        inter_graph=dm.create_inter_graph(),
+        inter_graph=train_graph,
         u_static_feats=dm.u_static_feats,
         i_static_feats=dm.i_static_feats,
         lr=lr,
@@ -130,6 +132,8 @@ def print_datamodule_stats(dm: ElearningDataModule) -> None:
         return
 
     print(f"[TRAIN] Dataset sparsity: {dm.sparsity}")
+    print(f"[TRAIN] Number of users after preprocessing: {dm.num_raw_users}")
+    print(f"[TRAIN] Number of items after preprocessing: {dm.num_raw_items}")
     print(f"[TRAIN] Number of users: {dm.num_users}")
     print(f"[TRAIN] Number of items: {dm.num_items}")
     print(f"[TRAIN] Number of interactions: {dm.num_interactions}")

@@ -1,4 +1,4 @@
-from .data_processor import DataProcessor, FeatureMetadata
+from .dataprocessor import DataProcessor, FeatureMetadata
 from .datamodule import ElearningDataModule
 from .user_history import UserHistory
 from .loaders import DatasetName, load_raw_data

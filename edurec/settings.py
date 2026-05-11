@@ -17,7 +17,6 @@ METRICS_FILENAME = "metrics.csv"
 ITEM_COL: str = "item_id"
 USER_COL: str = "user_id"
 TIME_COL: str = "timestamp"
-INTERACTION_ORDER_COL: str = "interaction_order"
 RATING_COL: str = "rating"
 RELEVANT_COL: str = "relevant"
 MIN_INTERACTIONS: int = 3

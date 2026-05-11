@@ -28,11 +28,10 @@ class RankerDataset(Dataset):
             raise RuntimeError("Precomputed history must align with interactions.")
 
         interactions = interactions.reset_index(drop=True)
-
         self.num_ctx_feats = num_ctx_feats
+
         self.user_ids = interactions[settings.USER_COL].to_numpy(copy=True)
         self.target_item_ids = interactions[settings.ITEM_COL].to_numpy(copy=True)
-
         self.history_items = precomputed_history.items
         self.history_ctx = precomputed_history.ctx
         self.history_valid_mask = precomputed_history.valid_mask
@@ -41,14 +40,13 @@ class RankerDataset(Dataset):
         return len(self.user_ids)
 
     def __getitem__(self, idx: int) -> RankingQuery:
-        user_id = int(self.user_ids[idx])
-        target_item_id = int(self.target_item_ids[idx])
-
         return RankingQuery(
             query_id=torch.tensor(idx, dtype=torch.long),
-            user_id=torch.tensor(user_id, dtype=torch.long),
+            user_id=torch.tensor(int(self.user_ids[idx]), dtype=torch.long),
             history_items=self.history_items[idx],
             history_ctx=self.history_ctx[idx],
             history_valid_mask=self.history_valid_mask[idx],
-            target_item_id=torch.tensor(target_item_id, dtype=torch.long),
+            target_item_id=torch.tensor(
+                int(self.target_item_ids[idx]), dtype=torch.long
+            ),
         )
