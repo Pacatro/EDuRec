@@ -30,13 +30,13 @@ class Ranker(L.LightningModule):
         val_topk: int = settings.RANKER_TOP_K,
         lr: float = settings.RANKER_LR,
         weight_decay: float = settings.RANKER_WEIGHT_DECAY,
-        top_ks: list[int] = [10, 20, 50],
+        top_ks: list[int] = settings.TOP_KS,
         alpha: float = settings.LOSS_ALPHA,
         adaptive_k: bool = settings.ADAPTIVE_K,
     ):
         super().__init__()
         self.save_hyperparameters(
-            ignore=["edge_index", "u_static_feats", "i_static_feats"]
+            ignore=["inter_graph", "u_static_feats", "i_static_feats"]
         )
         self.cfg = cfg
         self.lr = lr
@@ -49,11 +49,6 @@ class Ranker(L.LightningModule):
         self.register_buffer("edge_index", inter_graph.edge_index)
         self.register_buffer("u_static_feats", u_static_feats, persistent=False)
         self.register_buffer("i_static_feats", i_static_feats, persistent=False)
-        # self.register_buffer(
-        #     "all_item_ids",
-        #     torch.arange(1, cfg.num_items + 1, dtype=torch.long),
-        #     persistent=False,
-        # )
 
         self.gcl_loss = InfoNCELoss(
             tau=cfg.temperature,
@@ -82,11 +77,7 @@ class Ranker(L.LightningModule):
 
             self.test_ranking_metrics = MetricCollection(
                 {
-                    f"{name}@{k}": cls(
-                        top_k=k,
-                        empty_target_action="neg",
-                        **kwargs,
-                    )
+                    f"{name}@{k}": cls(top_k=k, empty_target_action="neg", **kwargs)
                     for k in top_ks
                     for name, (cls, kwargs) in metrics.items()
                 },
@@ -97,15 +88,11 @@ class Ranker(L.LightningModule):
         self.model_name = self.__class__.__name__
 
     def forward(self, batch: RankingQuery) -> torch.Tensor:
-        all_item_ids = torch.arange(1, self.cfg.num_items + 1, dtype=torch.long)
-
-        item_ids = all_item_ids.unsqueeze(0).expand(batch.user_id.size(0), -1)
         scores = self.model(
             u_ids=batch.user_id,
             h_ids=batch.history_items,
             h_ctx=batch.history_ctx,
             h_mask=batch.history_valid_mask,
-            c_ids=item_ids,
             edge_index=self.edge_index,
             u_static_feats=self.u_static_feats,
             i_static_feats=self.i_static_feats,

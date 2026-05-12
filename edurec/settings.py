@@ -23,7 +23,7 @@ MIN_INTERACTIONS: int = 3
 
 # Preprocessing
 PROCESSED_FOLDER: str = f"{DATA_FOLDER}/processed"
-REMOVE_SPARSE: bool = True
+REMOVE_SPARSE: bool = False
 PREPROCESS_FEATURE_TYPES: tuple[str, ...] = (
     "numeric",
     "categorical",
@@ -72,6 +72,7 @@ SAVE_DATA: bool = False
 ADAPTIVE_K: bool = False
 LOSS_ALPHA: float = 0.1
 COMPILE_MODEL: bool = False
+TOP_KS: list[int] = [5, 10, 20]
 
 # Eval
 SEEDS: list[int] = [0, 1, 42]

@@ -1,10 +1,14 @@
 from .ghost import Ghost, GhostConfig
 from .graph_encoder import GraphEncoder
-from .scorer import Scorer
+from .mlp_encoder import MLPEncoder, MLPEncoderConfig
+from .sasrec import SASRecConfig, SASRecEncoder
 
 __all__ = [
     "Ghost",
     "GhostConfig",
     "GraphEncoder",
-    "Scorer",
+    "MLPEncoder",
+    "MLPEncoderConfig",
+    "SASRecConfig",
+    "SASRecEncoder",
 ]

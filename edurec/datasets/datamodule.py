@@ -250,6 +250,16 @@ class ElearningDataModule(L.LightningDataModule):
         )
 
     @property
+    def num_user_text_feats(self) -> int:
+        metadata = self.data_processor.feature_metadata.get("users")
+        return 0 if metadata is None else len(metadata.text_embedding_cols)
+
+    @property
+    def num_item_text_feats(self) -> int:
+        metadata = self.data_processor.feature_metadata.get("items")
+        return 0 if metadata is None else len(metadata.text_embedding_cols)
+
+    @property
     def user_cat_cardinalities(self) -> list[int]:
         metadata = self.data_processor.feature_metadata.get("users")
         if metadata is None:
@@ -542,6 +552,10 @@ class ElearningDataModule(L.LightningDataModule):
         history_mask = torch.as_tensor(positive_mask, dtype=torch.bool)
         history = self.next_item_hist_by_split[split]
 
+        # NOTE: We use positive mask to filter out interactions that are not relevant,
+        # with this implementation, the model only sees the relevant items of the history.
+        # For example, if the user 0 has this history: [item 1 (relevant), item 2 (not relevant), item 3 (relevant)],
+        # with positive mask, the model will only see [item 1, item 3] as the history for the next interaction, and item 2 will be ignored.
         return RankerDataset(
             interactions=df.loc[positive_mask].reset_index(drop=True),
             precomputed_history=UserHistory(
@@ -552,8 +566,14 @@ class ElearningDataModule(L.LightningDataModule):
             num_ctx_feats=self.num_ctx_feats,
         )
 
-    def build_inter_graph(self, split: str) -> Data:
-        interactions = getattr(self.artifacts, split)
+    def build_inter_graph(self) -> Data:
+        # interactions = getattr(self.artifacts, split)
+        # NOTE: We only build the graph based on the training interactions.
+        interactions = self.artifacts.train
+        assert interactions is not None, (
+            "Data must be processed before creating the graph"
+        )
+        interactions = interactions[interactions[settings.RELEVANT_COL] > 0]
 
         user_idx = torch.as_tensor(
             interactions[settings.USER_COL].to_numpy(copy=True),

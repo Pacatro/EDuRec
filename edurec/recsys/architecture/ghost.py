@@ -5,7 +5,8 @@ from torch import nn
 
 from ... import settings
 from .graph_encoder import GraphEncoder, GraphEncoderConfig
-from .scorer import Scorer, ScorerConfig
+from .mlp_encoder import MLPEncoder, MLPEncoderConfig
+from .sasrec import SASRecConfig, SASRecEncoder
 
 
 @dataclass
@@ -16,6 +17,8 @@ class GhostConfig:
     emb_dim: int = settings.EMB_DIM
     num_user_dense_feats: int = 0
     num_item_dense_feats: int = 0
+    num_user_text_feats: int = 0
+    num_item_text_feats: int = 0
     user_cat_cardinalities: list[int] = field(default_factory=list)
     item_cat_cardinalities: list[int] = field(default_factory=list)
 
@@ -30,7 +33,7 @@ class GhostConfig:
     n_blocks: int = settings.NUM_BLOCKS
     ff_dim: int = settings.FF_DIM
     dropout: float = settings.DROPOUT
-    num_scores: int = settings.NUM_SCORES
+    use_item_bias: bool = True
 
     @property
     def gnn(self) -> GraphEncoderConfig:
@@ -46,14 +49,35 @@ class GhostConfig:
         )
 
     @property
-    def scorer(self) -> ScorerConfig:
-        return ScorerConfig(
+    def user_encoder(self) -> MLPEncoderConfig:
+        return MLPEncoderConfig(
+            num_dense_features=self.num_user_dense_feats,
+            categorical_cardinalities=self.user_cat_cardinalities,
+            output_dim=self.emb_dim,
+            dropout=self.dropout,
+        )
+
+    @property
+    def item_encoder(self) -> MLPEncoderConfig:
+        struct_dense_feats = max(
+            self.num_item_dense_feats - self.num_item_text_feats, 0
+        )
+        return MLPEncoderConfig(
+            num_dense_features=struct_dense_feats,
+            categorical_cardinalities=self.item_cat_cardinalities,
+            output_dim=self.emb_dim,
+            dropout=self.dropout,
+        )
+
+    @property
+    def sasrec(self) -> SASRecConfig:
+        return SASRecConfig(
             emb_dim=self.emb_dim,
             n_heads=self.n_heads,
             n_blocks=self.n_blocks,
             ff_dim=self.ff_dim,
             dropout=self.dropout,
-            num_scores=self.num_scores,
+            num_ctx_feats=self.num_ctx_feats,
         )
 
 
@@ -62,15 +86,21 @@ class Ghost(nn.Module):
         super().__init__()
         self.cfg = cfg
 
-        self.ctx_proj = (
-            nn.Linear(cfg.num_ctx_feats, cfg.emb_dim, bias=False)
-            if cfg.num_ctx_feats > 0
+        self.gnn = GraphEncoder(cfg.gnn)
+        self.user_encoder = MLPEncoder(cfg.user_encoder)
+        self.item_encoder = MLPEncoder(cfg.item_encoder)
+        self.text_projection = (
+            nn.Linear(cfg.num_item_text_feats, cfg.emb_dim, bias=False)
+            if cfg.num_item_text_feats > 0
             else None
         )
-        self.norm = nn.LayerNorm(cfg.emb_dim)
-
-        self.gnn = GraphEncoder(cfg.gnn)
-        self.ranker = Scorer(cfg.scorer)
+        self.item_content_norm = nn.LayerNorm(cfg.emb_dim)
+        self.item_norm = nn.LayerNorm(cfg.emb_dim)
+        self.user_norm = nn.LayerNorm(cfg.emb_dim)
+        self.item_bias = (
+            nn.Parameter(torch.zeros(cfg.num_items)) if cfg.use_item_bias else None
+        )
+        self.sequence_encoder = SASRecEncoder(cfg.sasrec)
 
     def forward(
         self,
@@ -78,32 +108,59 @@ class Ghost(nn.Module):
         h_ids: torch.Tensor,
         h_ctx: torch.Tensor,
         h_mask: torch.Tensor,
-        c_ids: torch.Tensor,
         edge_index: torch.Tensor,
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
     ) -> torch.Tensor:
-        user_embs, item_embs = self.gnn(edge_index, u_static_feats, i_static_feats)
+        user_graph_embs, item_graph_embs = self.gnn(
+            edge_index, u_static_feats, i_static_feats
+        )
+        user_feature_embs = self.user_encoder(u_static_feats)
+        item_feature_embs = self._encode_item_features(i_static_feats)
 
+        item_emb = self.item_norm(item_graph_embs + item_feature_embs)
         padded_item_embs = torch.cat(
-            [item_embs.new_zeros(1, item_embs.size(1)), item_embs], dim=0
+            [item_emb.new_zeros(1, item_emb.size(1)), item_emb], dim=0
         )
 
-        user_emb = user_embs[u_ids]
-        candidate_emb = padded_item_embs[c_ids]
-        hist_emb = self._build_hist_emb(padded_item_embs, h_ids, h_ctx, h_mask)
+        hist_emb = padded_item_embs[h_ids.clamp(min=0)]
+        seq_user_emb = self.sequence_encoder(hist_emb, h_mask, h_ctx)
 
-        user_emb = self.norm(user_emb)
-        candidate_emb = self.norm(candidate_emb)
+        user_graph_emb = user_graph_embs[u_ids]
+        user_feature_emb = user_feature_embs[u_ids]
+        user_emb = self.user_norm(user_graph_emb + user_feature_emb + seq_user_emb)
 
-        scores = self.ranker(user_emb, hist_emb, candidate_emb, h_mask)
+        scores = scores = user_emb @ item_emb.T
+
+        if self.item_bias is not None:
+            scores = scores + self.item_bias
+
         return scores
 
-    def _build_hist_emb(self, item_embs, history_ids, history_ctx, history_mask):
-        hist_emb = item_embs[history_ids.clamp(min=0)]
+    def _encode_item_features(self, item_static_feats: torch.Tensor) -> torch.Tensor:
+        struct_dim = max(
+            self.cfg.num_item_dense_feats - self.cfg.num_item_text_feats, 0
+        )
+        cat_start = self.cfg.num_item_dense_feats
 
-        if self.ctx_proj is not None:
-            ctx_emb = self.ctx_proj(history_ctx)
-            hist_emb = self.norm(hist_emb + ctx_emb)
+        parts: list[torch.Tensor] = []
+        if struct_dim > 0:
+            parts.append(item_static_feats[..., :struct_dim])
+        if self.cfg.item_cat_cardinalities:
+            parts.append(item_static_feats[..., cat_start:])
 
-        return hist_emb * history_mask.unsqueeze(-1).float()
+        if parts:
+            structured_inputs = torch.cat(parts, dim=-1)
+            item_feature_emb = self.item_encoder(structured_inputs)
+        else:
+            item_feature_emb = item_static_feats.new_zeros(
+                item_static_feats.size(0), self.cfg.emb_dim
+            )
+
+        if self.text_projection is None:
+            return item_feature_emb
+
+        text_start = struct_dim
+        text_end = text_start + self.cfg.num_item_text_feats
+        text_emb = self.text_projection(item_static_feats[..., text_start:text_end])
+        return self.item_content_norm(item_feature_emb + text_emb)

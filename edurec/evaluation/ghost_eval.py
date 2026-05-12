@@ -27,11 +27,8 @@ def eval_ghost(
     )
 
     dm.setup()
-    train_edge_index = dm.train_ds.inter_graph.edge_index
+    train_graph = dm.build_inter_graph()
     assert dm.u_static_feats is not None and dm.i_static_feats is not None
-
-    u_feats = dm.u_static_feats
-    i_feats = dm.i_static_feats
 
     cfg = GhostConfig(
         num_users=dm.num_users,
@@ -39,6 +36,8 @@ def eval_ghost(
         num_ctx_feats=dm.train_ds.num_ctx_feats,
         num_user_dense_feats=dm.num_user_dense_feats,
         num_item_dense_feats=dm.num_item_dense_feats,
+        num_user_text_feats=dm.num_user_text_feats,
+        num_item_text_feats=dm.num_item_text_feats,
         user_cat_cardinalities=dm.user_cat_cardinalities,
         item_cat_cardinalities=dm.item_cat_cardinalities,
     )
@@ -47,9 +46,9 @@ def eval_ghost(
 
     ranker = Ranker(
         cfg=cfg,
-        edge_index=train_edge_index,
-        u_static_feats=u_feats,
-        i_static_feats=i_feats,
+        inter_graph=train_graph,
+        u_static_feats=dm.u_static_feats,
+        i_static_feats=dm.i_static_feats,
         top_ks=top_ks,
         val_topk=val_topk,
     )

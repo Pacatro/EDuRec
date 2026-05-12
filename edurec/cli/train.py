@@ -75,6 +75,7 @@ def train_ranker(
     )
 
     dm.setup()
+
     print_datamodule_stats(dm)
 
     assert dm.u_static_feats is not None
@@ -86,11 +87,13 @@ def train_ranker(
         num_ctx_feats=dm.train_ds.num_ctx_feats,
         num_user_dense_feats=dm.num_user_dense_feats,
         num_item_dense_feats=dm.num_item_dense_feats,
+        num_user_text_feats=dm.num_user_text_feats,
+        num_item_text_feats=dm.num_item_text_feats,
         user_cat_cardinalities=dm.user_cat_cardinalities,
         item_cat_cardinalities=dm.item_cat_cardinalities,
     )
 
-    train_graph = dm.build_inter_graph("train")
+    train_graph = dm.build_inter_graph()
 
     ranker = Ranker(
         cfg=cfg,
