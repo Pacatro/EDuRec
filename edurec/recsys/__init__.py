@@ -5,7 +5,6 @@ from .architecture.sasrec import SASRecConfig, SASRecEncoder
 from .losses import LossReduction
 from .training import train_model
 from .ranker import Ranker
-from .architecture.static_feats_encoder import FeatureInteractionEncoder
 
 __all__ = [
     "Ranker",
@@ -18,6 +17,5 @@ __all__ = [
     "Ghost",
     "GhostConfig",
     "LossReduction",
-    "FeatureInteractionEncoder",
     "train_model",
 ]

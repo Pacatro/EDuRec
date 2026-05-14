@@ -112,9 +112,8 @@ class Ghost(nn.Module):
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
     ) -> torch.Tensor:
-        user_graph_embs, item_graph_embs = self.gnn(
-            edge_index, u_static_feats, i_static_feats
-        )
+        user_graph_embs, item_graph_embs = self.gnn(edge_index)
+
         user_feature_embs = self.user_encoder(u_static_feats)
         item_feature_embs = self._encode_item_features(i_static_feats)
 
@@ -130,7 +129,7 @@ class Ghost(nn.Module):
         user_feature_emb = user_feature_embs[u_ids]
         user_emb = self.user_norm(user_graph_emb + user_feature_emb + seq_user_emb)
 
-        scores = scores = user_emb @ item_emb.T
+        scores = user_emb @ item_emb.T
 
         if self.item_bias is not None:
             scores = scores + self.item_bias

@@ -5,7 +5,6 @@ from torch import nn
 from torch_geometric.nn import LGConv
 
 from ... import settings
-from .static_feats_encoder import FeatureInteractionEncoder
 
 
 @dataclass
@@ -29,24 +28,12 @@ class GraphEncoder(nn.Module):
         self.user_emb = nn.Embedding(self.num_users, cfg.emb_dim)
         self.item_emb = nn.Embedding(self.num_items, cfg.emb_dim)
 
-        self.user_static_encoder = FeatureInteractionEncoder(
-            cfg.num_user_dense_feats, cfg.user_cat_cardinalities, cfg.emb_dim
-        )
-        self.item_static_encoder = FeatureInteractionEncoder(
-            cfg.num_item_dense_feats, cfg.item_cat_cardinalities, cfg.emb_dim
-        )
-
         self.convs = nn.ModuleList(LGConv() for _ in range(cfg.num_layers))
         self.norm = nn.LayerNorm(cfg.emb_dim)
 
-    def forward(
-        self,
-        edge_index: torch.Tensor,
-        user_static_feats: torch.Tensor,
-        item_static_feats: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        u_x = self.user_static_encoder(self.user_emb.weight, user_static_feats)
-        i_x = self.item_static_encoder(self.item_emb.weight, item_static_feats)
+    def forward(self, edge_index: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        u_x = self.user_emb.weight
+        i_x = self.item_emb.weight
 
         x = torch.cat([u_x, i_x], dim=0)
         x = self.norm(x)

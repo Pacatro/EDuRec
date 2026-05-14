@@ -207,17 +207,8 @@ class Ranker(L.LightningModule):
         edge_index_1, _ = dropout_edge(self.edge_index, p=p, force_undirected=True)
         edge_index_2, _ = dropout_edge(self.edge_index, p=p, force_undirected=True)
 
-        u_emb1, i_emb1 = self.model.gnn(
-            edge_index_1,
-            self.u_static_feats,
-            self.i_static_feats,
-        )
-
-        u_emb2, i_emb2 = self.model.gnn(
-            edge_index_2,
-            self.u_static_feats,
-            self.i_static_feats,
-        )
+        u_emb1, i_emb1 = self.model.gnn(edge_index_1)
+        u_emb2, i_emb2 = self.model.gnn(edge_index_2)
 
         gcl_loss = self.gcl_loss(u_emb1, i_emb1, u_emb2, i_emb2)
 
