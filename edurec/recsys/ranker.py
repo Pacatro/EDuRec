@@ -58,8 +58,7 @@ class Ranker(L.LightningModule):
         self.val_ranking_metrics = MetricCollection(
             {
                 f"NDCG@{self.val_topk}": RetrievalNormalizedDCG(
-                    top_k=self.val_topk,
-                    empty_target_action="neg",
+                    top_k=self.val_topk, empty_target_action="neg"
                 )
             },
             prefix="val/",
@@ -132,7 +131,7 @@ class Ranker(L.LightningModule):
         query_ids = batch.query_id
         target_item_ids = batch.target_item_id.long()
 
-        rank_loss = self._compute_rank_loss(
+        rank_loss = self._compute_rec_loss(
             scores=scores,
             target_item_ids=target_item_ids,
         )
@@ -181,7 +180,7 @@ class Ranker(L.LightningModule):
 
         return loss
 
-    def _compute_rank_loss(
+    def _compute_rec_loss(
         self,
         scores: torch.Tensor,
         target_item_ids: torch.Tensor,

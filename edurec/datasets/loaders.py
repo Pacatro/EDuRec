@@ -1,7 +1,7 @@
 from enum import StrEnum
 from functools import wraps
 from pathlib import Path
-from typing import Callable, Literal, NamedTuple
+from typing import Callable, NamedTuple
 
 import pandas as pd
 
@@ -11,8 +11,7 @@ RAW_DATA_FOLDER = Path(settings.DATA_FOLDER) / "raw"
 
 
 class DatasetName(StrEnum):
-    MARS_EXPLICIT = "mars_explicit"
-    MARS_IMPLICIT = "mars_implicit"
+    MARS = "mars"
     ITM = "itm"
     DORIS = "doris"
 
@@ -40,7 +39,7 @@ def register_dataset(ds_name: DatasetName) -> Callable[[ExportFn], ExportFn]:
 
     Example:
         ```python
-        @register_dataset(DatasetName.MARS_EXPLICIT)
+        @register_dataset(DatasetName.MARS)
         def load_mars() -> pd.DataFrame:
             ...
         ```
@@ -63,14 +62,24 @@ def register_dataset(ds_name: DatasetName) -> Callable[[ExportFn], ExportFn]:
     return decorator
 
 
-def load_mars(ds_type: Literal["implicit", "explicit"]) -> RawDataset:
-    mars_folder = RAW_DATA_FOLDER / "mars"
+@register_dataset(DatasetName.MARS)
+def load_mars() -> RawDataset:
+    """Load the MARS dataset.
+
+    This loader combines English and French rating files and merges them with
+    item metadata. Dataset-wide cleaning and filtering happen later in the
+    datamodule preprocessing phase.
+
+    Returns:
+        pd.DataFrame: The MARS dataset.
+    """
+    mars_folder = RAW_DATA_FOLDER / DatasetName.MARS.value
     items_en = pd.read_csv(mars_folder / "items_en.csv")
     items_fr = pd.read_csv(mars_folder / "items_fr.csv")
     users_en = pd.read_csv(mars_folder / "users_en.csv")
     users_fr = pd.read_csv(mars_folder / "users_fr.csv")
-    ratings_en = pd.read_csv(mars_folder / f"{ds_type}_ratings_en.csv")
-    ratings_fr = pd.read_csv(mars_folder / f"{ds_type}_ratings_fr.csv")
+    ratings_en = pd.read_csv(mars_folder / "explicit_ratings_en.csv")
+    ratings_fr = pd.read_csv(mars_folder / "explicit_ratings_fr.csv")
 
     df_interactions = pd.concat([ratings_en, ratings_fr], ignore_index=True)
     df_items = pd.concat([items_en, items_fr], ignore_index=True)
@@ -110,7 +119,7 @@ def load_mars(ds_type: Literal["implicit", "explicit"]) -> RawDataset:
         },
         "inter": {
             "bin": [],
-            "num": ["watch_percentage"] if ds_type == "explicit" else [],
+            "num": ["watch_percentage"],
             "cat": [],
             "text": [],
             "list": [],
@@ -120,16 +129,6 @@ def load_mars(ds_type: Literal["implicit", "explicit"]) -> RawDataset:
     return RawDataset(
         interactions=df_interactions, i_feats=df_items, u_feats=df_users, schema=schema
     )
-
-
-@register_dataset(DatasetName.MARS_EXPLICIT)
-def load_mars_explicit() -> RawDataset:
-    return load_mars(ds_type="explicit")
-
-
-@register_dataset(DatasetName.MARS_IMPLICIT)
-def load_mars_implicit() -> RawDataset:
-    return load_mars(ds_type="implicit")
 
 
 @register_dataset(DatasetName.ITM)

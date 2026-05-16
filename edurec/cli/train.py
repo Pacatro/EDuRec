@@ -14,9 +14,7 @@ app = typer.Typer(no_args_is_help=True)
 
 @app.command(name="train", help="Train the reranker model.")
 def train_ranker(
-    dataset: Annotated[
-        DatasetName, typer.Option("--dataset", "-d")
-    ] = DatasetName.MARS_EXPLICIT,
+    dataset: Annotated[DatasetName, typer.Option("--dataset", "-d")] = DatasetName.MARS,
     epochs: Annotated[int, typer.Option("--epochs", "-e")] = settings.EPOCHS,
     lr: Annotated[float, typer.Option("--lr", "-l")] = settings.RANKER_LR,
     batch_size: Annotated[

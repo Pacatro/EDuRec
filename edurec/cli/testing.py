@@ -20,7 +20,7 @@ def test_recsys(
     dataset: Annotated[
         DatasetName,
         typer.Option("--dataset", "-d", help="Dataset to use"),
-    ] = DatasetName.MARS_EXPLICIT,
+    ] = DatasetName.MARS,
     batch_size: Annotated[
         int, typer.Option("--batch_size", "-b", help="Batch size")
     ] = settings.RANKER_BATCH_SIZE,
@@ -67,7 +67,7 @@ def test_recsys(
         remove_sparse=remove_sparse,
     )
     dm.setup()
-    test_graph = dm.build_inter_graph("test")
+    test_graph = dm.build_inter_graph()
 
     assert dm.u_static_feats is not None and dm.i_static_feats is not None
 

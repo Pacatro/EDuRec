@@ -567,7 +567,7 @@ class ElearningDataModule(L.LightningDataModule):
         history_mask = torch.as_tensor(positive_mask, dtype=torch.bool)
         history = self.next_item_hist_by_split[split]
 
-        # NOTE: We use positive mask to filter out interactions that are not relevant,
+        # We use positive mask to filter out interactions that are not relevant,
         # with this implementation, the model only sees the relevant items of the history.
         # For example, if the user 0 has this history: [item 1 (relevant), item 2 (not relevant), item 3 (relevant)],
         # with positive mask, the model will only see [item 1, item 3] as the history for the next interaction, and item 2 will be ignored.
@@ -582,9 +582,9 @@ class ElearningDataModule(L.LightningDataModule):
         )
 
     def build_inter_graph(self) -> Data:
-        # interactions = getattr(self.artifacts, split)
-        # NOTE: We only build the graph based on the training interactions.
+        # We only build the graph based on the training interactions.
         interactions = self.artifacts.train
+
         assert interactions is not None, (
             "Data must be processed before creating the graph"
         )

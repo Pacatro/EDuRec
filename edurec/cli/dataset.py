@@ -12,7 +12,7 @@ app = typer.Typer(no_args_is_help=True)
 def dataset_command(
     dataset: Annotated[
         DatasetName, typer.Option("--dataset", "-d", help="Dataset to use")
-    ] = DatasetName.MARS_EXPLICIT,
+    ] = DatasetName.MARS,
     max_rows: Annotated[
         int, typer.Option("--max_rows", "-m", help="Maximum number of rows to show")
     ] = 10,

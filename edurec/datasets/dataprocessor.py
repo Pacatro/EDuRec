@@ -363,7 +363,7 @@ class DataProcessor:
                 else [[] for _ in range(len(df))]
             )
 
-            transformed_tokens = binarizer.transform(tokens).toarray()
+            transformed_tokens = binarizer.transform(tokens)
             transformed_tokens = np.asarray(transformed_tokens, dtype=np.float32)
 
             parts.append(
@@ -374,10 +374,10 @@ class DataProcessor:
                 )
             )
 
-            if not parts:
-                return pd.DataFrame(index=df.index)
+        if not parts:
+            return pd.DataFrame(index=df.index)
 
-            return pd.concat(parts, axis=1)[self.feature_columns[prefix]]
+        return pd.concat(parts, axis=1)[self.feature_columns[prefix]]
 
     def _text_embeddings(
         self,
