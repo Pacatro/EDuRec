@@ -70,6 +70,7 @@ def train_ranker(
         random_state=settings.state["random_state"],
         min_interactions=min_interactions,
         remove_sparse=remove_sparse,
+        save_atomic_files=True,
     )
 
     if settings.state["verbose"]:

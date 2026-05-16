@@ -37,6 +37,6 @@ def dataset_command(
 
     assert dm.raw_dataset is not None
 
-    print(f"\nUser information:\n{dm.raw_dataset.u_feats.head(max_rows)}\n")
-    print(f"Item information:\n{dm.raw_dataset.i_feats.head(max_rows)}\n")
+    print(f"\nUser information:\n{dm.raw_dataset.user_features.head(max_rows)}\n")
+    print(f"Item information:\n{dm.raw_dataset.item_features.head(max_rows)}\n")
     print(f"Interactions:\n{dm.raw_dataset.interactions.head(max_rows)}")

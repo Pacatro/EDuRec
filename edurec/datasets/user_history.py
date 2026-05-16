@@ -23,21 +23,21 @@ class UserHistory:
 
 
 def build_histories(
-    split_frames: dict[str, pd.DataFrame | None], excluded_cols: set[str]
+    splits: dict[str, pd.DataFrame | None], excluded_cols: set[str]
 ) -> dict[str, UserHistory]:
-    next_item_hist_by_split = {}
+    histories = {}
     user_state: dict[int, list[tuple[int, list[float]]]] = {}
 
     for split in ("train", "val", "test"):
-        df = split_frames.get(split)
+        df = splits.get(split)
         if df is None:
             raise RuntimeError(f"Processed split {split} is not available.")
 
-        ctx_cols = [col for col in df.columns if col not in excluded_cols]
+        context_cols = [col for col in df.columns if col not in excluded_cols]
         history = UserHistory(
             items=torch.zeros((len(df), settings.MAX_HISTORY_LEN), dtype=torch.long),
             ctx=torch.zeros(
-                (len(df), settings.MAX_HISTORY_LEN, len(ctx_cols)),
+                (len(df), settings.MAX_HISTORY_LEN, len(context_cols)),
                 dtype=torch.float32,
             ),
             valid_mask=torch.zeros(
@@ -47,9 +47,9 @@ def build_histories(
         )
         users = df[settings.USER_COL].to_numpy(dtype=np.int64)
         items = df[settings.ITEM_COL].to_numpy(dtype=np.int64)
-        ctx = (
-            df[ctx_cols].to_numpy(dtype=np.float32)
-            if ctx_cols
+        context = (
+            df[context_cols].to_numpy(dtype=np.float32)
+            if context_cols
             else np.empty((len(df), 0), dtype=np.float32)
         )
 
@@ -61,16 +61,16 @@ def build_histories(
                     dtype=torch.long,
                 )
                 history.valid_mask[row_idx, : len(past)] = True
-                if ctx_cols:
+                if context_cols:
                     history.ctx[row_idx, : len(past)] = torch.tensor(
                         [values for _, values in past],
                         dtype=torch.float32,
                     )
 
             user_state.setdefault(int(user_id), []).append(
-                (int(items[row_idx]), ctx[row_idx].tolist())
+                (int(items[row_idx]), context[row_idx].tolist())
             )
 
-        next_item_hist_by_split[split] = history
+        histories[split] = history
 
-    return next_item_hist_by_split
+    return histories

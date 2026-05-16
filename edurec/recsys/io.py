@@ -8,11 +8,9 @@ import pandas as pd
 from .. import settings
 from .architecture import GhostConfig
 
-type RecsysConfig = GhostConfig
-
 
 def save_model(
-    model_config: RecsysConfig,
+    model_config: GhostConfig,
     dataset_name: str,
     best_model_path: str | Path,
     models_folder: str | Path,
@@ -48,7 +46,7 @@ def save_metrics(metrics: dict[str, float], saving_models_folder: str | Path) ->
 def load_model(
     models_folder: str | Path,
     dataset_name: str,
-) -> tuple[Path, RecsysConfig]:
+) -> tuple[Path, GhostConfig]:
     """Load the most recent saved model and rebuild its config."""
     root = Path(models_folder) / dataset_name
 

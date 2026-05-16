@@ -22,7 +22,7 @@ def processed_cache_exists(folder: Path) -> bool:
 
 
 @dataclass
-class ProcessedArtifacts:
+class ProcessedData:
     train: pd.DataFrame | None = None
     val: pd.DataFrame | None = None
     test: pd.DataFrame | None = None

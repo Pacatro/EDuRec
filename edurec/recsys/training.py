@@ -6,16 +6,13 @@ import torch
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 
-from edurec import settings
-
+from .. import settings
 from ..datasets import ElearningDataModule
 from .ranker import Ranker
 
-type Model = Ranker
-
 
 def train_model(
-    model: Model,
+    model: Ranker,
     dm: ElearningDataModule,
     top_k: int,
     debug: bool,
@@ -27,7 +24,7 @@ def train_model(
     model_name = model.model_name
 
     model = (
-        cast(Model, torch.compile(model))
+        cast(Ranker, torch.compile(model))
         if not debug and settings.COMPILE_MODEL
         else model
     )

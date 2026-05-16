@@ -21,10 +21,10 @@ class RankerDataset(Dataset):
     def __init__(
         self,
         interactions: pd.DataFrame,
-        precomputed_history: UserHistory,
+        history: UserHistory,
         num_ctx_feats: int,
     ):
-        if len(precomputed_history.items) != len(interactions):
+        if len(history.items) != len(interactions):
             raise RuntimeError("Precomputed history must align with interactions.")
 
         interactions = interactions.reset_index(drop=True)
@@ -32,9 +32,9 @@ class RankerDataset(Dataset):
 
         self.user_ids = interactions[settings.USER_COL].to_numpy(copy=True)
         self.target_item_ids = interactions[settings.ITEM_COL].to_numpy(copy=True)
-        self.history_items = precomputed_history.items
-        self.history_ctx = precomputed_history.ctx
-        self.history_valid_mask = precomputed_history.valid_mask
+        self.history_items = history.items
+        self.history_ctx = history.ctx
+        self.history_valid_mask = history.valid_mask
 
     def __len__(self) -> int:
         return len(self.user_ids)

@@ -6,7 +6,7 @@ import pandas as pd
 import torch
 
 from .. import settings
-from .cache import ProcessedArtifacts
+from .cache import ProcessedData
 from .dataprocessor import FeatureMetadata
 
 RESERVED_FIELDS = {
@@ -72,8 +72,9 @@ def format_atomic_frame(
     df = df.copy().reset_index(drop=True)
     name_map = _build_column_name_map(df.columns.tolist(), namespace=namespace)
 
-    formatted = pd.DataFrame(index=df.index)
+    data: dict[str, pd.Series] = {}
     load_cols: list[str] = []
+
     for col in df.columns:
         recbole_name = name_map[col]
         recbole_type = infer_field_type(col, categorical_cols)
@@ -83,23 +84,22 @@ def format_atomic_frame(
         if recbole_type == "token":
             values = df[col]
             numeric_values = pd.to_numeric(values, errors="coerce")
+
             if numeric_values.notna().all():
-                formatted[atomic_col] = (
-                    numeric_values.round().astype("int64").astype(str)
-                )
+                data[atomic_col] = numeric_values.round().astype("int64").astype(str)
             else:
-                formatted[atomic_col] = (
+                data[atomic_col] = (
                     values.fillna("Undefined")
                     .astype(str)
                     .str.strip()
                     .replace("", "Undefined")
                 )
         else:
-            formatted[atomic_col] = (
-                pd.to_numeric(df[col], errors="coerce")
-                .fillna(0.0)
-                .astype(np.float32)
+            data[atomic_col] = (
+                pd.to_numeric(df[col], errors="coerce").fillna(0.0).astype(np.float32)
             )
+
+    formatted = pd.DataFrame(data, index=df.index)
 
     return formatted, load_cols
 
@@ -131,20 +131,24 @@ def static_feature_frame(
     feature_cols = (
         metadata.dense_cols + metadata.text_embedding_cols + metadata.categorical_cols
     )
+
     values = tensor.detach().cpu().numpy()
+
     if values.shape[1] != len(feature_cols):
         raise RuntimeError(
             f"Expected {len(feature_cols)} {prefix} feature columns, "
             f"got tensor with shape {values.shape}."
         )
 
-    df = pd.DataFrame(values, columns=feature_cols)
-    df.insert(0, id_col, np.arange(values.shape[0], dtype=np.int64))
-    return df
+    id_df = pd.DataFrame({id_col: np.arange(values.shape[0], dtype=np.int64)})
+
+    feature_df = pd.DataFrame(values, columns=feature_cols)
+
+    return pd.concat([id_df, feature_df], axis=1)
 
 
 def save_atomic_files(
-    artifacts: ProcessedArtifacts,
+    artifacts: ProcessedData,
     dataset_name: str,
     output_dir: Path,
 ) -> dict[str, Path]:

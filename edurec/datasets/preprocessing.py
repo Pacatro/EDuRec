@@ -3,7 +3,7 @@ import pandas as pd
 import torch
 
 from .. import settings
-from .cache import ProcessedArtifacts
+from .cache import ProcessedData
 from .dataprocessor import DataProcessor
 
 
@@ -27,7 +27,7 @@ def split_data(
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     rng = np.random.default_rng(random_state)
     has_time = settings.TIME_COL in df.columns
-    parts = {"train": [], "val": [], "test": []}
+    splits = {"train": [], "val": [], "test": []}
 
     for _, user_df in df.groupby(settings.USER_COL, sort=False):
         if has_time:
@@ -35,7 +35,7 @@ def split_data(
 
         n = len(user_df)
         if n < min_interactions:
-            parts["train"].append(user_df)
+            splits["train"].append(user_df)
             continue
 
         n_test = max(1, int(np.floor(n * test_ratio)))
@@ -44,18 +44,18 @@ def split_data(
             n_test = n_val = 1
 
         if has_time:
-            parts["train"].append(user_df.iloc[: -(n_test + n_val)])
-            parts["val"].append(user_df.iloc[-(n_test + n_val) : -n_test])
-            parts["test"].append(user_df.iloc[-n_test:])
+            splits["train"].append(user_df.iloc[: -(n_test + n_val)])
+            splits["val"].append(user_df.iloc[-(n_test + n_val) : -n_test])
+            splits["test"].append(user_df.iloc[-n_test:])
         else:
             order = rng.permutation(n)
-            parts["test"].append(user_df.iloc[order[:n_test]])
-            parts["val"].append(user_df.iloc[order[n_test : n_test + n_val]])
-            parts["train"].append(user_df.iloc[order[n_test + n_val :]])
+            splits["test"].append(user_df.iloc[order[:n_test]])
+            splits["val"].append(user_df.iloc[order[n_test : n_test + n_val]])
+            splits["train"].append(user_df.iloc[order[n_test + n_val :]])
 
-    train_split = pd.concat(parts["train"], axis=0).reset_index(drop=True)
-    val_split = pd.concat(parts["val"], axis=0).reset_index(drop=True)
-    test_split = pd.concat(parts["test"], axis=0).reset_index(drop=True)
+    train_split = pd.concat(splits["train"], axis=0).reset_index(drop=True)
+    val_split = pd.concat(splits["val"], axis=0).reset_index(drop=True)
+    test_split = pd.concat(splits["test"], axis=0).reset_index(drop=True)
 
     return train_split, val_split, test_split
 
@@ -69,7 +69,7 @@ def filter_sparse(
     min_interactions: int,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     while True:
-        n_prev = len(train)
+        prev_size = len(train)
         valid_users = train[settings.USER_COL].value_counts(sort=False)
         valid_items = train[settings.ITEM_COL].value_counts(sort=False)
         valid_users = valid_users[valid_users >= min_interactions].index
@@ -78,7 +78,7 @@ def filter_sparse(
             settings.ITEM_COL
         ].isin(valid_items)
         train = train.loc[mask].reset_index(drop=True)
-        if len(train) == n_prev:
+        if len(train) == prev_size:
             break
 
     user_mask = users[settings.USER_COL].isin(valid_users)
@@ -139,28 +139,32 @@ def preprocess(
     train: pd.DataFrame,
     val: pd.DataFrame,
     test: pd.DataFrame,
-) -> ProcessedArtifacts:
+) -> ProcessedData:
     processor.fit(users_train=users, items_train=items, interactions_train=train)
 
-    entities = processor.transform(users=users, items=items)
-    splits = {
+    features = processor.transform(users=users, items=items)
+    split_features = {
         "train": processor.transform(interactions=train),
         "val": processor.transform(interactions=val),
         "test": processor.transform(interactions=test),
     }
 
-    if entities.users is None or entities.items is None:
+    if features.users is None or features.items is None:
         raise RuntimeError("User/item features were not processed.")
 
-    users_df = entities.users
-    items_df = entities.items
-    if entities.text_embeddings["users"] is not None:
-        users_df = pd.concat([users_df, entities.text_embeddings["users"]], axis=1)
-    if entities.text_embeddings["items"] is not None:
-        items_df = pd.concat([items_df, entities.text_embeddings["items"]], axis=1)
+    user_frame = features.users
+    item_frame = features.items
+    if features.text_embeddings["users"] is not None:
+        user_frame = pd.concat(
+            [user_frame, features.text_embeddings["users"]], axis=1
+        )
+    if features.text_embeddings["items"] is not None:
+        item_frame = pd.concat(
+            [item_frame, features.text_embeddings["items"]], axis=1
+        )
 
     split_dfs: dict[str, pd.DataFrame] = {}
-    for name, processed in splits.items():
+    for name, processed in split_features.items():
         if processed.interactions is None:
             raise RuntimeError(f"{name} interactions were not processed.")
         split_dfs[name] = processed.interactions
@@ -173,8 +177,8 @@ def preprocess(
 
     static_feats = {}
     for name, df, prefix, id_col in (
-        ("users", users_df, "users", settings.USER_COL),
-        ("items", items_df, "items", settings.ITEM_COL),
+        ("users", user_frame, "users", settings.USER_COL),
+        ("items", item_frame, "items", settings.ITEM_COL),
     ):
         metadata = processor.feature_metadata[prefix]
         cols = (
@@ -187,7 +191,7 @@ def preprocess(
             dtype=torch.float32,
         )
 
-    return ProcessedArtifacts(
+    return ProcessedData(
         train=split_dfs["train"],
         val=split_dfs["val"],
         test=split_dfs["test"],

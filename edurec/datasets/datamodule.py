@@ -7,9 +7,9 @@ from torch_geometric.data import Data
 
 from .. import settings
 from .atomic_files import save_atomic_files
-from .cache import ProcessedArtifacts, processed_cache_exists
+from .cache import ProcessedData, processed_cache_exists
 from .dataprocessor import DataProcessor
-from .loaders import DatasetName, RawDataset, Schema, load_raw_data
+from .loaders import DatasetName, RawData, Schema, load_raw_data
 from .preprocessing import (
     add_relevance,
     clean_cols,
@@ -49,8 +49,8 @@ class ElearningDataModule(L.LightningDataModule):
         self.random_state = random_state
 
         self.processed_folder = Path(settings.PROCESSED_FOLDER) / dataset.value
-        self.raw_dataset: RawDataset | None = None
-        self.artifacts = ProcessedArtifacts()
+        self.raw_dataset: RawData | None = None
+        self.artifacts = ProcessedData()
 
         self.excluded_cols = {
             settings.USER_COL,
@@ -61,184 +61,16 @@ class ElearningDataModule(L.LightningDataModule):
         }
 
         if self.use_processed_data and processed_cache_exists(self.processed_folder):
-            self.artifacts = ProcessedArtifacts.load(self.processed_folder)
+            self.artifacts = ProcessedData.load(self.processed_folder)
         else:
             raw = load_raw_data(dataset)
-            self.raw_dataset = RawDataset(
+            self.raw_dataset = RawData(
                 interactions=clean_cols(raw.interactions),
-                u_feats=clean_cols(raw.u_feats),
-                i_feats=clean_cols(raw.i_feats),
+                user_features=clean_cols(raw.user_features),
+                item_features=clean_cols(raw.item_features),
                 schema=raw.schema,
             )
             self.artifacts.data_processor = DataProcessor(schema=raw.schema)
-
-    @property
-    def is_processed(self) -> bool:
-        return self.artifacts.is_ready
-
-    @property
-    def schema(self) -> Schema:
-        if self.raw_dataset is not None:
-            return self.raw_dataset.schema
-        if self.artifacts.data_processor is not None:
-            return self.artifacts.data_processor.schema
-        raise RuntimeError("Schema is not available.")
-
-    @property
-    def data_processor(self) -> DataProcessor:
-        if self.artifacts.data_processor is None:
-            raise RuntimeError("Data processor is not available.")
-        return self.artifacts.data_processor
-
-    @property
-    def u_static_feats(self) -> torch.Tensor | None:
-        return self.artifacts.u_static_feats
-
-    @property
-    def i_static_feats(self) -> torch.Tensor | None:
-        return self.artifacts.i_static_feats
-
-    @property
-    def num_users(self) -> int:
-        if self.u_static_feats is not None:
-            return self.u_static_feats.shape[0]
-        return 0 if self.raw_dataset is None else len(self.raw_dataset.u_feats)
-
-    @property
-    def num_items(self) -> int:
-        if self.i_static_feats is not None:
-            return self.i_static_feats.shape[0]
-        return 0 if self.raw_dataset is None else len(self.raw_dataset.i_feats)
-
-    @property
-    def num_raw_users(self) -> int:
-        return 0 if self.raw_dataset is None else len(self.raw_dataset.u_feats)
-
-    @property
-    def num_raw_items(self) -> int:
-        return 0 if self.raw_dataset is None else len(self.raw_dataset.i_feats)
-
-    @property
-    def num_interactions(self) -> int:
-        if self.is_processed:
-            return sum(
-                len(df)
-                for df in (
-                    self.artifacts.train,
-                    self.artifacts.val,
-                    self.artifacts.test,
-                )
-                if df is not None
-            )
-        return 0 if self.raw_dataset is None else len(self.raw_dataset.interactions)
-
-    @property
-    def num_ctx_feats(self) -> int:
-        if self.artifacts.train is not None:
-            return len(
-                [c for c in self.artifacts.train.columns if c not in self.excluded_cols]
-            )
-        if self.raw_dataset is not None:
-            return len(
-                [
-                    c
-                    for c in self.raw_dataset.interactions.columns
-                    if c not in self.excluded_cols
-                ]
-            )
-        return 0
-
-    @property
-    def sparsity(self) -> float:
-        return (
-            0.0
-            if self.num_users == 0 or self.num_items == 0
-            else 1 - self.num_interactions / (self.num_users * self.num_items)
-        )
-
-    @property
-    def num_user_feats(self) -> int:
-        metadata = self.data_processor.feature_metadata.get("users")
-        if metadata is not None:
-            return (
-                len(metadata.dense_cols)
-                + len(metadata.text_embedding_cols)
-                + len(metadata.categorical_cols)
-            )
-        if self.raw_dataset is not None:
-            return len(
-                [
-                    col
-                    for col in self.raw_dataset.u_feats.columns
-                    if col != settings.USER_COL
-                ]
-            )
-        return 0
-
-    @property
-    def num_item_feats(self) -> int:
-        metadata = self.data_processor.feature_metadata.get("items")
-        if metadata is not None:
-            return (
-                len(metadata.dense_cols)
-                + len(metadata.text_embedding_cols)
-                + len(metadata.categorical_cols)
-            )
-        if self.raw_dataset is not None:
-            return len(
-                [
-                    col
-                    for col in self.raw_dataset.i_feats.columns
-                    if col != settings.ITEM_COL
-                ]
-            )
-        return 0
-
-    @property
-    def num_user_dense_feats(self) -> int:
-        metadata = self.data_processor.feature_metadata.get("users")
-        return (
-            0
-            if metadata is None
-            else len(metadata.dense_cols) + len(metadata.text_embedding_cols)
-        )
-
-    @property
-    def num_item_dense_feats(self) -> int:
-        metadata = self.data_processor.feature_metadata.get("items")
-        return (
-            0
-            if metadata is None
-            else len(metadata.dense_cols) + len(metadata.text_embedding_cols)
-        )
-
-    @property
-    def num_user_text_feats(self) -> int:
-        metadata = self.data_processor.feature_metadata.get("users")
-        return 0 if metadata is None else len(metadata.text_embedding_cols)
-
-    @property
-    def num_item_text_feats(self) -> int:
-        metadata = self.data_processor.feature_metadata.get("items")
-        return 0 if metadata is None else len(metadata.text_embedding_cols)
-
-    @property
-    def user_cat_cardinalities(self) -> list[int]:
-        metadata = self.data_processor.feature_metadata.get("users")
-        if metadata is None:
-            return []
-        return [
-            metadata.categorical_cardinalities[col] for col in metadata.categorical_cols
-        ]
-
-    @property
-    def item_cat_cardinalities(self) -> list[int]:
-        metadata = self.data_processor.feature_metadata.get("items")
-        if metadata is None:
-            return []
-        return [
-            metadata.categorical_cardinalities[col] for col in metadata.categorical_cols
-        ]
 
     def setup(self, stage: str | None = None):
         if not self.is_processed:
@@ -252,8 +84,8 @@ class ElearningDataModule(L.LightningDataModule):
                 min_interactions=self.min_interactions,
                 random_state=self.random_state,
             )
-            users = self.raw_dataset.u_feats
-            items = self.raw_dataset.i_feats
+            users = self.raw_dataset.user_features
+            items = self.raw_dataset.item_features
 
             if self.remove_sparse:
                 users, items, train, val, test = filter_sparse(
@@ -284,7 +116,7 @@ class ElearningDataModule(L.LightningDataModule):
             self.atomic_files = save_atomic_files(
                 self.artifacts,
                 dataset_name=self.dataset_name.value,
-                output_dir=self.processed_folder,
+                output_dir=self.processed_folder / "atomic",
             )
 
         histories = build_histories(
@@ -305,7 +137,7 @@ class ElearningDataModule(L.LightningDataModule):
     def _make_dataset(
         self,
         split: str,
-        next_item_hist_by_split: dict[str, UserHistory],
+        histories: dict[str, UserHistory],
     ) -> RankerDataset:
         df = getattr(self.artifacts, split)
         if df is None:
@@ -319,8 +151,8 @@ class ElearningDataModule(L.LightningDataModule):
         history_mask = torch.as_tensor(positive_mask, dtype=torch.bool)
 
         interactions = df.loc[positive_mask].reset_index(drop=True)
-        history = next_item_hist_by_split[split]
-        precomputed_history = UserHistory(
+        history = histories[split]
+        filtered_history = UserHistory(
             items=history.items[history_mask],
             ctx=history.ctx[history_mask],
             valid_mask=history.valid_mask[history_mask],
@@ -328,7 +160,7 @@ class ElearningDataModule(L.LightningDataModule):
 
         return RankerDataset(
             interactions=interactions,
-            precomputed_history=precomputed_history,
+            history=filtered_history,
             num_ctx_feats=self.num_ctx_feats,
         )
 
@@ -395,3 +227,171 @@ class ElearningDataModule(L.LightningDataModule):
             num_workers=settings.NUM_WORKERS,
             shuffle=False,
         )
+
+    @property
+    def is_processed(self) -> bool:
+        return self.artifacts.is_ready
+
+    @property
+    def schema(self) -> Schema:
+        if self.raw_dataset is not None:
+            return self.raw_dataset.schema
+        if self.artifacts.data_processor is not None:
+            return self.artifacts.data_processor.schema
+        raise RuntimeError("Schema is not available.")
+
+    @property
+    def data_processor(self) -> DataProcessor:
+        if self.artifacts.data_processor is None:
+            raise RuntimeError("Data processor is not available.")
+        return self.artifacts.data_processor
+
+    @property
+    def u_static_feats(self) -> torch.Tensor | None:
+        return self.artifacts.u_static_feats
+
+    @property
+    def i_static_feats(self) -> torch.Tensor | None:
+        return self.artifacts.i_static_feats
+
+    @property
+    def num_users(self) -> int:
+        if self.u_static_feats is not None:
+            return self.u_static_feats.shape[0]
+        return 0 if self.raw_dataset is None else len(self.raw_dataset.user_features)
+
+    @property
+    def num_items(self) -> int:
+        if self.i_static_feats is not None:
+            return self.i_static_feats.shape[0]
+        return 0 if self.raw_dataset is None else len(self.raw_dataset.item_features)
+
+    @property
+    def num_raw_users(self) -> int:
+        return 0 if self.raw_dataset is None else len(self.raw_dataset.user_features)
+
+    @property
+    def num_raw_items(self) -> int:
+        return 0 if self.raw_dataset is None else len(self.raw_dataset.item_features)
+
+    @property
+    def num_interactions(self) -> int:
+        if self.is_processed:
+            return sum(
+                len(df)
+                for df in (
+                    self.artifacts.train,
+                    self.artifacts.val,
+                    self.artifacts.test,
+                )
+                if df is not None
+            )
+        return 0 if self.raw_dataset is None else len(self.raw_dataset.interactions)
+
+    @property
+    def num_ctx_feats(self) -> int:
+        if self.artifacts.train is not None:
+            return len(
+                [c for c in self.artifacts.train.columns if c not in self.excluded_cols]
+            )
+        if self.raw_dataset is not None:
+            return len(
+                [
+                    c
+                    for c in self.raw_dataset.interactions.columns
+                    if c not in self.excluded_cols
+                ]
+            )
+        return 0
+
+    @property
+    def sparsity(self) -> float:
+        return (
+            0.0
+            if self.num_users == 0 or self.num_items == 0
+            else 1 - self.num_interactions / (self.num_users * self.num_items)
+        )
+
+    @property
+    def num_user_feats(self) -> int:
+        metadata = self.data_processor.feature_metadata.get("users")
+        if metadata is not None:
+            return (
+                len(metadata.dense_cols)
+                + len(metadata.text_embedding_cols)
+                + len(metadata.categorical_cols)
+            )
+        if self.raw_dataset is not None:
+            return len(
+                [
+                    col
+                    for col in self.raw_dataset.user_features.columns
+                    if col != settings.USER_COL
+                ]
+            )
+        return 0
+
+    @property
+    def num_item_feats(self) -> int:
+        metadata = self.data_processor.feature_metadata.get("items")
+        if metadata is not None:
+            return (
+                len(metadata.dense_cols)
+                + len(metadata.text_embedding_cols)
+                + len(metadata.categorical_cols)
+            )
+        if self.raw_dataset is not None:
+            return len(
+                [
+                    col
+                    for col in self.raw_dataset.item_features.columns
+                    if col != settings.ITEM_COL
+                ]
+            )
+        return 0
+
+    @property
+    def num_user_dense_feats(self) -> int:
+        metadata = self.data_processor.feature_metadata.get("users")
+        return (
+            0
+            if metadata is None
+            else len(metadata.dense_cols) + len(metadata.text_embedding_cols)
+        )
+
+    @property
+    def num_item_dense_feats(self) -> int:
+        metadata = self.data_processor.feature_metadata.get("items")
+        return (
+            0
+            if metadata is None
+            else len(metadata.dense_cols) + len(metadata.text_embedding_cols)
+        )
+
+    @property
+    def num_user_text_feats(self) -> int:
+        metadata = self.data_processor.feature_metadata.get("users")
+        return 0 if metadata is None else len(metadata.text_embedding_cols)
+
+    @property
+    def num_item_text_feats(self) -> int:
+        metadata = self.data_processor.feature_metadata.get("items")
+        return 0 if metadata is None else len(metadata.text_embedding_cols)
+
+    @property
+    def user_cat_cardinalities(self) -> list[int]:
+        metadata = self.data_processor.feature_metadata.get("users")
+        if metadata is None:
+            return []
+        return [
+            metadata.categorical_cardinalities[col] for col in metadata.categorical_cols
+        ]
+
+    @property
+    def item_cat_cardinalities(self) -> list[int]:
+        metadata = self.data_processor.feature_metadata.get("items")
+        if metadata is None:
+            return []
+        return [
+            metadata.categorical_cardinalities[col] for col in metadata.categorical_cols
+        ]
