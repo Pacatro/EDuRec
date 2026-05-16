@@ -1,43 +1,25 @@
-from dataclasses import dataclass
 from pathlib import Path
 
 import lightning as L
-import numpy as np
-import pandas as pd
 import torch
-from safetensors.torch import load_file, save_file
 from torch.utils.data import DataLoader
 from torch_geometric.data import Data
 
 from .. import settings
+from .atomic_files import save_atomic_files
+from .cache import ProcessedArtifacts, processed_cache_exists
 from .dataprocessor import DataProcessor
 from .loaders import DatasetName, RawDataset, Schema, load_raw_data
+from .preprocessing import (
+    add_relevance,
+    clean_cols,
+    filter_sparse,
+    get_relevance_threshold,
+    preprocess,
+    split_data,
+)
 from .ranker_dataset import RankerDataset
-from .user_history import UserHistory
-
-
-@dataclass
-class ProcessedArtifacts:
-    train: pd.DataFrame | None = None
-    val: pd.DataFrame | None = None
-    test: pd.DataFrame | None = None
-    u_static_feats: torch.Tensor | None = None
-    i_static_feats: torch.Tensor | None = None
-    data_processor: DataProcessor | None = None
-
-    @property
-    def is_ready(self) -> bool:
-        return all(
-            value is not None
-            for value in (
-                self.train,
-                self.val,
-                self.test,
-                self.u_static_feats,
-                self.i_static_feats,
-                self.data_processor,
-            )
-        )
+from .user_history import UserHistory, build_histories
 
 
 class ElearningDataModule(L.LightningDataModule):
@@ -50,6 +32,7 @@ class ElearningDataModule(L.LightningDataModule):
         min_interactions: int = settings.MIN_INTERACTIONS,
         remove_sparse: bool = settings.REMOVE_SPARSE,
         use_processed_data: bool = False,
+        save_atomic_files: bool = False,
         random_state: int | None = None,
     ):
         super().__init__()
@@ -62,12 +45,12 @@ class ElearningDataModule(L.LightningDataModule):
         self.min_interactions = min_interactions
         self.remove_sparse = remove_sparse
         self.use_processed_data = use_processed_data
+        self.save_atomic_files = save_atomic_files
         self.random_state = random_state
 
         self.processed_folder = Path(settings.PROCESSED_FOLDER) / dataset.value
         self.raw_dataset: RawDataset | None = None
         self.artifacts = ProcessedArtifacts()
-        self.next_item_hist_by_split: dict[str, UserHistory] = {}
 
         self.excluded_cols = {
             settings.USER_COL,
@@ -77,34 +60,14 @@ class ElearningDataModule(L.LightningDataModule):
             settings.TIME_COL,
         }
 
-        cache_files = (
-            "train.feather",
-            "val.feather",
-            "test.feather",
-            "static_feats.safetensors",
-            "processor.joblib",
-        )
-
-        if self.use_processed_data and all(
-            (self.processed_folder / name).exists() for name in cache_files
-        ):
-            tensors = load_file(self.processed_folder / "static_feats.safetensors")
-            self.artifacts = ProcessedArtifacts(
-                train=pd.read_feather(self.processed_folder / "train.feather"),
-                val=pd.read_feather(self.processed_folder / "val.feather"),
-                test=pd.read_feather(self.processed_folder / "test.feather"),
-                u_static_feats=tensors["u_static_feats"],
-                i_static_feats=tensors["i_static_feats"],
-                data_processor=DataProcessor.load(
-                    self.processed_folder / "processor.joblib"
-                ),
-            )
+        if self.use_processed_data and processed_cache_exists(self.processed_folder):
+            self.artifacts = ProcessedArtifacts.load(self.processed_folder)
         else:
             raw = load_raw_data(dataset)
             self.raw_dataset = RawDataset(
-                interactions=self._clean_cols(raw.interactions),
-                u_feats=self._clean_cols(raw.u_feats),
-                i_feats=self._clean_cols(raw.i_feats),
+                interactions=clean_cols(raw.interactions),
+                u_feats=clean_cols(raw.u_feats),
+                i_feats=clean_cols(raw.i_feats),
                 schema=raw.schema,
             )
             self.artifacts.data_processor = DataProcessor(schema=raw.schema)
@@ -282,302 +245,90 @@ class ElearningDataModule(L.LightningDataModule):
             if self.raw_dataset is None:
                 raise RuntimeError("Raw dataset is not available.")
 
-            train, val, test = self._split_data(self.raw_dataset.interactions)
+            train, val, test = split_data(
+                self.raw_dataset.interactions,
+                test_ratio=self.test_ratio,
+                val_ratio=self.val_ratio,
+                min_interactions=self.min_interactions,
+                random_state=self.random_state,
+            )
             users = self.raw_dataset.u_feats
             items = self.raw_dataset.i_feats
 
             if self.remove_sparse:
-                users, items, train, val, test = self._filter_sparse(
-                    users, items, train, val, test
+                users, items, train, val, test = filter_sparse(
+                    users,
+                    items,
+                    train,
+                    val,
+                    test,
+                    min_interactions=self.min_interactions,
                 )
 
-            thresholds = self._get_relevance_threshold(train)
-            assert thresholds is not None
+            thresholds = get_relevance_threshold(train)
+            train = add_relevance(train, thresholds)
+            val = add_relevance(val, thresholds)
+            test = add_relevance(test, thresholds)
 
-            train = self._add_relevance(train, thresholds)
-            val = self._add_relevance(val, thresholds)
-            test = self._add_relevance(test, thresholds)
+            self.artifacts = preprocess(
+                processor=self.data_processor,
+                users=users,
+                items=items,
+                train=train,
+                val=val,
+                test=test,
+            )
+            self.artifacts.save(self.processed_folder)
 
-            self.artifacts = self._preprocess(users, items, train, val, test)
-            self._save_processed_data()
+        if self.save_atomic_files:
+            self.atomic_files = save_atomic_files(
+                self.artifacts,
+                dataset_name=self.dataset_name.value,
+                output_dir=self.processed_folder,
+            )
 
-        self._build_histories()
+        histories = build_histories(
+            {
+                "train": self.artifacts.train,
+                "val": self.artifacts.val,
+                "test": self.artifacts.test,
+            },
+            excluded_cols=self.excluded_cols,
+        )
 
         if stage in ("fit", None):
-            self.train_ds = self._make_dataset("train")
-            self.val_ds = self._make_dataset("val")
+            self.train_ds = self._make_dataset("train", histories)
+            self.val_ds = self._make_dataset("val", histories)
         elif stage == "test":
-            self.test_ds = self._make_dataset("test")
+            self.test_ds = self._make_dataset("test", histories)
 
-    def _clean_cols(self, df: pd.DataFrame) -> pd.DataFrame:
-        df = df.copy()
-        df.columns = (
-            df.columns.str.lower()
-            .str.strip()
-            .str.replace(" ", "_")
-            .str.replace(r"[^\w]", "", regex=True)
-        )
-        return df
-
-    def _split_data(
-        self, df: pd.DataFrame
-    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        rng = np.random.default_rng(self.random_state)
-        has_time = settings.TIME_COL in df.columns
-        parts = {"train": [], "val": [], "test": []}
-
-        for _, user_df in df.groupby(settings.USER_COL, sort=False):
-            if has_time:
-                user_df = user_df.sort_values(settings.TIME_COL, kind="mergesort")
-
-            n = len(user_df)
-            if n < self.min_interactions:
-                parts["train"].append(user_df)
-                continue
-
-            n_test = max(1, int(np.floor(n * self.test_ratio)))
-            n_val = max(1, int(np.floor(n * self.val_ratio)))
-            if n_test + n_val >= n:
-                n_test = n_val = 1
-
-            if has_time:
-                parts["train"].append(user_df.iloc[: -(n_test + n_val)])
-                parts["val"].append(user_df.iloc[-(n_test + n_val) : -n_test])
-                parts["test"].append(user_df.iloc[-n_test:])
-            else:
-                order = rng.permutation(n)
-                parts["test"].append(user_df.iloc[order[:n_test]])
-                parts["val"].append(user_df.iloc[order[n_test : n_test + n_val]])
-                parts["train"].append(user_df.iloc[order[n_test + n_val :]])
-
-        train_split = pd.concat(parts["train"], axis=0).reset_index(drop=True)
-        val_split = pd.concat(parts["val"], axis=0).reset_index(drop=True)
-        test_split = pd.concat(parts["test"], axis=0).reset_index(drop=True)
-
-        return train_split, val_split, test_split
-
-    def _filter_sparse(
+    def _make_dataset(
         self,
-        users: pd.DataFrame,
-        items: pd.DataFrame,
-        train: pd.DataFrame,
-        val: pd.DataFrame,
-        test: pd.DataFrame,
-    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        while True:
-            n_prev = len(train)
-            valid_users = train[settings.USER_COL].value_counts(sort=False)
-            valid_items = train[settings.ITEM_COL].value_counts(sort=False)
-            valid_users = valid_users[valid_users >= self.min_interactions].index
-            valid_items = valid_items[valid_items >= self.min_interactions].index
-            mask = train[settings.USER_COL].isin(valid_users) & train[
-                settings.ITEM_COL
-            ].isin(valid_items)
-            train = train.loc[mask].reset_index(drop=True)
-            if len(train) == n_prev:
-                break
-
-        user_mask = users[settings.USER_COL].isin(valid_users)
-        item_mask = items[settings.ITEM_COL].isin(valid_items)
-        val_mask = val[settings.USER_COL].isin(valid_users) & val[
-            settings.ITEM_COL
-        ].isin(valid_items)
-        test_mask = test[settings.USER_COL].isin(valid_users) & test[
-            settings.ITEM_COL
-        ].isin(valid_items)
-
-        return (
-            users.loc[user_mask].reset_index(drop=True),
-            items.loc[item_mask].reset_index(drop=True),
-            train,
-            val.loc[val_mask].reset_index(drop=True),
-            test.loc[test_mask].reset_index(drop=True),
-        )
-
-    def _add_relevance(
-        self, df: pd.DataFrame, thresholds: tuple[pd.Series, float]
-    ) -> pd.DataFrame:
-        df = df.copy()
-
-        if settings.RELEVANT_COL in df.columns:
-            return df.reset_index(drop=True)
-
-        if settings.RATING_COL not in df.columns:
-            df[settings.RELEVANT_COL] = 1
-            return df.reset_index(drop=True)
-
-        user_mean, global_mean = thresholds
-        threshold = df[settings.USER_COL].map(user_mean).fillna(global_mean)
-        df[settings.RELEVANT_COL] = df[settings.RATING_COL] >= threshold
-
-        return df.reset_index(drop=True)
-
-    def _get_relevance_threshold(
-        self, train_df: pd.DataFrame
-    ) -> tuple[pd.Series, float] | None:
-        if settings.RATING_COL not in train_df.columns:
-            return None
-
-        user_mean = train_df.groupby(settings.USER_COL)[settings.RATING_COL].mean()
-        global_mean = train_df[settings.RATING_COL].mean()
-
-        return user_mean, global_mean
-
-    def _preprocess(
-        self,
-        users: pd.DataFrame,
-        items: pd.DataFrame,
-        train: pd.DataFrame,
-        val: pd.DataFrame,
-        test: pd.DataFrame,
-    ) -> ProcessedArtifacts:
-        processor = self.data_processor
-        processor.fit(users_train=users, items_train=items, interactions_train=train)
-
-        entities = processor.transform(users=users, items=items)
-        splits = {
-            "train": processor.transform(interactions=train),
-            "val": processor.transform(interactions=val),
-            "test": processor.transform(interactions=test),
-        }
-
-        if entities.users is None or entities.items is None:
-            raise RuntimeError("User/item features were not processed.")
-
-        users_df = entities.users
-        items_df = entities.items
-        if entities.text_embeddings["users"] is not None:
-            users_df = pd.concat([users_df, entities.text_embeddings["users"]], axis=1)
-        if entities.text_embeddings["items"] is not None:
-            items_df = pd.concat([items_df, entities.text_embeddings["items"]], axis=1)
-
-        split_dfs: dict[str, pd.DataFrame] = {}
-        for name, processed in splits.items():
-            if processed.interactions is None:
-                raise RuntimeError(f"{name} interactions were not processed.")
-            split_dfs[name] = processed.interactions
-            if processed.text_embeddings["inter"] is not None:
-                split_dfs[name] = pd.concat(
-                    [split_dfs[name], processed.text_embeddings["inter"]],
-                    axis=1,
-                )
-            split_dfs[name] = split_dfs[name].reset_index(drop=True)
-
-        static_feats = {}
-        for name, df, prefix, id_col in (
-            ("users", users_df, "users", settings.USER_COL),
-            ("items", items_df, "items", settings.ITEM_COL),
-        ):
-            metadata = processor.feature_metadata[prefix]
-            cols = (
-                metadata.dense_cols
-                + metadata.text_embedding_cols
-                + metadata.categorical_cols
-            )
-            static_feats[name] = torch.as_tensor(
-                df.sort_values(id_col)[cols].to_numpy(dtype=np.float32),
-                dtype=torch.float32,
-            )
-
-        return ProcessedArtifacts(
-            train=split_dfs["train"],
-            val=split_dfs["val"],
-            test=split_dfs["test"],
-            u_static_feats=static_feats["users"],
-            i_static_feats=static_feats["items"],
-            data_processor=processor,
-        )
-
-    def _build_histories(self) -> None:
-        self.next_item_hist_by_split = {}
-        user_state: dict[int, list[tuple[int, list[float]]]] = {}
-
-        for split in ("train", "val", "test"):
-            df = getattr(self.artifacts, split)
-            if df is None:
-                raise RuntimeError(f"Processed split {split} is not available.")
-
-            ctx_cols = [col for col in df.columns if col not in self.excluded_cols]
-            history = UserHistory(
-                items=torch.zeros(
-                    (len(df), settings.MAX_HISTORY_LEN), dtype=torch.long
-                ),
-                ctx=torch.zeros(
-                    (len(df), settings.MAX_HISTORY_LEN, len(ctx_cols)),
-                    dtype=torch.float32,
-                ),
-                valid_mask=torch.zeros(
-                    (len(df), settings.MAX_HISTORY_LEN), dtype=torch.bool
-                ),
-            )
-            users = df[settings.USER_COL].to_numpy(dtype=np.int64)
-            items = df[settings.ITEM_COL].to_numpy(dtype=np.int64)
-            ctx = (
-                df[ctx_cols].to_numpy(dtype=np.float32)
-                if ctx_cols
-                else np.empty((len(df), 0), dtype=np.float32)
-            )
-
-            for row_idx, user_id in enumerate(users):
-                past = user_state.get(int(user_id), [])[-settings.MAX_HISTORY_LEN :]
-                if past:
-                    history.items[row_idx, : len(past)] = torch.tensor(
-                        [item_id + 1 for item_id, _ in past],
-                        dtype=torch.long,
-                    )
-                    history.valid_mask[row_idx, : len(past)] = True
-                    if ctx_cols:
-                        history.ctx[row_idx, : len(past)] = torch.tensor(
-                            [values for _, values in past],
-                            dtype=torch.float32,
-                        )
-
-                user_state.setdefault(int(user_id), []).append(
-                    (int(items[row_idx]), ctx[row_idx].tolist())
-                )
-
-            self.next_item_hist_by_split[split] = history
-
-    def _save_processed_data(self) -> None:
-        self.processed_folder.mkdir(parents=True, exist_ok=True)
-
-        for split in ("train", "val", "test"):
-            df = getattr(self.artifacts, split)
-            if df is not None:
-                df.to_feather(self.processed_folder / f"{split}.feather")
-
-        if self.u_static_feats is None or self.i_static_feats is None:
-            raise RuntimeError("Static features are not available.")
-
-        save_file(
-            {
-                "u_static_feats": self.u_static_feats.contiguous(),
-                "i_static_feats": self.i_static_feats.contiguous(),
-            },
-            self.processed_folder / "static_feats.safetensors",
-        )
-        self.data_processor.save(self.processed_folder / "processor.joblib")
-
-    def _make_dataset(self, split: str) -> RankerDataset:
+        split: str,
+        next_item_hist_by_split: dict[str, UserHistory],
+    ) -> RankerDataset:
         df = getattr(self.artifacts, split)
         if df is None:
             raise RuntimeError(f"Processed split {split} is not available.")
-
-        positive_mask = (df[settings.RELEVANT_COL] > 0).to_numpy(copy=True)
-        history_mask = torch.as_tensor(positive_mask, dtype=torch.bool)
-        history = self.next_item_hist_by_split[split]
 
         # We use positive mask to filter out interactions that are not relevant,
         # with this implementation, the model only sees the relevant items of the history.
         # For example, if the user 0 has this history: [item 1 (relevant), item 2 (not relevant), item 3 (relevant)],
         # with positive mask, the model will only see [item 1, item 3] as the history for the next interaction, and item 2 will be ignored.
+        positive_mask = (df[settings.RELEVANT_COL] > 0).to_numpy(copy=True)
+        history_mask = torch.as_tensor(positive_mask, dtype=torch.bool)
+
+        interactions = df.loc[positive_mask].reset_index(drop=True)
+        history = next_item_hist_by_split[split]
+        precomputed_history = UserHistory(
+            items=history.items[history_mask],
+            ctx=history.ctx[history_mask],
+            valid_mask=history.valid_mask[history_mask],
+        )
+
         return RankerDataset(
-            interactions=df.loc[positive_mask].reset_index(drop=True),
-            precomputed_history=UserHistory(
-                items=history.items[history_mask],
-                ctx=history.ctx[history_mask],
-                valid_mask=history.valid_mask[history_mask],
-            ),
+            interactions=interactions,
+            precomputed_history=precomputed_history,
             num_ctx_feats=self.num_ctx_feats,
         )
 

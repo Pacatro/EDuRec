@@ -1,4 +1,4 @@
-from typing import Annotated, Mapping, cast
+from typing import Annotated, cast
 
 import typer
 
@@ -72,9 +72,21 @@ def train_ranker(
         remove_sparse=remove_sparse,
     )
 
+    if settings.state["verbose"]:
+        print(f"[TRAIN] Dataset sparsity after preprocessing: {dm.sparsity}")
+        print(f"[TRAIN] Number of users after preprocessing: {dm.num_raw_users}")
+        print(f"[TRAIN] Number of items after preprocessing: {dm.num_raw_items}")
+
     dm.setup()
 
-    print_datamodule_stats(dm)
+    if settings.state["verbose"]:
+        print(f"[TRAIN] Dataset sparsity before preprocessing: {dm.sparsity}")
+        print(f"[TRAIN] Number of users before preprocessing: {dm.num_users}")
+        print(f"[TRAIN] Number of items before preprocessing: {dm.num_items}")
+        print(f"[TRAIN] Number of interactions: {dm.num_interactions}")
+        print(f"[TRAIN] Number of user features: {dm.num_user_feats}")
+        print(f"[TRAIN] Number of item features: {dm.num_item_feats}")
+        print(f"[TRAIN] Number of interactions context features: {dm.num_ctx_feats}")
 
     assert dm.u_static_feats is not None
     assert dm.i_static_feats is not None
@@ -118,48 +130,19 @@ def train_ranker(
         print("[TRAIN] Debug mode: Skipping evaluation")
         return
 
-    metrics = trainer.test(
-        ckpt_path="best",
-        datamodule=dm,
-        weights_only=False,
-    )[0]
+    metrics = trainer.test(ckpt_path="best", datamodule=dm, weights_only=False)[0]
 
     if save:
-        save_trained_model(cfg, dataset, models_folder, best_model_path, metrics)
+        metrics = cast(dict[str, float], metrics)
+        model_file_path, model_config_path, metrics_path = save_model(
+            model_config=cfg,
+            dataset_name=dataset.value,
+            best_model_path=best_model_path,
+            models_folder=models_folder,
+            metrics=metrics,
+        )
 
-
-def print_datamodule_stats(dm: ElearningDataModule) -> None:
-    if not settings.state["verbose"]:
-        return
-
-    print(f"[TRAIN] Dataset sparsity: {dm.sparsity}")
-    print(f"[TRAIN] Number of users after preprocessing: {dm.num_raw_users}")
-    print(f"[TRAIN] Number of items after preprocessing: {dm.num_raw_items}")
-    print(f"[TRAIN] Number of users: {dm.num_users}")
-    print(f"[TRAIN] Number of items: {dm.num_items}")
-    print(f"[TRAIN] Number of interactions: {dm.num_interactions}")
-    print(f"[TRAIN] Number of user features: {dm.num_user_feats}")
-    print(f"[TRAIN] Number of item features: {dm.num_item_feats}")
-    print(f"[TRAIN] Number of interactions context features: {dm.num_ctx_feats}")
-
-
-def save_trained_model(
-    cfg: GhostConfig,
-    dataset: DatasetName,
-    models_folder: str,
-    best_model_path,
-    metrics: Mapping[str, float],
-) -> None:
-    metrics = cast(dict[str, float], metrics)
-    model_file_path, model_config_path, metrics_path = save_model(
-        model_config=cfg,
-        dataset_name=dataset.value,
-        best_model_path=best_model_path,
-        models_folder=models_folder,
-        metrics=metrics,
-    )
-
-    if settings.state["verbose"]:
-        print(f"Model weights saved in: {model_file_path}")
-        print(f"Model config saved in: {model_config_path}")
-        print(f"Metrics saved in: {metrics_path}")
+        if settings.state["verbose"]:
+            print(f"Model weights saved in: {model_file_path}")
+            print(f"Model config saved in: {model_config_path}")
+            print(f"Metrics saved in: {metrics_path}")
