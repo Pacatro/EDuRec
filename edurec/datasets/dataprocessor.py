@@ -339,7 +339,9 @@ class DataProcessor:
                 values = df[col].map(self.item_id_map).fillna(-1)
             else:
                 values = pd.to_numeric(df[col], errors="coerce").fillna(0)
-            parts.append(pd.DataFrame({col: values.to_numpy(dtype=np.float32)}, index=df.index))
+            parts.append(
+                pd.DataFrame({col: values.to_numpy(dtype=np.float32)}, index=df.index)
+            )
 
         preprocessor = self.preprocessors[prefix]
         if preprocessor is not None:
@@ -355,19 +357,27 @@ class DataProcessor:
             )
 
         for col, binarizer in self.list_binarizers[prefix].items():
-            tokens = df[col].map(_coerce_list_tokens) if col in df else [[]] * len(df)
+            tokens = (
+                df[col].map(_coerce_list_tokens)
+                if col in df
+                else [[] for _ in range(len(df))]
+            )
+
+            transformed_tokens = binarizer.transform(tokens).toarray()
+            transformed_tokens = np.asarray(transformed_tokens, dtype=np.float32)
+
             parts.append(
                 pd.DataFrame(
-                    binarizer.transform(tokens).astype(np.float32, copy=False),
+                    transformed_tokens,
                     columns=[f"list__{col}__{value}" for value in binarizer.classes_],
                     index=df.index,
                 )
             )
 
-        if not parts:
-            return pd.DataFrame(index=df.index)
+            if not parts:
+                return pd.DataFrame(index=df.index)
 
-        return pd.concat(parts, axis=1)[self.feature_columns[prefix]]
+            return pd.concat(parts, axis=1)[self.feature_columns[prefix]]
 
     def _text_embeddings(
         self,
@@ -380,7 +390,9 @@ class DataProcessor:
         text_cols = self.column_groups[prefix]["text"]
         embedding_cols = self.text_embedding_columns[prefix]
         if not text_cols:
-            return pd.DataFrame(index=df.index, columns=embedding_cols, dtype=np.float32)
+            return pd.DataFrame(
+                index=df.index, columns=embedding_cols, dtype=np.float32
+            )
 
         docs: list[str] = []
         for row in df[text_cols].itertuples(index=False, name=None):
@@ -447,7 +459,6 @@ class DataProcessor:
         return processor
 
 
-
 def _as_float_array(values: Any, n_rows: int) -> np.ndarray:
     if hasattr(values, "toarray"):
         values = values.toarray()
@@ -464,7 +475,6 @@ def _as_float_array(values: Any, n_rows: int) -> np.ndarray:
     return array
 
 
-
 def _build_id_map(*series_list: pd.Series) -> dict[object, int]:
     values = pd.concat(series_list, ignore_index=True).dropna().drop_duplicates()
     return {value: idx for idx, value in enumerate(values.tolist())}
@@ -479,7 +489,6 @@ def _get_sentence_embedding_model(model_name: str):
             "sentence-transformers is required for text preprocessing."
         ) from exc
     return SentenceTransformer(model_name)
-
 
 
 def _coerce_list_tokens(value: object) -> list[str]:
@@ -512,7 +521,6 @@ def _coerce_list_tokens(value: object) -> list[str]:
     return [str(value).strip()]
 
 
-
 def _clean_text(value: object) -> str:
     if _is_missing(value):
         return ""
@@ -523,7 +531,6 @@ def _clean_text(value: object) -> str:
     text = re.sub(r"[\n\r\t]+", " ", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
-
 
 
 def _is_missing(value: Any) -> bool:

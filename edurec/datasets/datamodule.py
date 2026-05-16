@@ -291,9 +291,13 @@ class ElearningDataModule(L.LightningDataModule):
                     users, items, train, val, test
                 )
 
-            train = self._add_relevance(train)
-            val = self._add_relevance(val)
-            test = self._add_relevance(test)
+            thresholds = self._get_relevance_threshold(train)
+            assert thresholds is not None
+
+            train = self._add_relevance(train, thresholds)
+            val = self._add_relevance(val, thresholds)
+            test = self._add_relevance(test, thresholds)
+
             self.artifacts = self._preprocess(users, items, train, val, test)
             self._save_processed_data()
 
@@ -390,8 +394,11 @@ class ElearningDataModule(L.LightningDataModule):
             test.loc[test_mask].reset_index(drop=True),
         )
 
-    def _add_relevance(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _add_relevance(
+        self, df: pd.DataFrame, thresholds: tuple[pd.Series, float]
+    ) -> pd.DataFrame:
         df = df.copy()
+
         if settings.RELEVANT_COL in df.columns:
             return df.reset_index(drop=True)
 
@@ -399,14 +406,22 @@ class ElearningDataModule(L.LightningDataModule):
             df[settings.RELEVANT_COL] = 1
             return df.reset_index(drop=True)
 
-        user_ratings = df.groupby(settings.USER_COL)[settings.RATING_COL]
-        threshold = np.where(
-            user_ratings.transform("count") < self.min_interactions,
-            df[settings.RATING_COL].mean(),
-            user_ratings.transform("mean"),
-        )
+        user_mean, global_mean = thresholds
+        threshold = df[settings.USER_COL].map(user_mean).fillna(global_mean)
         df[settings.RELEVANT_COL] = df[settings.RATING_COL] >= threshold
+
         return df.reset_index(drop=True)
+
+    def _get_relevance_threshold(
+        self, train_df: pd.DataFrame
+    ) -> tuple[pd.Series, float] | None:
+        if settings.RATING_COL not in train_df.columns:
+            return None
+
+        user_mean = train_df.groupby(settings.USER_COL)[settings.RATING_COL].mean()
+        global_mean = train_df[settings.RATING_COL].mean()
+
+        return user_mean, global_mean
 
     def _preprocess(
         self,

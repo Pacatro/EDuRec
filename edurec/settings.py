@@ -23,7 +23,7 @@ MIN_INTERACTIONS: int = 3
 
 # Preprocessing
 PROCESSED_FOLDER: str = f"{DATA_FOLDER}/processed"
-REMOVE_SPARSE: bool = False
+REMOVE_SPARSE: bool = True
 PREPROCESS_FEATURE_TYPES: tuple[str, ...] = (
     "numeric",
     "categorical",
