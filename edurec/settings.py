@@ -65,6 +65,7 @@ RANKER_PATIENCE: int = 3
 RANKER_TOP_K: int = 20
 
 # Training (General)
+MONITOR_METRIC: str = f"val/ndcg@{RANKER_TOP_K}"
 EPOCHS: int = 100
 DELTA: float = 0.0005
 NUM_WORKERS: int = 4
@@ -102,12 +103,12 @@ SOTA_MODELS: list[str] = [
     "SGL",
     "NCL",
     # Sequential models
-    "GRU4Rec",
-    "NARM",
-    "Caser",
-    "SASRec",
-    "BERT4Rec",
-    "FPMC",
-    "CORE",
-    "LightSANs",
+    # "GRU4Rec",
+    # "NARM",
+    # "Caser",
+    # "SASRec",
+    # "BERT4Rec",
+    # "FPMC",
+    # "CORE",
+    # "LightSANs",
 ]

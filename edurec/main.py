@@ -25,7 +25,7 @@ app = typer.Typer(
 app.add_typer(train_app)
 app.add_typer(test_app)
 app.add_typer(dataset_app)
-app.add_typer(eval_app, name="eval")
+app.add_typer(eval_app)
 # app.add_typer(train_comp_app)
 # app.add_typer(predict_app)
 

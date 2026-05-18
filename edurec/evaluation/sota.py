@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 from recbole.quick_start import run_recbole
@@ -21,11 +22,6 @@ def eval_sota_models(
     load_side_features: bool = False,
     show_progress: bool = False,
 ) -> pd.DataFrame:
-    """Evaluate RecBole models directly from stored atomic files.
-
-    Assumes that the atomic benchmark splits have already been filtered
-    to positive interactions in atomic_files.py.
-    """
     dataset_name = dm.dataset_name.value
     atomic_dataset_dir = dm.atomic_folder
 
@@ -60,7 +56,7 @@ def _run_model(
     dataset_name: str,
     cfg_path: Path | None,
     config_dict: dict[str, object],
-) -> dict[str, object]:
+) -> dict[str, Any]:
     result = run_recbole(
         model=model,
         dataset=dataset_name,
@@ -69,11 +65,7 @@ def _run_model(
         saved=False,
     )
 
-    return {
-        "model": model,
-        "best_valid_score": result["best_valid_score"],
-        **result["test_result"],
-    }
+    return {"model": model, **result["test_result"]}
 
 
 def _build_config_dict(

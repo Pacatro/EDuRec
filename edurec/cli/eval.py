@@ -1,28 +1,22 @@
 from pathlib import Path
 from typing import Annotated
 
+import pandas as pd
 import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
-from ..evaluation import eval_sota_models
+from ..evaluation import eval_proposed_model, eval_sota_models
+from ..recsys import GhostConfig
 
 app = typer.Typer(no_args_is_help=True)
 
 
-@app.command(name="sota", help="Evaluate RecBole models on EDuRec atomic splits.")
-def eval_sota_command(
-    cfg_path: Annotated[
-        Path | None,
-        typer.Option(
-            "--config",
-            "-c",
-            exists=True,
-            dir_okay=False,
-            readable=True,
-            help="Optional RecBole YAML file with model-specific overrides.",
-        ),
-    ] = None,
+@app.command(
+    name="eval",
+    help="Evaluate the proposed EDuRec model and RecBole SOTA models.",
+)
+def eval_models(
     dataset: Annotated[
         DatasetName,
         typer.Option("--dataset", "-d", help="Dataset to use."),
@@ -33,7 +27,7 @@ def eval_sota_command(
             "--epochs",
             "-e",
             min=1,
-            help="Number of RecBole training epochs.",
+            help="Number of training epochs used by all evaluated models.",
         ),
     ] = settings.EPOCHS,
     lr: Annotated[
@@ -42,7 +36,7 @@ def eval_sota_command(
             "--lr",
             "-l",
             min=0.0,
-            help="RecBole learning rate.",
+            help="Learning rate used by all evaluated models.",
         ),
     ] = settings.RANKER_LR,
     batch_size: Annotated[
@@ -60,7 +54,7 @@ def eval_sota_command(
             "--patience",
             "-p",
             min=1,
-            help="Early stopping patience for RecBole.",
+            help="Early stopping patience used by all evaluated models.",
         ),
     ] = settings.RANKER_PATIENCE,
     val_size: Annotated[
@@ -125,23 +119,57 @@ def eval_sota_command(
             help="Load RecBole .user and .item atomic files in addition to .inter files.",
         ),
     ] = False,
+    cfg_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--cfg-path",
+            "-c",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+            help="Optional extra RecBole config file applied to SOTA models.",
+        ),
+    ] = None,
+    sota_models: Annotated[
+        list[str],
+        typer.Option(
+            "--sota-model",
+            "-m",
+            help="RecBole SOTA model to evaluate. Repeat this option for multiple models.",
+        ),
+    ] = settings.SOTA_MODELS,
+    adaptive_k: Annotated[
+        bool,
+        typer.Option(
+            "--adaptive-k/--fixed-k",
+            "-a/-A",
+            help="Use adaptive k to compute metrics that support it in the proposed model.",
+        ),
+    ] = settings.ADAPTIVE_K,
 ) -> None:
+    eval_top_ks = list(top_ks)
+    val_topk = max(eval_top_ks)
+
     if settings.state["verbose"]:
         print(f"[EVAL] Dataset: {dataset.value}")
-        print(f"[EVAL] Models: {', '.join(settings.SOTA_MODELS)}")
+        print("[EVAL] Proposed model: EDuRec")
+        print(f"[EVAL] SOTA models: {', '.join(sota_models)}")
         if cfg_path is not None:
             print(f"[EVAL] Extra RecBole config: {cfg_path}")
         print(f"[EVAL] Epochs: {epochs}")
         print(f"[EVAL] Learning rate: {lr}")
         print(f"[EVAL] Batch size: {batch_size}")
         print(f"[EVAL] Patience: {patience}")
-        print(f"[EVAL] Top-k values: {top_ks}")
+        print(f"[EVAL] Top-k values: {eval_top_ks}")
+        print(f"[EVAL] Validation top-k: {val_topk}")
         print(f"[EVAL] Use processed cache: {use_processed_data}")
         print(f"[EVAL] Load side features: {load_side_features}")
         print(f"[EVAL] Remove sparse users/items: {remove_sparse}")
         print(f"[EVAL] Min interactions: {min_interactions}")
         print(f"[EVAL] Validation ratio: {val_size}")
         print(f"[EVAL] Test ratio: {test_size}")
+        print(f"[EVAL] Adaptive k: {adaptive_k}")
 
     dm = ElearningDataModule(
         dataset=dataset,
@@ -157,16 +185,48 @@ def eval_sota_command(
 
     dm.setup()
 
-    results = eval_sota_models(
-        models=settings.SOTA_MODELS,
+    cfg = GhostConfig(
+        num_users=dm.num_users,
+        num_items=dm.num_items,
+        num_ctx_feats=dm.train_ds.num_ctx_feats,
+        num_user_dense_feats=dm.num_user_dense_feats,
+        num_item_dense_feats=dm.num_item_dense_feats,
+        num_user_text_feats=dm.num_user_text_feats,
+        num_item_text_feats=dm.num_item_text_feats,
+        user_cat_cardinalities=dm.user_cat_cardinalities,
+        item_cat_cardinalities=dm.item_cat_cardinalities,
+    )
+
+    proposed_results = eval_proposed_model(
+        dm=dm,
+        cfg=cfg,
+        epochs=epochs,
+        lr=lr,
+        top_ks=eval_top_ks,
+        val_topk=val_topk,
+        patience=patience,
+        adaptive_k=adaptive_k,
+    )
+    proposed_results = {"model": "EDuRec", **proposed_results}
+
+    sota_results = eval_sota_models(
+        models=sota_models,
         dm=dm,
         cfg_path=cfg_path,
         epochs=epochs,
         lr=lr,
         batch_size=batch_size,
         patience=patience,
-        top_ks=top_ks,
+        top_ks=eval_top_ks,
         load_side_features=load_side_features,
     )
 
-    print(results.to_string(index=False))
+    results = pd.concat(
+        [pd.DataFrame([proposed_results]), sota_results],
+        ignore_index=True,
+        sort=False,
+    )
+
+    print(results)
+
+    results.to_csv(Path(settings.RESULTS_FOLDER) / f"{dataset.value}.csv")
