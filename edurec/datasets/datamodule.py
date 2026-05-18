@@ -49,6 +49,7 @@ class ElearningDataModule(L.LightningDataModule):
         self.random_state = random_state
 
         self.processed_folder = Path(settings.PROCESSED_FOLDER) / dataset.value
+        self.atomic_folder = Path(settings.ATOMICFILES_FOLDER) / dataset.value
         self.raw_dataset: RawData | None = None
         self.artifacts = ProcessedData()
 
@@ -116,7 +117,7 @@ class ElearningDataModule(L.LightningDataModule):
             self.atomic_files = save_atomic_files(
                 self.artifacts,
                 dataset_name=self.dataset_name.value,
-                output_dir=self.processed_folder / "atomic",
+                output_dir=self.atomic_folder,
             )
 
         histories = build_histories(

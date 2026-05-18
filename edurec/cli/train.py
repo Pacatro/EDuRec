@@ -88,6 +88,15 @@ def train_ranker(
         print(f"[TRAIN] Number of user features: {dm.num_user_feats}")
         print(f"[TRAIN] Number of item features: {dm.num_item_feats}")
         print(f"[TRAIN] Number of interactions context features: {dm.num_ctx_feats}")
+        print(f"[TRAIN] Epochs: {epochs}")
+        print(f"[TRAIN] Learning rate: {lr}")
+        print(f"[TRAIN] Batch size: {batch_size}")
+        print(f"[TRAIN] Patience: {patience}")
+        print(f"[TRAIN] Use processed cache: {use_processed_data}")
+        print(f"[TRAIN] Remove sparse users/items: {remove_sparse}")
+        print(f"[TRAIN] Min interactions: {min_interactions}")
+        print(f"[TRAIN] Validation ratio: {val_size}")
+        print(f"[TRAIN] Test ratio: {test_size}")
 
     assert dm.u_static_feats is not None
     assert dm.i_static_feats is not None

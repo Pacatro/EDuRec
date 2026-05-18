@@ -12,6 +12,7 @@ MODEL_FILENAME = "model.pt"
 RECBOLE_INTER_FILES_FOLDER: str = f"{DATA_FOLDER}/inter"
 MODEL_METADATA_FILENAME = "metadata.json"
 METRICS_FILENAME = "metrics.csv"
+CONFIGS_FOLDER: str = "configs"
 
 # Datasets
 ITEM_COL: str = "item_id"
@@ -23,6 +24,7 @@ MIN_INTERACTIONS: int = 3
 
 # Preprocessing
 PROCESSED_FOLDER: str = f"{DATA_FOLDER}/processed"
+ATOMICFILES_FOLDER: str = f"{DATA_FOLDER}/atomicfiles"
 REMOVE_SPARSE: bool = True
 PREPROCESS_FEATURE_TYPES: tuple[str, ...] = (
     "numeric",
@@ -78,3 +80,34 @@ TOP_KS: list[int] = [5, 10, 20]
 SEEDS: list[int] = [0, 1, 42]
 STATS_TEST: bool = False
 K: int = 5
+
+# SOTA MODELS
+SOTA_MODELS: list[str] = [
+    # Baselines
+    "Random",
+    "Pop",
+    "ItemKNN",
+    # Collaborative filtering / neural CF
+    "BPR",
+    "NeuMF",
+    "LightGCN",
+    "NGCF",
+    # Autoencoder / linear models
+    "MultiVAE",
+    "RecVAE",
+    "EASE",
+    "SLIMElastic",
+    # Advanced graph / contrastive models
+    "SimpleX",
+    "SGL",
+    "NCL",
+    # Sequential models
+    "GRU4Rec",
+    "NARM",
+    "Caser",
+    "SASRec",
+    "BERT4Rec",
+    "FPMC",
+    "CORE",
+    "LightSANs",
+]
