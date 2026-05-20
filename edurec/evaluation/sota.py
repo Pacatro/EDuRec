@@ -3,6 +3,7 @@ from typing import Any
 
 import pandas as pd
 from recbole.quick_start import run_recbole
+from recbole.utils import InputType, get_model
 
 from .. import settings
 from ..datasets import ElearningDataModule
@@ -25,7 +26,7 @@ def eval_sota_models(
     dataset_name = dm.dataset_name.value
     atomic_dataset_dir = dm.atomic_folder
 
-    config_dict = _build_config_dict(
+    base_config = _build_config_dict(
         data_root=atomic_dataset_dir.parent,
         atomic_dataset_dir=atomic_dataset_dir,
         dataset_name=dataset_name,
@@ -43,7 +44,7 @@ def eval_sota_models(
             model=model,
             dataset_name=dataset_name,
             cfg_path=cfg_path,
-            config_dict=config_dict,
+            config_dict=_config_for_model(model, base_config),
         )
         for model in models
     ]
@@ -66,6 +67,25 @@ def _run_model(
     )
 
     return {"model": model, **result["test_result"]}
+
+
+def _config_for_model(model: str, base_config: dict[str, object]) -> dict[str, object]:
+    config = dict(base_config)
+    model_class = get_model(model)
+    input_type = getattr(model_class, "input_type", None)
+
+    if input_type == InputType.PAIRWISE:
+        config["train_neg_sample_args"] = {
+            "distribution": "uniform",
+            "sample_num": 1,
+            "alpha": 1.0,
+            "dynamic": False,
+            "candidate_num": 0,
+        }
+    else:
+        config["train_neg_sample_args"] = None
+
+    return config
 
 
 def _build_config_dict(
@@ -95,7 +115,7 @@ def _build_config_dict(
         "seed": settings.state["random_state"],
         "reproducibility": True,
         "gpu_id": 0,
-        "use_gpu": True,
+        "use_gpu": settings.state["device"] != "cpu",
         "epochs": epochs,
         "train_batch_size": batch_size,
         "eval_batch_size": batch_size,
@@ -106,13 +126,6 @@ def _build_config_dict(
         "save_dataset": False,
         "save_dataloaders": False,
         "checkpoint_dir": "saved/recbole",
-        "train_neg_sample_args": {
-            "distribution": "uniform",
-            "sample_num": 1,
-            "alpha": 1.0,
-            "dynamic": False,
-            "candidate_num": 0,
-        },
         "eval_args": {
             "group_by": "user",
             "order": "TO",

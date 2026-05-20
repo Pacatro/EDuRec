@@ -1,5 +1,3 @@
-from typing import cast
-
 from ..datasets import ElearningDataModule
 from ..recsys import GhostConfig, Ranker, train_model
 
@@ -13,10 +11,7 @@ def eval_proposed_model(
     val_topk: int,
     patience: int,
     adaptive_k: bool,
-) -> dict[str, float]:
-    assert dm.u_static_feats is not None
-    assert dm.i_static_feats is not None
-
+) -> dict[str, float | str]:
     ranker = Ranker(
         cfg=cfg,
         inter_graph=dm.build_inter_graph(),
@@ -40,11 +35,5 @@ def eval_proposed_model(
     )
 
     metrics = trainer.test(ckpt_path="best", datamodule=dm, weights_only=False)[0]
-    return _normalize_metric_names(cast(dict[str, float], metrics))
-
-
-def _normalize_metric_names(metrics: dict[str, float]) -> dict[str, float]:
-    return {
-        name.removeprefix("test/"): value
-        for name, value in metrics.items()
-    }
+    metrics = {name.removeprefix("test/"): value for name, value in metrics.items()}
+    return {"model": "EDuRec", **metrics}

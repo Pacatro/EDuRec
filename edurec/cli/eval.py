@@ -207,7 +207,6 @@ def eval_models(
         patience=patience,
         adaptive_k=adaptive_k,
     )
-    proposed_results = {"model": "EDuRec", **proposed_results}
 
     sota_results = eval_sota_models(
         models=sota_models,

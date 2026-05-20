@@ -248,11 +248,17 @@ class ElearningDataModule(L.LightningDataModule):
         return self.artifacts.data_processor
 
     @property
-    def u_static_feats(self) -> torch.Tensor | None:
+    def u_static_feats(self) -> torch.Tensor:
+        if self.artifacts.u_static_feats is None:
+            raise RuntimeError("Static features are not available.")
+
         return self.artifacts.u_static_feats
 
     @property
-    def i_static_feats(self) -> torch.Tensor | None:
+    def i_static_feats(self) -> torch.Tensor:
+        if self.artifacts.i_static_feats is None:
+            raise RuntimeError("Static features are not available.")
+
         return self.artifacts.i_static_feats
 
     @property

@@ -2,6 +2,7 @@ import json
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
+from typing import Mapping
 
 import pandas as pd
 
@@ -14,7 +15,7 @@ def save_model(
     dataset_name: str,
     best_model_path: str | Path,
     models_folder: str | Path,
-    metrics: dict[str, float] | None = None,
+    metrics: Mapping[str, float] | None = None,
 ) -> tuple[Path, Path, Path | None]:
     """Save the best model and its config to the expected folder structure."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -37,9 +38,12 @@ def save_model(
     return model_file_path, model_config_path, metrics_path
 
 
-def save_metrics(metrics: dict[str, float], saving_models_folder: str | Path) -> Path:
+def save_metrics(
+    metrics: Mapping[str, float],
+    saving_models_folder: str | Path,
+) -> Path:
     file_path = Path(saving_models_folder) / settings.METRICS_FILENAME
-    pd.DataFrame.from_dict(metrics, orient="index").to_csv(file_path, index=True)
+    pd.DataFrame.from_dict(dict(metrics), orient="index").to_csv(file_path, index=True)
     return file_path
 
 

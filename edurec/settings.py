@@ -77,11 +77,6 @@ LOSS_ALPHA: float = 0.1
 COMPILE_MODEL: bool = False
 TOP_KS: list[int] = [5, 10, 20]
 
-# Eval
-SEEDS: list[int] = [0, 1, 42]
-STATS_TEST: bool = False
-K: int = 5
-
 # SOTA MODELS
 SOTA_MODELS: list[str] = [
     # Baselines

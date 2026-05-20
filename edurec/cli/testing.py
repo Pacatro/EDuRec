@@ -69,8 +69,6 @@ def test_recsys(
     dm.setup()
     test_graph = dm.build_inter_graph()
 
-    assert dm.u_static_feats is not None and dm.i_static_feats is not None
-
     model = Ranker.load_from_checkpoint(
         checkpoint_path=str(model_path),
         cfg=cfg,

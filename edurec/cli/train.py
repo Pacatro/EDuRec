@@ -1,4 +1,4 @@
-from typing import Annotated, cast
+from typing import Annotated
 
 import typer
 
@@ -73,11 +73,6 @@ def train_ranker(
         save_atomic_files=True,
     )
 
-    if settings.state["verbose"]:
-        print(f"[TRAIN] Dataset sparsity after preprocessing: {dm.sparsity}")
-        print(f"[TRAIN] Number of users after preprocessing: {dm.num_raw_users}")
-        print(f"[TRAIN] Number of items after preprocessing: {dm.num_raw_items}")
-
     dm.setup()
 
     if settings.state["verbose"]:
@@ -97,9 +92,6 @@ def train_ranker(
         print(f"[TRAIN] Min interactions: {min_interactions}")
         print(f"[TRAIN] Validation ratio: {val_size}")
         print(f"[TRAIN] Test ratio: {test_size}")
-
-    assert dm.u_static_feats is not None
-    assert dm.i_static_feats is not None
 
     cfg = GhostConfig(
         num_users=dm.num_users,
@@ -133,7 +125,7 @@ def train_ranker(
         use_logger=use_logger,
         epochs=epochs,
         patience=patience,
-        monitor=f"val/NDCG@{top_k}",
+        monitor=f"val/ndcg@{top_k}",
     )
 
     if debug:
@@ -143,7 +135,6 @@ def train_ranker(
     metrics = trainer.test(ckpt_path="best", datamodule=dm, weights_only=False)[0]
 
     if save:
-        metrics = cast(dict[str, float], metrics)
         model_file_path, model_config_path, metrics_path = save_model(
             model_config=cfg,
             dataset_name=dataset.value,
