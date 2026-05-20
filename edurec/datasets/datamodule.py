@@ -78,25 +78,25 @@ class ElearningDataModule(L.LightningDataModule):
             if self.raw_dataset is None:
                 raise RuntimeError("Raw dataset is not available.")
 
+            users = self.raw_dataset.user_features
+            items = self.raw_dataset.item_features
+            interactions = self.raw_dataset.interactions
+
+            if self.remove_sparse:
+                users, items, interactions = filter_sparse(
+                    users,
+                    items,
+                    interactions,
+                    min_interactions=self.min_interactions,
+                )
+
             train, val, test = split_data(
-                self.raw_dataset.interactions,
+                interactions,
                 test_ratio=self.test_ratio,
                 val_ratio=self.val_ratio,
                 min_interactions=self.min_interactions,
                 random_state=self.random_state,
             )
-            users = self.raw_dataset.user_features
-            items = self.raw_dataset.item_features
-
-            if self.remove_sparse:
-                users, items, train, val, test = filter_sparse(
-                    users,
-                    items,
-                    train,
-                    val,
-                    test,
-                    min_interactions=self.min_interactions,
-                )
 
             thresholds = get_relevance_threshold(train)
             train = add_relevance(train, thresholds)

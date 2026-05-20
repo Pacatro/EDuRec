@@ -63,39 +63,19 @@ def split_data(
 def filter_sparse(
     users: pd.DataFrame,
     items: pd.DataFrame,
-    train: pd.DataFrame,
-    val: pd.DataFrame,
-    test: pd.DataFrame,
+    interactions: pd.DataFrame,
     min_interactions: int,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    while True:
-        prev_size = len(train)
-        valid_users = train[settings.USER_COL].value_counts(sort=False)
-        valid_items = train[settings.ITEM_COL].value_counts(sort=False)
-        valid_users = valid_users[valid_users >= min_interactions].index
-        valid_items = valid_items[valid_items >= min_interactions].index
-        mask = train[settings.USER_COL].isin(valid_users) & train[
-            settings.ITEM_COL
-        ].isin(valid_items)
-        train = train.loc[mask].reset_index(drop=True)
-        if len(train) == prev_size:
-            break
-
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Remove users with fewer than ``min_interactions`` in the full dataset."""
+    user_counts = interactions[settings.USER_COL].value_counts(sort=False)
+    valid_users = user_counts[user_counts >= min_interactions].index
     user_mask = users[settings.USER_COL].isin(valid_users)
-    item_mask = items[settings.ITEM_COL].isin(valid_items)
-    val_mask = val[settings.USER_COL].isin(valid_users) & val[settings.ITEM_COL].isin(
-        valid_items
-    )
-    test_mask = test[settings.USER_COL].isin(valid_users) & test[
-        settings.ITEM_COL
-    ].isin(valid_items)
+    interaction_mask = interactions[settings.USER_COL].isin(valid_users)
 
     return (
         users.loc[user_mask].reset_index(drop=True),
-        items.loc[item_mask].reset_index(drop=True),
-        train,
-        val.loc[val_mask].reset_index(drop=True),
-        test.loc[test_mask].reset_index(drop=True),
+        items.reset_index(drop=True),
+        interactions.loc[interaction_mask].reset_index(drop=True),
     )
 
 
@@ -155,13 +135,9 @@ def preprocess(
     user_frame = features.users
     item_frame = features.items
     if features.text_embeddings["users"] is not None:
-        user_frame = pd.concat(
-            [user_frame, features.text_embeddings["users"]], axis=1
-        )
+        user_frame = pd.concat([user_frame, features.text_embeddings["users"]], axis=1)
     if features.text_embeddings["items"] is not None:
-        item_frame = pd.concat(
-            [item_frame, features.text_embeddings["items"]], axis=1
-        )
+        item_frame = pd.concat([item_frame, features.text_embeddings["items"]], axis=1)
 
     split_dfs: dict[str, pd.DataFrame] = {}
     for name, processed in split_features.items():
