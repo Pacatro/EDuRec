@@ -34,10 +34,7 @@ def save_model(
         encoding="utf-8",
     )
 
-    metrics_path = Path(model_folder) / settings.METRICS_FILENAME
-    pd.DataFrame.from_dict(dict(metrics), orient="index").to_csv(
-        metrics_path, index=True
-    )
+    metrics_path = save_metrics(metrics, model_folder)
     return model_file_path, model_config_path, metrics_path
 
 
