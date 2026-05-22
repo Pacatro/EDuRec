@@ -72,13 +72,14 @@ def test_recsys(
     model = Ranker.load_from_checkpoint(
         checkpoint_path=str(model_path),
         cfg=cfg,
-        edge_index=test_graph,
+        inter_graph=test_graph,
         u_static_feats=dm.u_static_feats,
         i_static_feats=dm.i_static_feats,
         val_topk=top_k,
         adaptive_k=adaptive_k,
         map_location=torch.device("cpu"),
         weights_only=False,
+        strict=False,
     )
 
     trainer = L.Trainer(

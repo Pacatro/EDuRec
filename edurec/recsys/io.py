@@ -1,4 +1,5 @@
 import json
+import shutil
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -28,7 +29,7 @@ def save_model(
     model_file_path = model_folder / settings.MODEL_FILENAME
     model_config_path = model_folder / settings.MODEL_METADATA_FILENAME
 
-    Path(best_model_path).rename(model_file_path)
+    shutil.move(best_model_path, model_file_path)
     model_config_path.write_text(
         json.dumps(asdict(model_config), indent=2, ensure_ascii=False),
         encoding="utf-8",

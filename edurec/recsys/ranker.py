@@ -46,7 +46,7 @@ class Ranker(L.LightningModule):
         self.top_ks = top_ks if top_ks else [settings.RANKER_TOP_K]
         self.monitor = f"val/ndcg@{val_topk}"
 
-        self.register_buffer("edge_index", inter_graph.edge_index)
+        self.register_buffer("edge_index", inter_graph.edge_index, persistent=False)
         self.register_buffer("u_static_feats", u_static_feats, persistent=False)
         self.register_buffer("i_static_feats", i_static_feats, persistent=False)
 

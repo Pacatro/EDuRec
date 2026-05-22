@@ -134,7 +134,7 @@ def train_ranker(
 
     metrics = trainer.test(ckpt_path="best", datamodule=dm, weights_only=False)[0]
 
-    if save:
+    if save and trainer.is_global_zero:
         model_file_path, model_config_path, metrics_path = save_model(
             model_config=cfg,
             dataset_name=dataset.value,

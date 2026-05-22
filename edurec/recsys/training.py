@@ -41,6 +41,7 @@ def train_model(
         mode="max",
         save_top_k=1,
         filename=f"best_{model_name}",
+        save_weights_only=True,
     )
 
     train_logger = None

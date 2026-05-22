@@ -120,12 +120,17 @@ class ElearningDataModule(L.LightningDataModule):
                 output_dir=self.atomic_folder,
             )
 
+        # Build the sequential histories using only relevant (positive) interactions
+        relevant_splits = {}
+        for split in ("train", "val", "test"):
+            df = getattr(self.artifacts, split)
+            if df is not None:
+                relevant_splits[split] = df[df[settings.RELEVANT_COL] > 0].reset_index(drop=True)
+            else:
+                relevant_splits[split] = None
+
         histories = build_histories(
-            {
-                "train": self.artifacts.train,
-                "val": self.artifacts.val,
-                "test": self.artifacts.test,
-            },
+            relevant_splits,
             excluded_cols=self.excluded_cols,
         )
 
@@ -144,24 +149,16 @@ class ElearningDataModule(L.LightningDataModule):
         if df is None:
             raise RuntimeError(f"Processed split {split} is not available.")
 
-        # We use positive mask to filter out interactions that are not relevant,
-        # with this implementation, the model only sees the relevant items of the history.
-        # For example, if the user 0 has this history: [item 1 (relevant), item 2 (not relevant), item 3 (relevant)],
-        # with positive mask, the model will only see [item 1, item 3] as the history for the next interaction, and item 2 will be ignored.
+        # Filter dataset to positive interactions
         positive_mask = (df[settings.RELEVANT_COL] > 0).to_numpy(copy=True)
-        history_mask = torch.as_tensor(positive_mask, dtype=torch.bool)
-
         interactions = df.loc[positive_mask].reset_index(drop=True)
+
+        # histories[split] already aligns perfectly row-by-row with interactions
         history = histories[split]
-        filtered_history = UserHistory(
-            items=history.items[history_mask],
-            ctx=history.ctx[history_mask],
-            valid_mask=history.valid_mask[history_mask],
-        )
 
         return RankerDataset(
             interactions=interactions,
-            history=filtered_history,
+            history=history,
             num_ctx_feats=self.num_ctx_feats,
         )
 
