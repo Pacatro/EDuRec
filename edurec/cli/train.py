@@ -11,7 +11,7 @@ app = typer.Typer(no_args_is_help=True)
 
 
 @app.command(name="train", help="Train the reranker model.")
-def train_ranker(
+def train(
     dataset: Annotated[DatasetName, typer.Option("--dataset", "-d")] = DatasetName.MARS,
     epochs: Annotated[int, typer.Option("--epochs", "-e")] = settings.EPOCHS,
     lr: Annotated[float, typer.Option("--lr", "-l")] = settings.LR,
@@ -99,18 +99,15 @@ def train_ranker(
         num_item_text_feats=dm.num_item_text_feats,
         user_cat_cardinalities=dm.user_cat_cardinalities,
         item_cat_cardinalities=dm.item_cat_cardinalities,
+        lr=lr,
+        adaptive_k=adaptive_k,
     )
-
-    train_graph = dm.build_inter_graph()
 
     ranker = RecSys(
         cfg=cfg,
-        inter_graph=train_graph,
+        inter_graph=dm.build_inter_graph(),
         u_static_feats=dm.u_static_feats,
         i_static_feats=dm.i_static_feats,
-        lr=lr,
-        val_topk=top_k,
-        adaptive_k=adaptive_k,
     )
 
     trainer, best_model_path = train_model(

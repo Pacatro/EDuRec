@@ -19,7 +19,7 @@ def eval_sota_models(
     lr: float = settings.LR,
     batch_size: int = settings.BATCH_SIZE,
     patience: int = settings.PATIENCE,
-    top_ks: list[int] | None = None,
+    topks: list[int] | None = None,
     load_side_features: bool = False,
     show_progress: bool = False,
 ) -> pd.DataFrame:
@@ -34,7 +34,7 @@ def eval_sota_models(
         batch_size=batch_size,
         lr=lr,
         patience=patience,
-        top_ks=top_ks or settings.TOP_KS,
+        topks=topks or settings.TOP_KS,
         load_side_features=load_side_features,
         show_progress=show_progress,
     )
@@ -96,7 +96,7 @@ def _build_config_dict(
     batch_size: int,
     lr: float,
     patience: int,
-    top_ks: list[int],
+    topks: list[int],
     load_side_features: bool = False,
     show_progress: bool = False,
 ) -> dict[str, object]:
@@ -132,8 +132,8 @@ def _build_config_dict(
             "mode": "full",
         },
         "metrics": ["Recall", "MRR", "NDCG", "Hit", "Precision", "MAP"],
-        "topk": top_ks,
-        "valid_metric": f"NDCG@{max(top_ks)}",
+        "topk": topks,
+        "valid_metric": f"NDCG@{max(topks)}",
         "metric_decimal_place": 4,
         "embedding_size": settings.EMB_DIM,
         "show_progress": show_progress,

@@ -7,7 +7,7 @@ def eval_proposed_model(
     cfg: EDuRecConfig,
     epochs: int,
     lr: float,
-    top_ks: list[int],
+    topks: list[int],
     val_topk: int,
     patience: int,
     adaptive_k: bool,
@@ -19,7 +19,7 @@ def eval_proposed_model(
         i_static_feats=dm.i_static_feats,
         lr=lr,
         val_topk=val_topk,
-        top_ks=top_ks,
+        topks=topks,
         adaptive_k=adaptive_k,
     )
 

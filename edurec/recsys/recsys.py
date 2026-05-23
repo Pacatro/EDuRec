@@ -28,22 +28,17 @@ class RecSys(L.LightningModule):
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
         val_topk: int = settings.TOP_K,
-        lr: float = settings.LR,
-        weight_decay: float = settings.WEIGHT_DECAY,
-        top_ks: list[int] = settings.TOP_KS,
-        alpha: float = settings.LOSS_ALPHA,
-        adaptive_k: bool = settings.ADAPTIVE_K,
     ):
         super().__init__()
         self.save_hyperparameters(
             ignore=["inter_graph", "u_static_feats", "i_static_feats"]
         )
         self.cfg = cfg
-        self.lr = lr
-        self.weight_decay = weight_decay
-        self.alpha = alpha
+        self.lr = cfg.lr
+        self.weight_decay = cfg.weight_decay
+        self.alpha = cfg.alpha
         self.val_topk = val_topk
-        self.top_ks = top_ks if top_ks else [settings.TOP_K]
+        self.topks = cfg.topks if cfg.topks else [settings.TOP_K]
         self.monitor = f"val/ndcg@{val_topk}"
 
         self.register_buffer("edge_index", inter_graph.edge_index, persistent=False)
@@ -64,9 +59,9 @@ class RecSys(L.LightningModule):
             prefix="val/",
         )
 
-        if self.top_ks:
+        if self.topks:
             metrics = {
-                "precision": (RetrievalPrecision, {"adaptive_k": adaptive_k}),
+                "precision": (RetrievalPrecision, {"adaptive_k": cfg.adaptive_k}),
                 "recall": (RetrievalRecall, {}),
                 "ndcg": (RetrievalNormalizedDCG, {}),
                 "hit": (RetrievalHitRate, {}),
@@ -77,7 +72,7 @@ class RecSys(L.LightningModule):
             self.test_ranking_metrics = MetricCollection(
                 {
                     f"{name}@{k}": cls(top_k=k, empty_target_action="neg", **kwargs)
-                    for k in top_ks
+                    for k in cfg.topks
                     for name, (cls, kwargs) in metrics.items()
                 },
                 prefix="test/",
@@ -145,20 +140,20 @@ class RecSys(L.LightningModule):
             f"{prefix}/RankLoss",
             rank_loss,
             prog_bar=(prefix == "train"),
-            logger=False,
+            logger=(prefix == "train"),
         )
         self.log(
             f"{prefix}/GclLoss",
             gcl_loss,
             prog_bar=(prefix == "train"),
-            logger=False,
+            logger=(prefix == "train"),
         )
         self.log(
             f"{prefix}/Loss",
             loss,
             on_step=(prefix == "train"),
             prog_bar=True,
-            logger=False,
+            logger=(prefix == "train"),
         )
 
         if ranking_metrics is not None:

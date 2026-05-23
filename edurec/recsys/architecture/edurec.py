@@ -1,4 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
+from pathlib import Path
+from typing import Self
+import yaml
 
 import torch
 from torch import nn
@@ -40,6 +43,13 @@ class EDuRecConfig:
     hidden_dims: list[int] = field(
         default_factory=lambda: [settings.EMB_DIM * 2, settings.EMB_DIM]
     )
+
+    # Training Defaults
+    lr: float = settings.LR
+    weight_decay: float = settings.WEIGHT_DECAY
+    topks: list[int] = field(default_factory=lambda: [settings.TOP_K])
+    alpha: float = settings.LOSS_ALPHA
+    adaptive_k: bool = settings.ADAPTIVE_K
 
     @property
     def gnn(self) -> GraphEncoderConfig:
@@ -93,6 +103,19 @@ class EDuRecConfig:
             hidden_dims=self.hidden_dims,
             dropout=self.dropout,
         )
+
+    def save(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            yaml.dump(asdict(self), f)
+
+    @classmethod
+    def load(cls, path: Path) -> Self:
+        if not path.exists():
+            raise FileNotFoundError(f"Config file not found: {path}")
+
+        with open(path, "r") as f:
+            return cls(**yaml.safe_load(f))
 
 
 class EDuRec(nn.Module):

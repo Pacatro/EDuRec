@@ -77,7 +77,7 @@ def eval_models(
             help="Test split ratio used by the EDuRec preprocessing.",
         ),
     ] = settings.TEST_RATIO,
-    top_ks: Annotated[
+    topks: Annotated[
         list[int],
         typer.Option(
             "--top-k",
@@ -148,8 +148,8 @@ def eval_models(
         ),
     ] = settings.ADAPTIVE_K,
 ) -> None:
-    eval_top_ks = list(top_ks)
-    val_topk = max(eval_top_ks)
+    eval_topks = list(topks)
+    val_topk = max(eval_topks)
 
     if settings.state["verbose"]:
         print(f"[EVAL] Dataset: {dataset.value}")
@@ -161,7 +161,7 @@ def eval_models(
         print(f"[EVAL] Learning rate: {lr}")
         print(f"[EVAL] Batch size: {batch_size}")
         print(f"[EVAL] Patience: {patience}")
-        print(f"[EVAL] Top-k values: {eval_top_ks}")
+        print(f"[EVAL] Top-k values: {eval_topks}")
         print(f"[EVAL] Validation top-k: {val_topk}")
         print(f"[EVAL] Use processed cache: {use_processed_data}")
         print(f"[EVAL] Load side features: {load_side_features}")
@@ -202,7 +202,7 @@ def eval_models(
         cfg=cfg,
         epochs=epochs,
         lr=lr,
-        top_ks=eval_top_ks,
+        topks=eval_topks,
         val_topk=val_topk,
         patience=patience,
         adaptive_k=adaptive_k,
@@ -216,7 +216,7 @@ def eval_models(
         lr=lr,
         batch_size=batch_size,
         patience=patience,
-        top_ks=eval_top_ks,
+        topks=eval_topks,
         load_side_features=load_side_features,
     )
 
