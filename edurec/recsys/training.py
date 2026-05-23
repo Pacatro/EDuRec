@@ -44,15 +44,17 @@ def train_model(
         save_weights_only=True,
     )
 
-    train_logger = None
-    if use_logger and not debug:
-        train_logger = WandbLogger(
+    logger = (
+        WandbLogger(
             project=settings.EXPERIMENT_NAME,
             name=f"train_{model_name}_{dm.dataset_name}_top-{top_k}",
         )
+        if use_logger and not debug
+        else None
+    )
 
     trainer = L.Trainer(
-        logger=train_logger,
+        logger=logger,
         max_epochs=epochs,
         accelerator=settings.state["device"],
         devices="auto",

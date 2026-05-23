@@ -32,7 +32,7 @@ def train_ranker(
         bool, typer.Option("--remove_sparse", "-R")
     ] = settings.REMOVE_SPARSE,
     min_interactions: Annotated[
-        int, typer.Option("--min_interactions", "-I")
+        int, typer.Option("--min_interactions", "-i")
     ] = settings.MIN_INTERACTIONS,
     adaptive_k: Annotated[
         bool, typer.Option("--adaptive_k", "-a")
