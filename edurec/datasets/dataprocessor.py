@@ -189,7 +189,7 @@ class DataProcessor:
             if hasattr(model, "max_seq_length"):
                 model.max_seq_length = self.text_max_tokens
             if hasattr(model, "get_sentence_embedding_dimension"):
-                dim = model.get_sentence_embedding_dimension()
+                dim = model.get_embedding_dimension()
                 if dim != self.text_embedding_dim:
                     raise RuntimeError(
                         f"Expected text embedding dim {self.text_embedding_dim}, got {dim}"
