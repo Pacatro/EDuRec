@@ -4,10 +4,8 @@ import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
-from ..recsys import train_model
-from ..recsys.architecture.ghost import GhostConfig
+from ..recsys import train_model, EDuRecConfig, RecSys
 from ..recsys.io import save_model
-from ..recsys.ranker import Ranker
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -16,18 +14,16 @@ app = typer.Typer(no_args_is_help=True)
 def train_ranker(
     dataset: Annotated[DatasetName, typer.Option("--dataset", "-d")] = DatasetName.MARS,
     epochs: Annotated[int, typer.Option("--epochs", "-e")] = settings.EPOCHS,
-    lr: Annotated[float, typer.Option("--lr", "-l")] = settings.RANKER_LR,
+    lr: Annotated[float, typer.Option("--lr", "-l")] = settings.LR,
     batch_size: Annotated[
         int, typer.Option("--batch_size", "-b")
-    ] = settings.RANKER_BATCH_SIZE,
-    patience: Annotated[
-        int, typer.Option("--patience", "-p")
-    ] = settings.RANKER_PATIENCE,
+    ] = settings.BATCH_SIZE,
+    patience: Annotated[int, typer.Option("--patience", "-p")] = settings.PATIENCE,
     val_size: Annotated[float, typer.Option("--val_size", "-v")] = settings.VAL_RATIO,
     test_size: Annotated[
         float, typer.Option("--test_size", "-t")
     ] = settings.TEST_RATIO,
-    top_k: Annotated[int, typer.Option("--top_k", "-k")] = settings.RANKER_TOP_K,
+    top_k: Annotated[int, typer.Option("--top_k", "-k")] = settings.TOP_K,
     remove_sparse: Annotated[
         bool, typer.Option("--remove_sparse", "-R")
     ] = settings.REMOVE_SPARSE,
@@ -93,7 +89,7 @@ def train_ranker(
         print(f"[TRAIN] Validation ratio: {val_size}")
         print(f"[TRAIN] Test ratio: {test_size}")
 
-    cfg = GhostConfig(
+    cfg = EDuRecConfig(
         num_users=dm.num_users,
         num_items=dm.num_items,
         num_ctx_feats=dm.train_ds.num_ctx_feats,
@@ -107,7 +103,7 @@ def train_ranker(
 
     train_graph = dm.build_inter_graph()
 
-    ranker = Ranker(
+    ranker = RecSys(
         cfg=cfg,
         inter_graph=train_graph,
         u_static_feats=dm.u_static_feats,

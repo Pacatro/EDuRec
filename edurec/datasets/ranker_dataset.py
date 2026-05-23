@@ -17,7 +17,7 @@ class RankingQuery(NamedTuple):
     target_item_id: torch.Tensor
 
 
-class RankerDataset(Dataset):
+class RecSysDataset(Dataset):
     def __init__(
         self,
         interactions: pd.DataFrame,

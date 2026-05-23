@@ -19,7 +19,7 @@ def dataset_command(
 ):
     dm = ElearningDataModule(
         dataset=dataset,
-        batch_size=settings.RANKER_BATCH_SIZE,
+        batch_size=settings.BATCH_SIZE,
         test_ratio=settings.TEST_RATIO,
         val_ratio=settings.VAL_RATIO,
         use_processed_data=False,

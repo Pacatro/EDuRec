@@ -1,5 +1,5 @@
-from .architecture.ghost import GhostConfig
+from .architecture.edurec import EDuRecConfig
 from .training import train_model
-from .ranker import Ranker
+from .recsys import RecSys
 
-__all__ = ["Ranker", "GhostConfig", "train_model"]
+__all__ = ["RecSys", "EDuRecConfig", "train_model"]

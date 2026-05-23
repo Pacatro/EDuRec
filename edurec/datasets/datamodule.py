@@ -18,7 +18,7 @@ from .preprocessing import (
     preprocess,
     split_data,
 )
-from .ranker_dataset import RankerDataset
+from .ranker_dataset import RecSysDataset
 from .user_history import UserHistory, build_histories
 
 
@@ -125,7 +125,9 @@ class ElearningDataModule(L.LightningDataModule):
         for split in ("train", "val", "test"):
             df = getattr(self.artifacts, split)
             if df is not None:
-                relevant_splits[split] = df[df[settings.RELEVANT_COL] > 0].reset_index(drop=True)
+                relevant_splits[split] = df[df[settings.RELEVANT_COL] > 0].reset_index(
+                    drop=True
+                )
             else:
                 relevant_splits[split] = None
 
@@ -144,7 +146,7 @@ class ElearningDataModule(L.LightningDataModule):
         self,
         split: str,
         histories: dict[str, UserHistory],
-    ) -> RankerDataset:
+    ) -> RecSysDataset:
         df = getattr(self.artifacts, split)
         if df is None:
             raise RuntimeError(f"Processed split {split} is not available.")
@@ -156,7 +158,7 @@ class ElearningDataModule(L.LightningDataModule):
         # histories[split] already aligns perfectly row-by-row with interactions
         history = histories[split]
 
-        return RankerDataset(
+        return RecSysDataset(
             interactions=interactions,
             history=history,
             num_ctx_feats=self.num_ctx_feats,

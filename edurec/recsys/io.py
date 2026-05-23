@@ -8,11 +8,11 @@ from typing import Mapping
 import pandas as pd
 
 from .. import settings
-from .architecture import GhostConfig
+from .architecture import EDuRecConfig
 
 
 def save_model(
-    model_config: GhostConfig,
+    model_config: EDuRecConfig,
     dataset_name: str,
     best_model_path: str | Path,
     models_folder: str | Path,
@@ -51,7 +51,7 @@ def save_metrics(
 def load_model(
     models_folder: str | Path,
     dataset_name: str,
-) -> tuple[Path, GhostConfig]:
+) -> tuple[Path, EDuRecConfig]:
     """Load the most recent saved model and rebuild its config."""
     root = Path(models_folder) / dataset_name
 
@@ -83,4 +83,4 @@ def load_model(
     config_payload = json.loads(config_file.read_text(encoding="utf-8"))
     config_data = config_payload.get("config", config_payload)
 
-    return model_file, GhostConfig(**config_data)
+    return model_file, EDuRecConfig(**config_data)

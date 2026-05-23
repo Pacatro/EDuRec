@@ -11,7 +11,7 @@ from .scorer import Scorer, ScorerConfig
 
 
 @dataclass
-class GhostConfig:
+class EDuRecConfig:
     num_users: int
     num_items: int
     num_ctx_feats: int
@@ -95,8 +95,8 @@ class GhostConfig:
         )
 
 
-class Ghost(nn.Module):
-    def __init__(self, cfg: GhostConfig):
+class EDuRec(nn.Module):
+    def __init__(self, cfg: EDuRecConfig):
         super().__init__()
         self.cfg = cfg
 

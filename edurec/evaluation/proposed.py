@@ -1,10 +1,10 @@
 from ..datasets import ElearningDataModule
-from ..recsys import GhostConfig, Ranker, train_model
+from ..recsys import EDuRecConfig, RecSys, train_model
 
 
 def eval_proposed_model(
     dm: ElearningDataModule,
-    cfg: GhostConfig,
+    cfg: EDuRecConfig,
     epochs: int,
     lr: float,
     top_ks: list[int],
@@ -12,7 +12,7 @@ def eval_proposed_model(
     patience: int,
     adaptive_k: bool,
 ) -> dict[str, float | str]:
-    ranker = Ranker(
+    ranker = RecSys(
         cfg=cfg,
         inter_graph=dm.build_inter_graph(),
         u_static_feats=dm.u_static_feats,

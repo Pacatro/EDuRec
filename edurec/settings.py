@@ -41,38 +41,36 @@ TEXT_MAX_TOKENS: int = 256
 TEXT_PREPROCESS_STRATEGY: str = "sentence-transformer"
 
 # GCL
-DROP_EDGES_P: float = 0.1
-TAU: float = 0.2
+DROP_EDGES_P: float = 0.2
+TAU: float = 0.15
 LOSS_REDUCTION: str = "mean"
 GNN_LAYERS: int = 2
 
-# Ranker
+# RecSys
 NUM_HEADS: int = 4
 NUM_BLOCKS: int = 2
-FF_DIM: int = 256
-DROPOUT: float = 0.1
-MAX_HISTORY_LEN: int = 30
+FF_DIM: int = 512
+DROPOUT: float = 0.15
+MAX_HISTORY_LEN: int = 50
 
 # Embeddings
 EMB_DIM: int = 128
 
-# Training (Ranker)
-RANKER_LR: float = 3e-4
-RANKER_WEIGHT_DECAY: float = 2e-4
-RANKER_BATCH_SIZE: int = 128
-RANKER_PATIENCE: int = 3
-RANKER_TOP_K: int = 20
-
-# Training (General)
-MONITOR_METRIC: str = f"val/ndcg@{RANKER_TOP_K}"
-EPOCHS: int = 100
-DELTA: float = 0.0005
+# Training
+LR: float = 2e-4
+WEIGHT_DECAY: float = 1e-4
+BATCH_SIZE: int = 128
+PATIENCE: int = 5
+TOP_K: int = 10
+MONITOR_METRIC: str = f"val/ndcg@{TOP_K}"
+EPOCHS: int = 150
+DELTA: float = 0.0003
 NUM_WORKERS: int = 4
 VAL_RATIO: float = 0.1
 TEST_RATIO: float = 0.2
 SAVE_DATA: bool = False
 ADAPTIVE_K: bool = False
-LOSS_ALPHA: float = 0.1
+LOSS_ALPHA: float = 0.05
 COMPILE_MODEL: bool = False
 TOP_KS: list[int] = [5, 10, 20]
 

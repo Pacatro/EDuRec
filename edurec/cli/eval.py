@@ -7,7 +7,7 @@ import typer
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
 from ..evaluation import eval_proposed_model, eval_sota_models
-from ..recsys import GhostConfig
+from ..recsys import EDuRecConfig
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -38,7 +38,7 @@ def eval_models(
             min=0.0,
             help="Learning rate used by all evaluated models.",
         ),
-    ] = settings.RANKER_LR,
+    ] = settings.LR,
     batch_size: Annotated[
         int,
         typer.Option(
@@ -47,7 +47,7 @@ def eval_models(
             min=1,
             help="Batch size used by EDuRec preprocessing and RecBole.",
         ),
-    ] = settings.RANKER_BATCH_SIZE,
+    ] = settings.BATCH_SIZE,
     patience: Annotated[
         int,
         typer.Option(
@@ -56,7 +56,7 @@ def eval_models(
             min=1,
             help="Early stopping patience used by all evaluated models.",
         ),
-    ] = settings.RANKER_PATIENCE,
+    ] = settings.PATIENCE,
     val_size: Annotated[
         float,
         typer.Option(
@@ -185,7 +185,7 @@ def eval_models(
 
     dm.setup()
 
-    cfg = GhostConfig(
+    cfg = EDuRecConfig(
         num_users=dm.num_users,
         num_items=dm.num_items,
         num_ctx_feats=dm.train_ds.num_ctx_feats,

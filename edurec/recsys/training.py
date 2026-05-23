@@ -8,11 +8,11 @@ from lightning.pytorch.loggers import WandbLogger
 
 from .. import settings
 from ..datasets import ElearningDataModule
-from .ranker import Ranker
+from .recsys import RecSys
 
 
 def train_model(
-    model: Ranker,
+    model: RecSys,
     dm: ElearningDataModule,
     top_k: int,
     debug: bool,
@@ -24,7 +24,7 @@ def train_model(
     model_name = model.model_name
 
     model = (
-        cast(Ranker, torch.compile(model))
+        cast(RecSys, torch.compile(model))
         if not debug and settings.COMPILE_MODEL
         else model
     )

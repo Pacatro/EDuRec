@@ -16,20 +16,20 @@ from torchmetrics.retrieval import (
 
 from .. import settings
 from ..datasets import RankingQuery
-from .architecture import Ghost, GhostConfig
+from .architecture import EDuRec, EDuRecConfig
 from .losses import InfoNCELoss, LossReduction
 
 
-class Ranker(L.LightningModule):
+class RecSys(L.LightningModule):
     def __init__(
         self,
-        cfg: GhostConfig,
+        cfg: EDuRecConfig,
         inter_graph: Data,
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
-        val_topk: int = settings.RANKER_TOP_K,
-        lr: float = settings.RANKER_LR,
-        weight_decay: float = settings.RANKER_WEIGHT_DECAY,
+        val_topk: int = settings.TOP_K,
+        lr: float = settings.LR,
+        weight_decay: float = settings.WEIGHT_DECAY,
         top_ks: list[int] = settings.TOP_KS,
         alpha: float = settings.LOSS_ALPHA,
         adaptive_k: bool = settings.ADAPTIVE_K,
@@ -43,7 +43,7 @@ class Ranker(L.LightningModule):
         self.weight_decay = weight_decay
         self.alpha = alpha
         self.val_topk = val_topk
-        self.top_ks = top_ks if top_ks else [settings.RANKER_TOP_K]
+        self.top_ks = top_ks if top_ks else [settings.TOP_K]
         self.monitor = f"val/ndcg@{val_topk}"
 
         self.register_buffer("edge_index", inter_graph.edge_index, persistent=False)
@@ -83,7 +83,7 @@ class Ranker(L.LightningModule):
                 prefix="test/",
             )
 
-        self.model = Ghost(cfg)
+        self.model = EDuRec(cfg)
         self.model_name = self.__class__.__name__
 
     def forward(self, batch: RankingQuery) -> torch.Tensor:
@@ -99,7 +99,7 @@ class Ranker(L.LightningModule):
 
         if scores.ndim == 3:
             if scores.size(-1) != 1:
-                raise RuntimeError("Ranker must return a single logit per candidate.")
+                raise RuntimeError("RecSys must return a single logit per candidate.")
             return scores.squeeze(-1)
 
         return scores
@@ -187,7 +187,7 @@ class Ranker(L.LightningModule):
     ) -> torch.Tensor:
         if scores.ndim != 2:
             raise RuntimeError(
-                f"Ranker must return [batch, num_items] scores, got {scores.shape}."
+                f"RecSys must return [batch, num_items] scores, got {scores.shape}."
             )
 
         target_item_ids = target_item_ids.reshape(-1).long()
