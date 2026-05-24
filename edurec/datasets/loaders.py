@@ -19,14 +19,14 @@ class DatasetName(StrEnum):
 type Schema = dict[str, dict[str, list[str]]]
 
 
-class RawDataset(NamedTuple):
+class RawData(NamedTuple):
     interactions: pd.DataFrame
-    i_feats: pd.DataFrame
-    u_feats: pd.DataFrame
+    item_features: pd.DataFrame
+    user_features: pd.DataFrame
     schema: Schema
 
 
-type ExportFn = Callable[[], RawDataset]
+type ExportFn = Callable[[], RawData]
 
 dataset_loaders: dict[DatasetName, ExportFn] = {}
 
@@ -53,7 +53,7 @@ def register_dataset(ds_name: DatasetName) -> Callable[[ExportFn], ExportFn]:
 
     def decorator(fn: ExportFn) -> ExportFn:
         @wraps(fn)
-        def wrapper() -> RawDataset:
+        def wrapper() -> RawData:
             return fn()
 
         dataset_loaders[ds_name] = wrapper
@@ -63,7 +63,7 @@ def register_dataset(ds_name: DatasetName) -> Callable[[ExportFn], ExportFn]:
 
 
 @register_dataset(DatasetName.MARS)
-def load_mars() -> RawDataset:
+def load_mars() -> RawData:
     """Load the MARS dataset.
 
     This loader combines English and French rating files and merges them with
@@ -81,11 +81,11 @@ def load_mars() -> RawDataset:
     ratings_en = pd.read_csv(mars_folder / "explicit_ratings_en.csv")
     ratings_fr = pd.read_csv(mars_folder / "explicit_ratings_fr.csv")
 
-    df_interactions = pd.concat([ratings_en, ratings_fr], ignore_index=True)
-    df_items = pd.concat([items_en, items_fr], ignore_index=True)
-    df_users = pd.concat([users_en, users_fr], ignore_index=True)
+    interactions = pd.concat([ratings_en, ratings_fr], ignore_index=True)
+    items = pd.concat([items_en, items_fr], ignore_index=True)
+    users = pd.concat([users_en, users_fr], ignore_index=True)
 
-    df_interactions.rename(
+    interactions.rename(
         columns={
             "user_id": settings.USER_COL,
             "item_id": settings.ITEM_COL,
@@ -95,12 +95,12 @@ def load_mars() -> RawDataset:
         inplace=True,
     )
 
-    df_items.rename(
+    items.rename(
         columns={"item_id": settings.ITEM_COL, "type": "item_type"},
         inplace=True,
     )
 
-    df_users.rename(columns={"user_id": settings.USER_COL}, inplace=True)
+    users.rename(columns={"user_id": settings.USER_COL}, inplace=True)
 
     schema = {
         "users": {
@@ -126,13 +126,16 @@ def load_mars() -> RawDataset:
         },
     }
 
-    return RawDataset(
-        interactions=df_interactions, i_feats=df_items, u_feats=df_users, schema=schema
+    return RawData(
+        interactions=interactions,
+        item_features=items,
+        user_features=users,
+        schema=schema,
     )
 
 
 @register_dataset(DatasetName.ITM)
-def load_itm() -> RawDataset:
+def load_itm() -> RawData:
     """Load the ITM dataset.
 
     This loader merges ratings, items, and user information into a unified
@@ -162,7 +165,7 @@ def load_itm() -> RawDataset:
 
     schema = {
         "users": {
-            "bin": ["genre", "married"],
+            "bin": ["gender", "married"],
             "num": [],
             "cat": ["age"],
             "text": [],
@@ -184,16 +187,16 @@ def load_itm() -> RawDataset:
         },
     }
 
-    return RawDataset(
+    return RawData(
         interactions=ratings_df,
-        i_feats=items_df,
-        u_feats=users_df,
+        item_features=items_df,
+        user_features=users_df,
         schema=schema,
     )
 
 
 @register_dataset(DatasetName.DORIS)
-def load_doris() -> RawDataset:
+def load_doris() -> RawData:
     doris_folder = RAW_DATA_FOLDER / DatasetName.DORIS.value
     ratings_df = pd.read_excel(doris_folder / "CourseSelectionTable.xlsx")
     items_df = pd.read_excel(doris_folder / "CourseInformationTable.xlsx")
@@ -236,15 +239,15 @@ def load_doris() -> RawDataset:
         },
     }
 
-    return RawDataset(
+    return RawData(
         interactions=ratings_df,
-        i_feats=items_df,
-        u_feats=users_df,
+        item_features=items_df,
+        user_features=users_df,
         schema=schema,
     )
 
 
-def load_raw_data(dataset_name: DatasetName) -> RawDataset:
+def load_raw_data(dataset_name: DatasetName) -> RawData:
     """
     Load the specified dataset. If data was processed before, laod the data from disk.
 

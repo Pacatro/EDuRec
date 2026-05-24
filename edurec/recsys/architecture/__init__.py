@@ -1,13 +1,17 @@
-from .ghost import Ghost, GhostConfig
+from .edurec import EDuRec, EDuRecConfig
 from .graph_encoder import GraphEncoder
-from .scorer import Scorer
-from .two_tower import TwoTowerRetrieval, RetrievalConfig
+from .mlp_encoder import MLPEncoder, MLPEncoderConfig
+from .sasrec import SASRecConfig, SASRecEncoder
+from .scorer import Scorer, ScorerConfig
 
 __all__ = [
-    "Ghost",
-    "GhostConfig",
+    "EDuRec",
+    "EDuRecConfig",
     "GraphEncoder",
+    "MLPEncoder",
+    "MLPEncoderConfig",
+    "SASRecConfig",
+    "SASRecEncoder",
     "Scorer",
-    "TwoTowerRetrieval",
-    "RetrievalConfig",
+    "ScorerConfig",
 ]

@@ -2,8 +2,8 @@ import lightning.pytorch as L
 import torch
 import torch.nn.functional as F
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
-from torch_geometric.data import Data
 from torch_geometric.utils import dropout_edge
+from torch_geometric.data import Data
 from torchmetrics import MetricCollection
 from torchmetrics.retrieval import (
     RetrievalHitRate,
@@ -16,67 +16,69 @@ from torchmetrics.retrieval import (
 
 from .. import settings
 from ..datasets import RankingQuery
-from .architecture import Ghost, GhostConfig
-from .losses import InfoNCELoss
+from .architecture import EDuRec, EDuRecConfig
+from .losses import InfoNCELoss, LossReduction
 
 
-class Ranker(L.LightningModule):
+class RecSys(L.LightningModule):
     def __init__(
         self,
-        cfg: GhostConfig,
+        cfg: EDuRecConfig,
         inter_graph: Data,
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
-        val_topk: int = settings.RANKER_TOP_K,
-        lr: float = settings.RANKER_LR,
-        weight_decay: float = settings.RANKER_WEIGHT_DECAY,
-        top_ks: list[int] = [10, 20, 50],
-        alpha: float = settings.LOSS_ALPHA,
-        adaptive_k: bool = settings.ADAPTIVE_K,
+        val_topk: int = settings.TOP_K,
     ):
         super().__init__()
         self.save_hyperparameters(
             ignore=["inter_graph", "u_static_feats", "i_static_feats"]
         )
         self.cfg = cfg
-        self.lr = lr
-        self.weight_decay = weight_decay
-        self.alpha = alpha
+        self.lr = cfg.lr
+        self.weight_decay = cfg.weight_decay
+        self.alpha = cfg.alpha
         self.val_topk = val_topk
-        self.top_ks = top_ks if top_ks else [settings.RANKER_TOP_K]
-        self.monitor = f"val/NDCG@{val_topk}"
+        self.topks = cfg.topks if cfg.topks else [settings.TOP_K]
+        self.monitor = f"val/ndcg@{val_topk}"
 
-        self.register_buffer("edge_index", inter_graph.edge_index)
+        self.register_buffer("edge_index", inter_graph.edge_index, persistent=False)
         self.register_buffer("u_static_feats", u_static_feats, persistent=False)
         self.register_buffer("i_static_feats", i_static_feats, persistent=False)
 
-        self.gcl_loss = InfoNCELoss(tau=cfg.gnn.tau, reduction=cfg.gnn.loss_reduc)
+        self.gcl_loss = InfoNCELoss(
+            tau=cfg.temperature,
+            reduction=LossReduction(cfg.loss_reduction),
+        )
 
         self.val_ranking_metrics = MetricCollection(
-            {f"NDCG@{self.val_topk}": RetrievalNormalizedDCG(top_k=self.val_topk)},
+            {
+                f"ndcg@{self.val_topk}": RetrievalNormalizedDCG(
+                    top_k=self.val_topk, empty_target_action="neg"
+                )
+            },
             prefix="val/",
         )
 
-        if self.top_ks:
+        if self.topks:
             metrics = {
-                "Precision": (RetrievalPrecision, {"adaptive_k": adaptive_k}),
-                "Recall": (RetrievalRecall, {}),
-                "NDCG": (RetrievalNormalizedDCG, {}),
-                "Hit": (RetrievalHitRate, {}),
-                "MAP": (RetrievalMAP, {}),
-                "MRR": (RetrievalMRR, {}),
+                "precision": (RetrievalPrecision, {"adaptive_k": cfg.adaptive_k}),
+                "recall": (RetrievalRecall, {}),
+                "ndcg": (RetrievalNormalizedDCG, {}),
+                "hit": (RetrievalHitRate, {}),
+                "map": (RetrievalMAP, {}),
+                "mrr": (RetrievalMRR, {}),
             }
 
             self.test_ranking_metrics = MetricCollection(
                 {
-                    f"{name}@{k}": cls(top_k=k, **kwargs)
-                    for k in top_ks
+                    f"{name}@{k}": cls(top_k=k, empty_target_action="neg", **kwargs)
+                    for k in cfg.topks
                     for name, (cls, kwargs) in metrics.items()
                 },
                 prefix="test/",
             )
 
-        self.model = Ghost(cfg)
+        self.model = EDuRec(cfg)
         self.model_name = self.__class__.__name__
 
     def forward(self, batch: RankingQuery) -> torch.Tensor:
@@ -85,7 +87,6 @@ class Ranker(L.LightningModule):
             h_ids=batch.history_items,
             h_ctx=batch.history_ctx,
             h_mask=batch.history_valid_mask,
-            c_ids=batch.candidate_ids,
             edge_index=self.edge_index,
             u_static_feats=self.u_static_feats,
             i_static_feats=self.i_static_feats,
@@ -93,7 +94,7 @@ class Ranker(L.LightningModule):
 
         if scores.ndim == 3:
             if scores.size(-1) != 1:
-                raise RuntimeError("Ranker must return a single logit per candidate.")
+                raise RuntimeError("RecSys must return a single logit per candidate.")
             return scores.squeeze(-1)
 
         return scores
@@ -122,14 +123,13 @@ class Ranker(L.LightningModule):
         ranking_metrics: MetricCollection | None = None,
     ) -> torch.Tensor:
         scores = self(batch)
-        targets = batch.candidate_labels
         query_ids = batch.query_id
-        positive_position = batch.positive_position
+        target_item_ids = batch.target_item_id.long()
 
-        if scores.numel() == 0 or targets.numel() == 0:
-            return scores.new_zeros(())
-
-        rank_loss = self._compute_rank_loss(scores, targets, positive_position)
+        rank_loss = self._compute_rec_loss(
+            scores=scores,
+            target_item_ids=target_item_ids,
+        )
         gcl_loss = (
             self._compute_gcl_loss() if prefix == "train" else rank_loss.new_zeros(())
         )
@@ -153,28 +153,17 @@ class Ranker(L.LightningModule):
             loss,
             on_step=(prefix == "train"),
             prog_bar=True,
-            logger=True,
+            logger=(prefix == "train"),
         )
 
         if ranking_metrics is not None:
-            if scores.ndim == 3 and scores.size(-1) == 1:
-                scores = scores.squeeze(-1)
-
-            if targets.ndim == 1:
-                scores = scores.reshape(-1, 1)
-                targets = targets.reshape(-1, 1)
-
-            if scores.shape != targets.shape:
-                raise RuntimeError(
-                    f"scores and targets must have the same shape, "
-                    f"got {scores.shape} and {targets.shape}"
-                )
-
+            targets = torch.zeros_like(scores, dtype=torch.bool)
+            targets.scatter_(1, target_item_ids.unsqueeze(1), True)
             preds = scores.reshape(-1).float()
-            target = targets.reshape(-1) > 0
+            target = targets.reshape(-1)
 
-            num_candidates = targets.size(1)
-            indexes = query_ids.reshape(-1).long().repeat_interleave(num_candidates)
+            num_items = scores.size(1)
+            indexes = query_ids.reshape(-1).long().repeat_interleave(num_items)
 
             if preds.numel() != target.numel() or preds.numel() != indexes.numel():
                 raise RuntimeError(
@@ -186,20 +175,24 @@ class Ranker(L.LightningModule):
 
         return loss
 
-    def _compute_rank_loss(
+    def _compute_rec_loss(
         self,
         scores: torch.Tensor,
-        targets: torch.Tensor,
-        positive_position: torch.Tensor | None = None,
+        target_item_ids: torch.Tensor,
     ) -> torch.Tensor:
-        if scores.ndim == 2 and targets.ndim == 2:
-            if positive_position is None:
-                positive_position = targets.argmax(dim=1)
+        if scores.ndim != 2:
+            raise RuntimeError(
+                f"RecSys must return [batch, num_items] scores, got {scores.shape}."
+            )
 
-            return F.cross_entropy(scores, positive_position.long())
+        target_item_ids = target_item_ids.reshape(-1).long()
 
-        scores = scores.reshape_as(targets)
-        return F.binary_cross_entropy_with_logits(scores, targets.float())
+        if target_item_ids.numel() != scores.size(0):
+            raise RuntimeError(
+                "target_item_ids must have one target item per batch row."
+            )
+
+        return F.cross_entropy(scores, target_item_ids)
 
     def _compute_gcl_loss(self) -> torch.Tensor:
         p = self.cfg.edge_dropout
@@ -208,17 +201,8 @@ class Ranker(L.LightningModule):
         edge_index_1, _ = dropout_edge(self.edge_index, p=p, force_undirected=True)
         edge_index_2, _ = dropout_edge(self.edge_index, p=p, force_undirected=True)
 
-        u_emb1, i_emb1 = self.model.gnn(
-            edge_index_1,
-            self.u_static_feats,
-            self.i_static_feats,
-        )
-
-        u_emb2, i_emb2 = self.model.gnn(
-            edge_index_2,
-            self.u_static_feats,
-            self.i_static_feats,
-        )
+        u_emb1, i_emb1 = self.model.gnn(edge_index_1)
+        u_emb2, i_emb2 = self.model.gnn(edge_index_2)
 
         gcl_loss = self.gcl_loss(u_emb1, i_emb1, u_emb2, i_emb2)
 

@@ -5,9 +5,9 @@ import torch
 import typer
 
 from .. import settings
-from ..datasets import DatasetName, ElearningDataModule, Phase
+from ..datasets import DatasetName, ElearningDataModule
 from ..recsys.io import load_model, save_metrics
-from ..recsys.ranker import Ranker
+from ..recsys.recsys import RecSys
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -23,7 +23,7 @@ def test_recsys(
     ] = DatasetName.MARS,
     batch_size: Annotated[
         int, typer.Option("--batch_size", "-b", help="Batch size")
-    ] = settings.RANKER_BATCH_SIZE,
+    ] = settings.BATCH_SIZE,
     val_size: Annotated[
         float, typer.Option("--val_size", "-v", help="Validation size")
     ] = settings.VAL_RATIO,
@@ -32,7 +32,7 @@ def test_recsys(
     ] = settings.TEST_RATIO,
     top_k: Annotated[
         int, typer.Option("--top_k", "-k", help="Top-k value")
-    ] = settings.RANKER_TOP_K,
+    ] = settings.TOP_K,
     adaptive_k: Annotated[
         bool,
         typer.Option(
@@ -55,7 +55,6 @@ def test_recsys(
     model_path, cfg = load_model(
         models_folder=models_folder,
         dataset_name=dataset.value,
-        phase=Phase.RANKING,
     )
 
     dm = ElearningDataModule(
@@ -67,20 +66,20 @@ def test_recsys(
         random_state=settings.state["random_state"],
         remove_sparse=remove_sparse,
     )
-    dm.setup(phase=Phase.RANKING)
+    dm.setup()
+    test_graph = dm.build_inter_graph()
 
-    assert dm.u_static_feats is not None and dm.i_static_feats is not None
-
-    model = Ranker.load_from_checkpoint(
+    model = RecSys.load_from_checkpoint(
         checkpoint_path=str(model_path),
         cfg=cfg,
-        inter_graph=dm.create_inter_graph(),
+        inter_graph=test_graph,
         u_static_feats=dm.u_static_feats,
         i_static_feats=dm.i_static_feats,
-        top_k=top_k,
+        val_topk=top_k,
         adaptive_k=adaptive_k,
         map_location=torch.device("cpu"),
         weights_only=False,
+        strict=False,
     )
 
     trainer = L.Trainer(

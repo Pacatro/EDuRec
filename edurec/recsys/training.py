@@ -6,17 +6,13 @@ import torch
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 
-from edurec import settings
-
-from ...datasets import ElearningDataModule
-from ..ranker import Ranker
-from ..retrieval import Retrieval
-
-type Model = Ranker | Retrieval
+from .. import settings
+from ..datasets import ElearningDataModule
+from .recsys import RecSys
 
 
 def train_model(
-    model: Model,
+    model: RecSys,
     dm: ElearningDataModule,
     top_k: int,
     debug: bool,
@@ -28,7 +24,7 @@ def train_model(
     model_name = model.model_name
 
     model = (
-        cast(Model, torch.compile(model))
+        cast(RecSys, torch.compile(model))
         if not debug and settings.COMPILE_MODEL
         else model
     )
@@ -45,17 +41,20 @@ def train_model(
         mode="max",
         save_top_k=1,
         filename=f"best_{model_name}",
+        save_weights_only=True,
     )
 
-    train_logger = None
-    if use_logger and not debug:
-        train_logger = WandbLogger(
+    logger = (
+        WandbLogger(
             project=settings.EXPERIMENT_NAME,
-            name=f"train_{model_name}_{dm.dataset_name}_top-{top_k}",
+            name=f"train_{model_name}_{dm.dataset_name}",
         )
+        if use_logger and not debug
+        else None
+    )
 
     trainer = L.Trainer(
-        logger=train_logger,
+        logger=logger,
         max_epochs=epochs,
         accelerator=settings.state["device"],
         devices="auto",

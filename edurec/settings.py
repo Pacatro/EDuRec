@@ -5,27 +5,26 @@ state = {"verbose": False, "random_state": 42, "device": "auto"}
 EXPERIMENT_NAME: str = "TFM"
 
 # Filenames and Folders
+DATA_FOLDER: str = "data"
 RESULTS_FOLDER: str = "evaluations"
 MODELS_FOLDER: str = "models"
-DATA_FOLDER: str = "data"
 MODEL_FILENAME = "model.pt"
+RECBOLE_INTER_FILES_FOLDER: str = f"{DATA_FOLDER}/inter"
 MODEL_METADATA_FILENAME = "metadata.json"
 METRICS_FILENAME = "metrics.csv"
+CONFIGS_FOLDER: str = "configs"
 
 # Datasets
 ITEM_COL: str = "item_id"
 USER_COL: str = "user_id"
 TIME_COL: str = "timestamp"
-INTERACTION_ORDER_COL: str = "interaction_order"
 RATING_COL: str = "rating"
 RELEVANT_COL: str = "relevant"
-CANDIDATE_IDS_COL: str = "candidate_ids"
-CANDIDATE_LABELS_COL: str = "candidate_labels"
-POSITIVE_POSITION_COL: str = "positive_position"
 MIN_INTERACTIONS: int = 3
 
 # Preprocessing
 PROCESSED_FOLDER: str = f"{DATA_FOLDER}/processed"
+ATOMICFILES_FOLDER: str = f"{DATA_FOLDER}/atomicfiles"
 REMOVE_SPARSE: bool = True
 PREPROCESS_FEATURE_TYPES: tuple[str, ...] = (
     "numeric",
@@ -35,62 +34,73 @@ PREPROCESS_FEATURE_TYPES: tuple[str, ...] = (
     "time",
 )
 PREPROCESS_CACHE_VERSION: int = 4
-TEXT_EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
+TEXT_EMBEDDING_MODEL: str = "paraphrase-MiniLM-L3-v2"
 TEXT_EMBEDDING_DIM: int = 384
 TEXT_EMBEDDING_BATCH_SIZE: int = 32
 TEXT_MAX_TOKENS: int = 256
 TEXT_PREPROCESS_STRATEGY: str = "sentence-transformer"
 
 # GCL
-DROP_EDGES_P: float = 0.1
-TAU: float = 0.2
+DROP_EDGES_P: float = 0.2
+TAU: float = 0.15
 LOSS_REDUCTION: str = "mean"
 GNN_LAYERS: int = 2
 
-# Ranker
+# RecSys
 NUM_HEADS: int = 4
 NUM_BLOCKS: int = 2
-FF_DIM: int = 256
-DROPOUT: float = 0.1
-MAX_HISTORY_LEN: int = 30
-NUM_SCORES: int = 1
+FF_DIM: int = 512
+DROPOUT: float = 0.15
+MAX_HISTORY_LEN: int = 50
 
 # Embeddings
 EMB_DIM: int = 128
 
-# Training (Retreival)
-RETRIEVAL_LR: float = 0.001
-RETRIEVAL_WEIGHT_DECAY: float = 1e-4
-RETRIEVAL_BATCH_SIZE: int = 256
-RETRIEVAL_PATIENCE: int = 5
-RETRIEVAL_TOP_K: int = 50
-
-# Training (Ranker)
-RANKER_LR: float = 3e-4
-RANKER_WEIGHT_DECAY: float = 2e-4
-RANKER_BATCH_SIZE: int = 128
-RANKER_PATIENCE: int = 3
-RANKER_TOP_K: int = 20
-
-# Training (General)
-EPOCHS: int = 100
-TOP_N: int = 100
-DELTA: float = 0.0005
+# Training
+LR: float = 2e-4
+WEIGHT_DECAY: float = 1e-4
+BATCH_SIZE: int = 128
+PATIENCE: int = 5
+TOP_K: int = 10
+MONITOR_METRIC: str = f"val/ndcg@{TOP_K}"
+EPOCHS: int = 150
+DELTA: float = 0.0003
 NUM_WORKERS: int = 4
-VAL_RATIO: float = 0.2
-TEST_RATIO: float = 0.4
+VAL_RATIO: float = 0.1
+TEST_RATIO: float = 0.2
 SAVE_DATA: bool = False
 ADAPTIVE_K: bool = False
-LOSS_ALPHA: float = 0.1
+LOSS_ALPHA: float = 0.05
 COMPILE_MODEL: bool = False
+TOP_KS: list[int] = [5, 10, 20]
 
-# Candidates
-FAISS_HNSW_M = 32
-FAISS_EF_CONSTRUCTION = 80
-FAISS_MIN_EF_SEARCH = 64
-FAISS_SEARCH_MULTIPLIER = 4
-
-# Eval
-SEEDS: list[int] = [0, 1, 42]
-STATS_TEST: bool = False
-K: int = 5
+# SOTA MODELS
+SOTA_MODELS: list[str] = [
+    # Baselines
+    "Random",
+    "Pop",
+    "ItemKNN",
+    # Collaborative filtering / neural CF
+    "BPR",
+    "NeuMF",
+    "LightGCN",
+    "NGCF",
+    # Autoencoder / linear models
+    "MultiVAE",
+    "RecVAE",
+    "EASE",
+    "SLIMElastic",
+    # Advanced graph / contrastive models
+    "SimpleX",
+    "SGL",
+    "NCL",
+    # Sequential models
+    "GRU4Rec",
+    "NARM",
+    # "Caser",
+    "SASRec",
+    "BERT4Rec",
+    "FPMC",
+    "CORE",
+    "LightSANs",
+]

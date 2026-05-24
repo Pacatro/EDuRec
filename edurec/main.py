@@ -7,7 +7,7 @@ import typer
 from dotenv import load_dotenv
 
 from . import settings
-from .cli import dataset_app, test_app, train_app, eval_app
+from .cli import dataset_app, eval_app, test_app, train_app
 
 # Ignore pandas future warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
