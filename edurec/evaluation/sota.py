@@ -3,7 +3,7 @@ from typing import Any
 
 import pandas as pd
 from recbole.quick_start import run_recbole
-from recbole.utils import InputType, get_model
+from recbole.utils import ModelType, InputType, get_model
 
 from .. import settings
 from ..datasets import ElearningDataModule
@@ -72,18 +72,35 @@ def _run_model(
 def _config_for_model(model: str, base_config: dict[str, object]) -> dict[str, object]:
     config = dict(base_config)
     model_class = get_model(model)
+    model_type = getattr(model_class, "type", None)
     input_type = getattr(model_class, "input_type", None)
 
-    if input_type == InputType.PAIRWISE:
-        config["train_neg_sample_args"] = {
+    if model_type == ModelType.SEQUENTIAL:
+        config.pop("benchmark_filename", None)
+        config["load_col"] = {
+            "inter": [
+                settings.USER_COL,
+                settings.ITEM_COL,
+                settings.TIME_COL,
+            ]
+        }
+        config["ITEM_LIST_LENGTH_FIELD"] = "item_length"
+        config["LIST_SUFFIX"] = "_list"
+        config["MAX_ITEM_LIST_LENGTH"] = settings.MAX_HISTORY_LEN
+        config["train_neg_sample_args"] = None
+        return config
+
+    config["train_neg_sample_args"] = (
+        {
             "distribution": "uniform",
             "sample_num": 1,
             "alpha": 1.0,
             "dynamic": False,
             "candidate_num": 0,
         }
-    else:
-        config["train_neg_sample_args"] = None
+        if input_type in {InputType.PAIRWISE, InputType.POINTWISE}
+        else None
+    )
 
     return config
 

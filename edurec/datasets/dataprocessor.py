@@ -282,6 +282,7 @@ class DataProcessor:
             settings.ITEM_COL,
             settings.RATING_COL,
             settings.RELEVANT_COL,
+            settings.TIME_COL,
         ]
 
     def _preprocessor_frame(
