@@ -47,7 +47,7 @@ def train_model(
     logger = (
         WandbLogger(
             project=settings.EXPERIMENT_NAME,
-            name=f"train_{model_name}_{dm.dataset_name}_top-{top_k}",
+            name=f"train_{model_name}_{dm.dataset_name}",
         )
         if use_logger and not debug
         else None
