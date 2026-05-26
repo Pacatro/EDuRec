@@ -15,7 +15,7 @@ from torchmetrics.retrieval import (
 )
 
 from .. import settings
-from ..datasets import RankingQuery
+from ..datasets import RecSysQuery
 from .architecture import EDuRec, EDuRecConfig
 from .losses import InfoNCELoss, LossReduction
 
@@ -81,7 +81,7 @@ class RecSys(L.LightningModule):
         self.model = EDuRec(cfg)
         self.model_name = self.__class__.__name__
 
-    def forward(self, batch: RankingQuery) -> torch.Tensor:
+    def forward(self, batch: RecSysQuery) -> torch.Tensor:
         scores = self.model(
             u_ids=batch.user_id,
             h_ids=batch.history_items,
@@ -99,17 +99,17 @@ class RecSys(L.LightningModule):
 
         return scores
 
-    def training_step(self, batch: RankingQuery) -> torch.Tensor:
+    def training_step(self, batch: RecSysQuery) -> torch.Tensor:
         return self._step(batch, "train")
 
-    def validation_step(self, batch: RankingQuery):
+    def validation_step(self, batch: RecSysQuery):
         self._step(
             batch,
             "val",
             ranking_metrics=self.val_ranking_metrics,
         )
 
-    def test_step(self, batch: RankingQuery):
+    def test_step(self, batch: RecSysQuery):
         self._step(
             batch,
             "test",
@@ -118,7 +118,7 @@ class RecSys(L.LightningModule):
 
     def _step(
         self,
-        batch: RankingQuery,
+        batch: RecSysQuery,
         prefix: str,
         ranking_metrics: MetricCollection | None = None,
     ) -> torch.Tensor:
@@ -222,7 +222,7 @@ class RecSys(L.LightningModule):
         if self.test_ranking_metrics:
             self.log_dict(self.test_ranking_metrics.compute())
 
-    def predict_step(self, batch: RankingQuery) -> torch.Tensor:
+    def predict_step(self, batch: RecSysQuery) -> torch.Tensor:
         return self(batch)
 
     def configure_optimizers(self) -> OptimizerLRScheduler:

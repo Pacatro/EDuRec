@@ -18,7 +18,7 @@ from .preprocessing import (
     preprocess,
     split_data,
 )
-from .ranker_dataset import RecSysDataset
+from .recsys_dataset import RecSysDataset
 from .user_history import UserHistory, build_histories
 
 
