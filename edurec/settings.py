@@ -97,10 +97,8 @@ SOTA_MODELS: list[str] = [
     # Sequential models
     "GRU4Rec",
     "NARM",
-    # "Caser",
     "SASRec",
     "BERT4Rec",
-    "FPMC",
     "CORE",
     "LightSANs",
 ]

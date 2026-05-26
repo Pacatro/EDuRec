@@ -195,17 +195,17 @@ def eval_models(
         num_item_text_feats=dm.num_item_text_feats,
         user_cat_cardinalities=dm.user_cat_cardinalities,
         item_cat_cardinalities=dm.item_cat_cardinalities,
+        lr=lr,
+        adaptive_k=adaptive_k,
+        topks=eval_topks,
     )
 
     proposed_results = eval_proposed_model(
         dm=dm,
         cfg=cfg,
         epochs=epochs,
-        lr=lr,
-        topks=eval_topks,
         val_topk=val_topk,
         patience=patience,
-        adaptive_k=adaptive_k,
     )
 
     sota_results = eval_sota_models(

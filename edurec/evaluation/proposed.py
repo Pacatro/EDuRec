@@ -6,21 +6,15 @@ def eval_proposed_model(
     dm: ElearningDataModule,
     cfg: EDuRecConfig,
     epochs: int,
-    lr: float,
-    topks: list[int],
     val_topk: int,
     patience: int,
-    adaptive_k: bool,
 ) -> dict[str, float | str]:
     ranker = RecSys(
         cfg=cfg,
         inter_graph=dm.build_inter_graph(),
         u_static_feats=dm.u_static_feats,
         i_static_feats=dm.i_static_feats,
-        lr=lr,
         val_topk=val_topk,
-        topks=topks,
-        adaptive_k=adaptive_k,
     )
 
     trainer, _ = train_model(
