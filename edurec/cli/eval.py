@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Annotated
+from datetime import datetime
 
 import pandas as pd
 import typer
@@ -228,4 +229,10 @@ def eval_models(
 
     print(results)
 
-    results.to_csv(Path(settings.RESULTS_FOLDER) / f"{dataset.value}.csv")
+    restults_path = (
+        Path(settings.RESULTS_FOLDER) / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    )
+
+    restults_path.mkdir(parents=True, exist_ok=True)
+
+    results.to_csv(restults_path / f"{dataset.value}.csv")
