@@ -101,6 +101,7 @@ def train(
         item_cat_cardinalities=dm.item_cat_cardinalities,
         lr=lr,
         adaptive_k=adaptive_k,
+        topks=settings.TOP_KS,
     )
 
     ranker = RecSys(
