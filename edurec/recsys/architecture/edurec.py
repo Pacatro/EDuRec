@@ -131,7 +131,6 @@ class EDuRec(nn.Module):
             if cfg.num_item_text_feats > 0
             else None
         )
-        self.item_content_norm = nn.LayerNorm(cfg.emb_dim)
         self.item_norm = nn.LayerNorm(cfg.emb_dim)
         self.user_norm = nn.LayerNorm(cfg.emb_dim)
         self.item_bias = (
@@ -153,9 +152,15 @@ class EDuRec(nn.Module):
         user_graph_embs, item_graph_embs = self.gnn(edge_index)
 
         user_feature_embs = self.user_encoder(u_static_feats)
-        item_feature_embs = self._encode_item_features(i_static_feats)
+        item_feature_embs, text_embs = self._encode_item_features(i_static_feats)
 
-        item_emb = self.item_norm(item_graph_embs + item_feature_embs)
+        item_feats_emb = (
+            item_graph_embs + item_feature_embs
+            if text_embs is None
+            else item_graph_embs + item_feature_embs + text_embs
+        )
+
+        item_emb = self.item_norm(item_feats_emb)
         padded_item_embs = torch.cat(
             [item_emb.new_zeros(1, item_emb.size(1)), item_emb], dim=0
         )
@@ -174,13 +179,15 @@ class EDuRec(nn.Module):
 
         return scores
 
-    def _encode_item_features(self, item_static_feats: torch.Tensor) -> torch.Tensor:
+    def _encode_item_features(
+        self, item_static_feats: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
         struct_dim = max(
             self.cfg.num_item_dense_feats - self.cfg.num_item_text_feats, 0
         )
         cat_start = self.cfg.num_item_dense_feats
 
-        parts: list[torch.Tensor] = []
+        parts = []
         if struct_dim > 0:
             parts.append(item_static_feats[..., :struct_dim])
         if self.cfg.item_cat_cardinalities:
@@ -195,9 +202,9 @@ class EDuRec(nn.Module):
             )
 
         if self.text_projection is None:
-            return item_feature_emb
+            return item_feature_emb, None
 
         text_start = struct_dim
         text_end = text_start + self.cfg.num_item_text_feats
         text_emb = self.text_projection(item_static_feats[..., text_start:text_end])
-        return self.item_content_norm(item_feature_emb + text_emb)
+        return item_feature_emb, text_emb
