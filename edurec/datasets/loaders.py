@@ -215,6 +215,12 @@ def load_doris() -> RawData:
         inplace=True,
     )
 
+    ratings_df[settings.RATING_COL] = pd.to_numeric(
+        ratings_df[settings.RATING_COL],
+        errors="coerce",
+    )
+    ratings_df = ratings_df.dropna(subset=[settings.RATING_COL]).reset_index(drop=True)
+
     start_year = (
         ratings_df[settings.TIME_COL]
         .astype("string")
