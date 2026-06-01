@@ -48,15 +48,6 @@ def train(
         print(f"[TRAIN] Removing sparse users: {remove_sparse}")
         print(f"[TRAIN] Minimum interactions per user: {min_interactions}")
 
-        if use_processed_data:
-            print(
-                f"[TRAIN] Using saved processed data from {settings.PROCESSED_FOLDER}"
-            )
-        else:
-            print(
-                f"[TRAIN] Processing raw data from {settings.DATA_FOLDER}/{dataset.value}"
-            )
-
     batch_size = settings.BATCH_SIZE if dataset != DatasetName.ITM else 32
 
     dm = ElearningDataModule(
@@ -70,6 +61,16 @@ def train(
         remove_sparse=remove_sparse,
         save_atomic_files=True,
     )
+
+    if settings.state["verbose"]:
+        if use_processed_data and dm.is_processed:
+            print(
+                f"[TRAIN] Using saved processed data from {settings.PROCESSED_FOLDER}"
+            )
+        else:
+            print(
+                f"[TRAIN] Processing raw data from {settings.DATA_FOLDER}/raw/{dataset.value}"
+            )
 
     dm.setup()
 
