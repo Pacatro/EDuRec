@@ -14,7 +14,6 @@ from .recsys import RecSys
 def train_model(
     model: RecSys,
     dm: ElearningDataModule,
-    top_k: int,
     debug: bool,
     use_logger: bool,
     epochs: int,

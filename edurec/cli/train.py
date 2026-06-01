@@ -114,7 +114,6 @@ def train(
     trainer, best_model_path = train_model(
         model=ranker,
         dm=dm,
-        top_k=top_k,
         debug=debug,
         use_logger=use_logger,
         epochs=epochs,
