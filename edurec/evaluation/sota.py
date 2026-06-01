@@ -44,7 +44,7 @@ def eval_sota_models(
             model=model,
             dataset_name=dataset_name,
             cfg_path=cfg_path,
-            config_dict=_config_for_model(model, base_config),
+            config_dict=_config_for_model(model, base_config, dm),
         )
         for model in models
     ]
@@ -69,7 +69,9 @@ def _run_model(
     return {"model": model, **result["test_result"]}
 
 
-def _config_for_model(model: str, base_config: dict[str, object]) -> dict[str, object]:
+def _config_for_model(
+    model: str, base_config: dict[str, object], dm: ElearningDataModule
+) -> dict[str, object]:
     config = dict(base_config)
     model_class = get_model(model)
     model_type = getattr(model_class, "type", None)

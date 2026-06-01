@@ -3,6 +3,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Callable, NamedTuple
 
+import numpy as np
 import pandas as pd
 
 from .. import settings
@@ -158,6 +159,8 @@ def load_itm() -> RawData:
         },
         inplace=True,
     )
+    # We add a time column to ensure that the data works for sequential models
+    ratings_df[settings.TIME_COL] = np.arange(len(ratings_df), dtype=np.int64)
     items_df.rename(columns={"Item": settings.ITEM_COL}, inplace=True)
     users_df.rename(columns={"UserID": settings.USER_COL}, inplace=True)
 
@@ -207,9 +210,20 @@ def load_doris() -> RawData:
             "StudedntId": settings.USER_COL,
             "CourseId": settings.ITEM_COL,
             "Score": settings.RATING_COL,
+            "AcademicYear": settings.TIME_COL,
         },
         inplace=True,
     )
+
+    start_year = (
+        ratings_df[settings.TIME_COL]
+        .astype("string")
+        .str.extract(r"^(\d{2})-", expand=False)
+    )
+    ratings_df[settings.TIME_COL] = pd.to_numeric("20" + start_year, errors="coerce")
+
+    ratings_df = ratings_df.dropna(subset=[settings.TIME_COL]).reset_index(drop=True)
+    ratings_df[settings.TIME_COL] = ratings_df[settings.TIME_COL].astype(np.int64)
     items_df.rename(
         columns={"CourseId": settings.ITEM_COL, "type": "item_type"}, inplace=True
     )
@@ -233,7 +247,7 @@ def load_doris() -> RawData:
         "inter": {
             "bin": [],
             "num": [],
-            "cat": ["academicyear", "semester", "coursecollage"],
+            "cat": ["semester", "coursecollege"],
             "text": ["coursename"],
             "list": [],
         },

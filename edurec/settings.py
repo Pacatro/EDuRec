@@ -93,7 +93,7 @@ SOTA_MODELS: list[str] = [
     # Advanced graph / contrastive models
     "SimpleX",
     "SGL",
-    "NCL",
+    # "NCL",
     # Sequential models
     "GRU4Rec",
     "NARM",

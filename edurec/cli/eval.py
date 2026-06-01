@@ -58,26 +58,6 @@ def eval_models(
             help="Early stopping patience used by all evaluated models.",
         ),
     ] = settings.PATIENCE,
-    val_size: Annotated[
-        float,
-        typer.Option(
-            "--val-size",
-            "-v",
-            min=0.0,
-            max=1.0,
-            help="Validation split ratio used by the EDuRec preprocessing.",
-        ),
-    ] = settings.VAL_RATIO,
-    test_size: Annotated[
-        float,
-        typer.Option(
-            "--test-size",
-            "-t",
-            min=0.0,
-            max=1.0,
-            help="Test split ratio used by the EDuRec preprocessing.",
-        ),
-    ] = settings.TEST_RATIO,
     topks: Annotated[
         list[int],
         typer.Option(
@@ -151,6 +131,8 @@ def eval_models(
 ) -> None:
     eval_topks = list(topks)
     val_topk = max(eval_topks)
+    val_ratio = 0.1
+    test_ratio = 0.1
 
     if settings.state["verbose"]:
         print(f"[EVAL] Dataset: {dataset.value}")
@@ -168,15 +150,15 @@ def eval_models(
         print(f"[EVAL] Load side features: {load_side_features}")
         print(f"[EVAL] Remove sparse users/items: {remove_sparse}")
         print(f"[EVAL] Min interactions: {min_interactions}")
-        print(f"[EVAL] Validation ratio: {val_size}")
-        print(f"[EVAL] Test ratio: {test_size}")
+        print(f"[EVAL] Validation ratio: {val_ratio}")
+        print(f"[EVAL] Test ratio: {test_ratio}")
         print(f"[EVAL] Adaptive k: {adaptive_k}")
 
     dm = ElearningDataModule(
         dataset=dataset,
         batch_size=batch_size,
-        test_ratio=test_size,
-        val_ratio=val_size,
+        test_ratio=test_ratio,
+        val_ratio=val_ratio,
         min_interactions=min_interactions,
         remove_sparse=remove_sparse,
         use_processed_data=use_processed_data,
@@ -230,7 +212,8 @@ def eval_models(
     print(results)
 
     restults_path = (
-        Path(settings.RESULTS_FOLDER) / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        Path(settings.RESULTS_FOLDER)
+        / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     )
 
     restults_path.mkdir(parents=True, exist_ok=True)
