@@ -15,9 +15,9 @@ def train(
     dataset: Annotated[DatasetName, typer.Option("--dataset", "-d")] = DatasetName.MARS,
     epochs: Annotated[int, typer.Option("--epochs", "-e")] = settings.EPOCHS,
     lr: Annotated[float, typer.Option("--lr", "-l")] = settings.LR,
-    batch_size: Annotated[
-        int, typer.Option("--batch_size", "-b")
-    ] = settings.BATCH_SIZE,
+    # batch_size: Annotated[
+    #     int, typer.Option("--batch_size", "-b")
+    # ] = settings.BATCH_SIZE,
     patience: Annotated[int, typer.Option("--patience", "-p")] = settings.PATIENCE,
     val_size: Annotated[float, typer.Option("--val_size", "-v")] = settings.VAL_RATIO,
     test_size: Annotated[
@@ -56,6 +56,8 @@ def train(
             print(
                 f"[TRAIN] Processing raw data from {settings.DATA_FOLDER}/{dataset.value}"
             )
+
+    batch_size = settings.BATCH_SIZE if dataset != DatasetName.ITM else 32
 
     dm = ElearningDataModule(
         dataset=dataset,
