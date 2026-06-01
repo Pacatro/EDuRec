@@ -21,13 +21,10 @@ dependencies = [
   "ray[tune]>=2.53.0",
   "numpy<2.0.0",
   "kmeans-pytorch>=0.3",
-  "wandb>=0.24.1",
   "torch-geometric>=2.7.0",
   "safetensors>=0.7.0",
   "joblib>=1.5.3",
-  "dotenv>=0.9.9",
   "sentence-transformers>=5.3.0",
-  "faiss-cpu>=1.13.2",
 ]
 
 [dependency-groups]
