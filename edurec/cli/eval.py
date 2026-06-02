@@ -1,6 +1,5 @@
 from pathlib import Path
 from typing import Annotated
-from datetime import datetime
 
 import pandas as pd
 import typer
