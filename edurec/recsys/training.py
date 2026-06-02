@@ -2,31 +2,29 @@ from pathlib import Path
 from typing import cast
 
 import lightning as L
-import torch
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
+import torch
 
 from .. import settings
 from ..datasets import ElearningDataModule
-from .recsys import RecSys
 
 
 def train_model(
-    model: RecSys,
+    model: L.LightningModule,
     dm: ElearningDataModule,
     debug: bool,
     use_logger: bool,
     epochs: int,
     patience: int,
     monitor: str,
+    compile: bool = settings.COMPILE_MODEL,
+    verbose: bool = False,
 ) -> tuple[L.Trainer, Path]:
     model_name = model.model_name
 
-    model = (
-        cast(RecSys, torch.compile(model))
-        if not debug and settings.COMPILE_MODEL
-        else model
-    )
+    if compile:
+        model = cast(L.LightningModule, torch.compile(model))
 
     early_stopping = EarlyStopping(
         monitor=monitor,
@@ -60,6 +58,7 @@ def train_model(
         log_every_n_steps=10,
         callbacks=[early_stopping, checkpoint],
         fast_dev_run=debug,
+        enable_progress_bar=verbose,
     )
 
     trainer.fit(model, datamodule=dm)
