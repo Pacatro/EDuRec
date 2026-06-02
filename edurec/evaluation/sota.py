@@ -37,15 +37,17 @@ def eval_sota_models(
         show_progress=show_progress,
     )
 
-    results = [
-        _run_model(
+    results = []
+
+    for model in models:
+        print(f"[EVAL] Evaluating {model}...")
+        result = _run_model(
             model=model,
             dataset_name=dataset_name,
             cfg_path=cfg_path,
             config_dict=_config_for_model(model, base_config),
         )
-        for model in models
-    ]
+        results.append(result)
 
     return pd.DataFrame(results)
 
