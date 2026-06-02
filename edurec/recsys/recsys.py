@@ -136,25 +136,29 @@ class RecSys(L.LightningModule):
 
         loss = rank_loss + self.alpha * gcl_loss
 
-        self.log(
-            f"{prefix}/RankLoss",
-            rank_loss,
-            prog_bar=(prefix == "train"),
-            logger=(prefix == "train"),
-        )
-        self.log(
-            f"{prefix}/GclLoss",
-            gcl_loss,
-            prog_bar=(prefix == "train"),
-            logger=(prefix == "train"),
-        )
-        self.log(
-            f"{prefix}/Loss",
-            loss,
-            on_step=(prefix == "train"),
-            prog_bar=True,
-            logger=(prefix == "train"),
-        )
+        if prefix == "train":
+            self.log(
+                f"{prefix}/RankLoss",
+                rank_loss.detach(),
+                prog_bar=True,
+                logger=True,
+                sync_dist=True,
+            )
+            self.log(
+                f"{prefix}/GclLoss",
+                gcl_loss.detach(),
+                prog_bar=True,
+                logger=True,
+                sync_dist=True,
+            )
+            self.log(
+                f"{prefix}/Loss",
+                loss.detach(),
+                on_step=True,
+                prog_bar=True,
+                logger=True,
+                sync_dist=True,
+            )
 
         if ranking_metrics is not None:
             targets = torch.zeros_like(scores, dtype=torch.bool)
@@ -212,7 +216,7 @@ class RecSys(L.LightningModule):
         self.val_ranking_metrics.reset()
 
     def on_validation_epoch_end(self):
-        self.log_dict(self.val_ranking_metrics.compute())
+        self.log_dict(self.val_ranking_metrics.compute(), sync_dist=True)
 
     def on_test_epoch_start(self):
         if self.test_ranking_metrics:
@@ -220,7 +224,7 @@ class RecSys(L.LightningModule):
 
     def on_test_epoch_end(self):
         if self.test_ranking_metrics:
-            self.log_dict(self.test_ranking_metrics.compute())
+            self.log_dict(self.test_ranking_metrics.compute(), sync_dist=True)
 
     def predict_step(self, batch: RecSysQuery) -> torch.Tensor:
         return self(batch)
