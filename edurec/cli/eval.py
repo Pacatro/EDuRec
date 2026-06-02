@@ -211,11 +211,6 @@ def eval_models(
 
     print(results)
 
-    restults_path = (
-        Path(settings.RESULTS_FOLDER)
-        / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    )
-
+    restults_path = Path(settings.RESULTS_FOLDER)
     restults_path.mkdir(parents=True, exist_ok=True)
-
     results.to_csv(restults_path / f"{dataset.value}.csv")

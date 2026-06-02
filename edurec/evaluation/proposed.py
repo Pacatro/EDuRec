@@ -20,7 +20,6 @@ def eval_proposed_model(
     trainer, _ = train_model(
         model=ranker,
         dm=dm,
-        top_k=val_topk,
         debug=False,
         use_logger=False,
         epochs=epochs,
