@@ -20,6 +20,7 @@ def eval_sota_models(
     batch_size: int = settings.BATCH_SIZE,
     patience: int = settings.PATIENCE,
     topks: list[int] | None = None,
+    results_path: Path | None = None,
     show_progress: bool = False,
 ) -> pd.DataFrame:
     dataset_name = dm.dataset_name.value
@@ -47,6 +48,10 @@ def eval_sota_models(
             cfg_path=cfg_path,
             config_dict=_config_for_model(model, base_config),
         )
+
+        if results_path is not None:
+            pd.DataFrame([result]).to_csv(results_path / f"{model}.csv", index=True)
+
         results.append(result)
 
     return pd.DataFrame(results)

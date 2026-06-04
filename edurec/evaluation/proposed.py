@@ -1,4 +1,8 @@
+from pathlib import Path
+
 from edurec import settings
+
+import pandas as pd
 
 from ..datasets import ElearningDataModule
 from ..recsys import EDuRecConfig, RecSys, train_model
@@ -11,8 +15,9 @@ def eval_model(
     val_topk: int,
     patience: int,
     compile: bool = settings.COMPILE_MODEL,
+    results_path: Path | None = None,
     verbose: bool = False,
-) -> dict[str, float | str]:
+) -> pd.DataFrame:
     recsys = RecSys(
         cfg=cfg,
         inter_graph=dm.build_inter_graph(),
@@ -35,4 +40,9 @@ def eval_model(
 
     metrics = trainer.test(ckpt_path="best", datamodule=dm, weights_only=False)[0]
     metrics = {name.removeprefix("test/"): value for name, value in metrics.items()}
-    return {"model": "EDuRec", **metrics}
+    results = pd.DataFrame([{"model": "EDuRec", **metrics}])
+
+    if results_path is not None:
+        results.to_csv(results_path / "EDuRec.csv", index=True)
+
+    return results

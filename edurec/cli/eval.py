@@ -136,6 +136,10 @@ def eval_models(
         "%Y%m%d_%H%M%S"
     )
     results_path.mkdir(parents=True, exist_ok=True)
+
+    artifacts_path = results_path / "artifacts"
+    artifacts_path.mkdir(parents=True, exist_ok=True)
+
     sota_label = ", ".join(sota_models) if sota_models else "none"
 
     print("\n[EVAL] Evaluation run")
@@ -230,6 +234,7 @@ def eval_models(
             val_topk=val_topk,
             patience=patience,
             verbose=settings.state["verbose"],
+            results_path=artifacts_path,
         )
 
         print(f"[EVAL] Running SOTA models ({len(sota_models)}): {sota_label}")
@@ -243,10 +248,11 @@ def eval_models(
             patience=patience,
             topks=eval_topks,
             show_progress=settings.state["verbose"],
+            results_path=artifacts_path,
         )
 
         results = pd.concat(
-            [pd.DataFrame([proposed_results]), sota_results],
+            [proposed_results, sota_results],
             ignore_index=True,
             sort=False,
         )
