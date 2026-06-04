@@ -129,7 +129,11 @@ def eval_models(
     datasets = (
         [dataset]
         if dataset is not None
-        else [DatasetName.MARS, DatasetName.ITM, DatasetName.DORIS]
+        else [
+            DatasetName.MARS,
+            DatasetName.ITM,
+            DatasetName.DORIS,
+        ]
     )
 
     results_path = Path(settings.RESULTS_FOLDER) / datetime.now().strftime(
