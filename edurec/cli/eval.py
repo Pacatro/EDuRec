@@ -130,7 +130,7 @@ def eval_models(
         [dataset]
         if dataset is not None
         else [
-            DatasetName.MARS,
+            # DatasetName.MARS,
             DatasetName.ITM,
             DatasetName.DORIS,
         ]
