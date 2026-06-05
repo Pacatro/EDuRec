@@ -77,28 +77,15 @@ TOP_KS: list[int] = [5, 10, 20]
 # SOTA MODELS
 SOTA_MODELS: list[str] = [
     # Baselines
-    "Random",
-    "Pop",
     "ItemKNN",
     # Collaborative filtering / neural CF
-    "BPR",
     "NeuMF",
     "LightGCN",
-    "NGCF",
     # Autoencoder / linear models
     "MultiVAE",
-    "RecVAE",
-    "EASE",
-    "SLIMElastic",
     # Advanced graph / contrastive models
-    "SimpleX",
     "SGL",
-    # "NCL",
     # Sequential models
-    "GRU4Rec",
-    "NARM",
     "SASRec",
     "BERT4Rec",
-    "CORE",
-    "LightSANs",
 ]
