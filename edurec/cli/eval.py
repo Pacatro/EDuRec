@@ -141,9 +141,6 @@ def eval_models(
     )
     results_path.mkdir(parents=True, exist_ok=True)
 
-    artifacts_path = results_path / "artifacts"
-    artifacts_path.mkdir(parents=True, exist_ok=True)
-
     sota_label = ", ".join(sota_models) if sota_models else "none"
 
     print("\n[EVAL] Evaluation run")
@@ -233,6 +230,9 @@ def eval_models(
 
         dataset_started_at = datetime.now()
 
+        artifacts_path = results_path / dataset.value / "artifacts"
+        artifacts_path.mkdir(parents=True, exist_ok=True)
+
         proposed_results = eval_model(
             dm=dm,
             cfg=cfg,
@@ -263,7 +263,7 @@ def eval_models(
             sort=False,
         )
 
-        csv_path = results_path / f"{dataset.value}.csv"
+        csv_path = results_path / dataset.value / "final_results.csv"
         results.to_csv(csv_path, index=False)
 
         metric_cols = [col for col in results.columns if col != "model"]
