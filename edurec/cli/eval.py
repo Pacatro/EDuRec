@@ -150,7 +150,7 @@ def eval_models(
     print(f"[EVAL] Top-k: {eval_topks} | val@{val_topk}\n")
 
     for dataset_idx, dataset in enumerate(datasets, start=1):
-        batch_size = settings.BATCH_SIZE if dataset != DatasetName.ITM else 64
+        batch_size = settings.BATCH_SIZE if dataset != DatasetName.ITM else 32
         print(f"[EVAL] [{dataset_idx}/{len(datasets)}] Dataset: {dataset.value}")
         print(f"[EVAL] Models: EDuRec, {sota_label}")
         print("[EVAL] Preparing data...")
