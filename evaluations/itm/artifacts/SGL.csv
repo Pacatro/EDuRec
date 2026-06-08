@@ -1,0 +1,2 @@
+,model,recall@5,recall@10,recall@20,mrr@5,mrr@10,mrr@20,ndcg@5,ndcg@10,ndcg@20,hit@5,hit@10,hit@20,precision@5,precision@10,precision@20,map@5,map@10,map@20
+0,SGL,0.5,0.6667,0.8333,0.5,0.5208,0.5347,0.5,0.5526,0.5976,0.5,0.6667,0.8333,0.1,0.0667,0.0417,0.5,0.5208,0.5347

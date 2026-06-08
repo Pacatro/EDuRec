@@ -1,0 +1,2 @@
+,model,recall@5,recall@10,recall@20,mrr@5,mrr@10,mrr@20,ndcg@5,ndcg@10,ndcg@20,hit@5,hit@10,hit@20,precision@5,precision@10,precision@20,map@5,map@10,map@20
+0,NeuMF,0.0494,0.0957,0.1733,0.0977,0.118,0.1313,0.0514,0.0718,0.1037,0.2048,0.3595,0.5537,0.0457,0.045,0.0413,0.0276,0.0326,0.0407
