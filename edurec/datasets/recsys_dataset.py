@@ -8,7 +8,7 @@ from .. import settings
 from .user_history import UserHistory
 
 
-class RankingQuery(NamedTuple):
+class RecSysQuery(NamedTuple):
     query_id: torch.Tensor
     user_id: torch.Tensor
     history_items: torch.Tensor
@@ -39,8 +39,8 @@ class RecSysDataset(Dataset):
     def __len__(self) -> int:
         return len(self.user_ids)
 
-    def __getitem__(self, idx: int) -> RankingQuery:
-        return RankingQuery(
+    def __getitem__(self, idx: int) -> RecSysQuery:
+        return RecSysQuery(
             query_id=torch.tensor(idx, dtype=torch.long),
             user_id=torch.tensor(int(self.user_ids[idx]), dtype=torch.long),
             history_items=self.history_items[idx],

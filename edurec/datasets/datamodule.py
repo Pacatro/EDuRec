@@ -18,7 +18,7 @@ from .preprocessing import (
     preprocess,
     split_data,
 )
-from .ranker_dataset import RecSysDataset
+from .recsys_dataset import RecSysDataset
 from .user_history import UserHistory, build_histories
 
 
@@ -262,14 +262,14 @@ class ElearningDataModule(L.LightningDataModule):
 
     @property
     def num_users(self) -> int:
-        if self.u_static_feats is not None:
-            return self.u_static_feats.shape[0]
+        if self.artifacts.u_static_feats is not None:
+            return self.artifacts.u_static_feats.shape[0]
         return 0 if self.raw_dataset is None else len(self.raw_dataset.user_features)
 
     @property
     def num_items(self) -> int:
-        if self.i_static_feats is not None:
-            return self.i_static_feats.shape[0]
+        if self.artifacts.i_static_feats is not None:
+            return self.artifacts.i_static_feats.shape[0]
         return 0 if self.raw_dataset is None else len(self.raw_dataset.item_features)
 
     @property

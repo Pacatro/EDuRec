@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Annotated
 
 import typer
@@ -43,19 +44,29 @@ def train(
         str, typer.Option("--models-folder", "-M")
     ] = settings.MODELS_FOLDER,
 ) -> None:
-    if settings.state["verbose"]:
-        print(f"[TRAIN] Using dataset {dataset.value}")
-        print(f"[TRAIN] Removing sparse users: {remove_sparse}")
-        print(f"[TRAIN] Minimum interactions per user: {min_interactions}")
+    started_at = datetime.now()
+    monitor_metric = f"val/ndcg@{top_k}"
 
-        if use_processed_data:
-            print(
-                f"[TRAIN] Using saved processed data from {settings.PROCESSED_FOLDER}"
-            )
-        else:
-            print(
-                f"[TRAIN] Processing raw data from {settings.DATA_FOLDER}/{dataset.value}"
-            )
+    print("\n[TRAIN] Training run")
+    print(f"[TRAIN] Dataset: {dataset.value}")
+    print("[TRAIN] Model: EDuRec")
+    print(f"[TRAIN] Monitor: {monitor_metric}")
+    print(f"[TRAIN] Save model: {save}")
+    print("[TRAIN] Preparing data...")
+
+    if settings.state["verbose"]:
+        print(
+            "[TRAIN] Config: "
+            f"epochs={epochs}, lr={lr}, batch_size={batch_size}, "
+            f"patience={patience}, adaptive_k={adaptive_k}, debug={debug}, "
+            f"use_logger={use_logger}"
+        )
+        print(
+            "[TRAIN] Data config: "
+            f"use_processed={use_processed_data}, remove_sparse={remove_sparse}, "
+            f"min_interactions={min_interactions}, "
+            f"val_ratio={val_size}, test_ratio={test_size}"
+        )
 
     dm = ElearningDataModule(
         dataset=dataset,
@@ -69,25 +80,45 @@ def train(
         save_atomic_files=True,
     )
 
+    if settings.state["verbose"]:
+        if use_processed_data and dm.is_processed:
+            print(
+                f"[TRAIN] Using saved processed data from {settings.PROCESSED_FOLDER}"
+            )
+        else:
+            print(
+                f"[TRAIN] Processing raw data from {settings.DATA_FOLDER}/raw/{dataset.value}"
+            )
+
     dm.setup()
 
+    split_sizes = {
+        split: len(getattr(dm.artifacts, split))
+        for split in ("train", "val", "test")
+        if getattr(dm.artifacts, split) is not None
+    }
+
+    print(
+        "[TRAIN] Data ready: "
+        f"users={dm.num_users}, items={dm.num_items}, "
+        f"interactions={dm.num_interactions}, sparsity={dm.sparsity:.4f}"
+    )
+    print(
+        "[TRAIN] Splits: "
+        + ", ".join(f"{split}={size}" for split, size in split_sizes.items())
+    )
+
     if settings.state["verbose"]:
-        print(f"[TRAIN] Dataset sparsity before preprocessing: {dm.sparsity}")
-        print(f"[TRAIN] Number of users before preprocessing: {dm.num_users}")
-        print(f"[TRAIN] Number of items before preprocessing: {dm.num_items}")
-        print(f"[TRAIN] Number of interactions: {dm.num_interactions}")
-        print(f"[TRAIN] Number of user features: {dm.num_user_feats}")
-        print(f"[TRAIN] Number of item features: {dm.num_item_feats}")
-        print(f"[TRAIN] Number of interactions context features: {dm.num_ctx_feats}")
-        print(f"[TRAIN] Epochs: {epochs}")
-        print(f"[TRAIN] Learning rate: {lr}")
-        print(f"[TRAIN] Batch size: {batch_size}")
-        print(f"[TRAIN] Patience: {patience}")
-        print(f"[TRAIN] Use processed cache: {use_processed_data}")
-        print(f"[TRAIN] Remove sparse users/items: {remove_sparse}")
-        print(f"[TRAIN] Min interactions: {min_interactions}")
-        print(f"[TRAIN] Validation ratio: {val_size}")
-        print(f"[TRAIN] Test ratio: {test_size}")
+        print(
+            "[TRAIN] Features: "
+            f"context={dm.train_ds.num_ctx_feats}, "
+            f"user_dense={dm.num_user_dense_feats}, "
+            f"item_dense={dm.num_item_dense_feats}, "
+            f"user_text={dm.num_user_text_feats}, "
+            f"item_text={dm.num_item_text_feats}, "
+            f"user_cat={len(dm.user_cat_cardinalities)}, "
+            f"item_cat={len(dm.item_cat_cardinalities)}"
+        )
 
     cfg = EDuRecConfig(
         num_users=dm.num_users,
@@ -101,6 +132,7 @@ def train(
         item_cat_cardinalities=dm.item_cat_cardinalities,
         lr=lr,
         adaptive_k=adaptive_k,
+        topks=settings.TOP_KS,
     )
 
     ranker = RecSys(
@@ -110,22 +142,35 @@ def train(
         i_static_feats=dm.i_static_feats,
     )
 
+    print("[TRAIN] Training EDuRec...")
     trainer, best_model_path = train_model(
         model=ranker,
         dm=dm,
-        top_k=top_k,
         debug=debug,
         use_logger=use_logger,
         epochs=epochs,
         patience=patience,
-        monitor=f"val/ndcg@{top_k}",
+        monitor=monitor_metric,
+        verbose=settings.state["verbose"],
     )
 
     if debug:
-        print("[TRAIN] Debug mode: Skipping evaluation")
+        elapsed = str(datetime.now() - started_at).split(".", maxsplit=1)[0]
+        print("[TRAIN] Debug mode: skipping evaluation")
+        print(f"[TRAIN] Finished {dataset.value} in {elapsed}\n")
         return
 
+    print("[TRAIN] Testing best checkpoint...")
     metrics = trainer.test(ckpt_path="best", datamodule=dm, weights_only=False)[0]
+    elapsed = str(datetime.now() - started_at).split(".", maxsplit=1)[0]
+
+    print("[TRAIN] Test metrics:")
+    for name, value in sorted(metrics.items()):
+        if isinstance(value, float):
+            print(f"[TRAIN]   {name}: {value:.4f}")
+        else:
+            print(f"[TRAIN]   {name}: {value}")
+    print(f"[TRAIN] Best checkpoint: {best_model_path}")
 
     if save and trainer.is_global_zero:
         model_file_path, model_config_path, metrics_path = save_model(
@@ -136,7 +181,8 @@ def train(
             metrics=metrics,
         )
 
-        if settings.state["verbose"]:
-            print(f"Model weights saved in: {model_file_path}")
-            print(f"Model config saved in: {model_config_path}")
-            print(f"Metrics saved in: {metrics_path}")
+        print(f"[TRAIN] Model weights saved: {model_file_path}")
+        print(f"[TRAIN] Model config saved: {model_config_path}")
+        print(f"[TRAIN] Metrics saved: {metrics_path}")
+
+    print(f"[TRAIN] Finished {dataset.value} in {elapsed}\n")

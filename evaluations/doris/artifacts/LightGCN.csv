@@ -1,0 +1,2 @@
+,model,recall@5,recall@10,recall@20,mrr@5,mrr@10,mrr@20,ndcg@5,ndcg@10,ndcg@20,hit@5,hit@10,hit@20,precision@5,precision@10,precision@20,map@5,map@10,map@20
+0,LightGCN,0.0515,0.1069,0.1981,0.1024,0.1242,0.1394,0.0539,0.0798,0.1179,0.2007,0.3682,0.5853,0.0461,0.0491,0.0471,0.0302,0.0382,0.0486

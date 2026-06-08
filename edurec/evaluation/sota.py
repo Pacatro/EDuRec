@@ -20,7 +20,7 @@ def eval_sota_models(
     batch_size: int = settings.BATCH_SIZE,
     patience: int = settings.PATIENCE,
     topks: list[int] | None = None,
-    load_side_features: bool = False,
+    results_path: Path | None = None,
     show_progress: bool = False,
 ) -> pd.DataFrame:
     dataset_name = dm.dataset_name.value
@@ -35,19 +35,24 @@ def eval_sota_models(
         lr=lr,
         patience=patience,
         topks=topks or settings.TOP_KS,
-        load_side_features=load_side_features,
         show_progress=show_progress,
     )
 
-    results = [
-        _run_model(
+    results = []
+
+    for model in models:
+        print(f"[EVAL] Evaluating {model}...")
+        result = _run_model(
             model=model,
             dataset_name=dataset_name,
             cfg_path=cfg_path,
             config_dict=_config_for_model(model, base_config),
         )
-        for model in models
-    ]
+
+        if results_path is not None:
+            pd.DataFrame([result]).to_csv(results_path / f"{model}.csv", index=True)
+
+        results.append(result)
 
     return pd.DataFrame(results)
 
@@ -114,14 +119,12 @@ def _build_config_dict(
     lr: float,
     patience: int,
     topks: list[int],
-    load_side_features: bool = False,
     show_progress: bool = False,
 ) -> dict[str, object]:
     load_col = {"inter": [settings.USER_COL, settings.ITEM_COL]}
 
-    if load_side_features:
-        load_col["user"] = _field_names(atomic_dataset_dir / f"{dataset_name}.user")
-        load_col["item"] = _field_names(atomic_dataset_dir / f"{dataset_name}.item")
+    load_col["user"] = _field_names(atomic_dataset_dir / f"{dataset_name}.user")
+    load_col["item"] = _field_names(atomic_dataset_dir / f"{dataset_name}.item")
 
     return {
         "data_path": str(data_root),
@@ -154,6 +157,8 @@ def _build_config_dict(
         "metric_decimal_place": 4,
         "embedding_size": settings.EMB_DIM,
         "show_progress": show_progress,
+        "state": "info" if show_progress else "error",
+        "log_wandb": False,
     }
 
 

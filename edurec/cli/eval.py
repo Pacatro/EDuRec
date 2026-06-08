@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -6,7 +7,7 @@ import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
-from ..evaluation import eval_proposed_model, eval_sota_models
+from ..evaluation import eval_model, eval_sota_models
 from ..recsys import EDuRecConfig
 
 app = typer.Typer(no_args_is_help=True)
@@ -18,9 +19,9 @@ app = typer.Typer(no_args_is_help=True)
 )
 def eval_models(
     dataset: Annotated[
-        DatasetName,
+        DatasetName | None,
         typer.Option("--dataset", "-d", help="Dataset to use."),
-    ] = DatasetName.MARS,
+    ] = None,
     epochs: Annotated[
         int,
         typer.Option(
@@ -57,26 +58,6 @@ def eval_models(
             help="Early stopping patience used by all evaluated models.",
         ),
     ] = settings.PATIENCE,
-    val_size: Annotated[
-        float,
-        typer.Option(
-            "--val-size",
-            "-v",
-            min=0.0,
-            max=1.0,
-            help="Validation split ratio used by the EDuRec preprocessing.",
-        ),
-    ] = settings.VAL_RATIO,
-    test_size: Annotated[
-        float,
-        typer.Option(
-            "--test-size",
-            "-t",
-            min=0.0,
-            max=1.0,
-            help="Test split ratio used by the EDuRec preprocessing.",
-        ),
-    ] = settings.TEST_RATIO,
     topks: Annotated[
         list[int],
         typer.Option(
@@ -111,14 +92,6 @@ def eval_models(
             help="Reuse cached processed data when available.",
         ),
     ] = settings.SAVE_DATA,
-    load_side_features: Annotated[
-        bool,
-        typer.Option(
-            "--side-features/--no-side-features",
-            "-S/-X",
-            help="Load RecBole .user and .item atomic files in addition to .inter files.",
-        ),
-    ] = False,
     cfg_path: Annotated[
         Path | None,
         typer.Option(
@@ -150,82 +123,159 @@ def eval_models(
 ) -> None:
     eval_topks = list(topks)
     val_topk = max(eval_topks)
+    val_ratio = 0.1
+    test_ratio = 0.1
 
-    if settings.state["verbose"]:
-        print(f"[EVAL] Dataset: {dataset.value}")
-        print("[EVAL] Proposed model: EDuRec")
-        print(f"[EVAL] SOTA models: {', '.join(sota_models)}")
-        if cfg_path is not None:
-            print(f"[EVAL] Extra RecBole config: {cfg_path}")
-        print(f"[EVAL] Epochs: {epochs}")
-        print(f"[EVAL] Learning rate: {lr}")
-        print(f"[EVAL] Batch size: {batch_size}")
-        print(f"[EVAL] Patience: {patience}")
-        print(f"[EVAL] Top-k values: {eval_topks}")
-        print(f"[EVAL] Validation top-k: {val_topk}")
-        print(f"[EVAL] Use processed cache: {use_processed_data}")
-        print(f"[EVAL] Load side features: {load_side_features}")
-        print(f"[EVAL] Remove sparse users/items: {remove_sparse}")
-        print(f"[EVAL] Min interactions: {min_interactions}")
-        print(f"[EVAL] Validation ratio: {val_size}")
-        print(f"[EVAL] Test ratio: {test_size}")
-        print(f"[EVAL] Adaptive k: {adaptive_k}")
-
-    dm = ElearningDataModule(
-        dataset=dataset,
-        batch_size=batch_size,
-        test_ratio=test_size,
-        val_ratio=val_size,
-        min_interactions=min_interactions,
-        remove_sparse=remove_sparse,
-        use_processed_data=use_processed_data,
-        save_atomic_files=True,
-        random_state=settings.state["random_state"],
+    datasets = (
+        [dataset]
+        if dataset is not None
+        else [
+            # DatasetName.MARS,
+            DatasetName.ITM,
+            DatasetName.DORIS,
+        ]
     )
 
-    dm.setup()
-
-    cfg = EDuRecConfig(
-        num_users=dm.num_users,
-        num_items=dm.num_items,
-        num_ctx_feats=dm.train_ds.num_ctx_feats,
-        num_user_dense_feats=dm.num_user_dense_feats,
-        num_item_dense_feats=dm.num_item_dense_feats,
-        num_user_text_feats=dm.num_user_text_feats,
-        num_item_text_feats=dm.num_item_text_feats,
-        user_cat_cardinalities=dm.user_cat_cardinalities,
-        item_cat_cardinalities=dm.item_cat_cardinalities,
+    results_path = Path(settings.RESULTS_FOLDER) / datetime.now().strftime(
+        "%Y%m%d_%H%M%S"
     )
+    results_path.mkdir(parents=True, exist_ok=True)
 
-    proposed_results = eval_proposed_model(
-        dm=dm,
-        cfg=cfg,
-        epochs=epochs,
-        lr=lr,
-        topks=eval_topks,
-        val_topk=val_topk,
-        patience=patience,
-        adaptive_k=adaptive_k,
-    )
+    sota_label = ", ".join(sota_models) if sota_models else "none"
 
-    sota_results = eval_sota_models(
-        models=sota_models,
-        dm=dm,
-        cfg_path=cfg_path,
-        epochs=epochs,
-        lr=lr,
-        batch_size=batch_size,
-        patience=patience,
-        topks=eval_topks,
-        load_side_features=load_side_features,
-    )
+    print("\n[EVAL] Evaluation run")
+    print(f"[EVAL] Datasets: {', '.join(ds.value for ds in datasets)}")
+    print(f"[EVAL] Models: EDuRec + {len(sota_models)} SOTA")
+    print(f"[EVAL] Results folder: {results_path}")
+    print(f"[EVAL] Top-k: {eval_topks} | val@{val_topk}\n")
 
-    results = pd.concat(
-        [pd.DataFrame([proposed_results]), sota_results],
-        ignore_index=True,
-        sort=False,
-    )
+    for dataset_idx, dataset in enumerate(datasets, start=1):
+        batch_size = settings.BATCH_SIZE if dataset != DatasetName.ITM else 32
+        print(f"[EVAL] [{dataset_idx}/{len(datasets)}] Dataset: {dataset.value}")
+        print(f"[EVAL] Models: EDuRec, {sota_label}")
+        print("[EVAL] Preparing data...")
 
-    print(results)
+        if settings.state["verbose"]:
+            if cfg_path is not None:
+                print(f"[EVAL] Extra RecBole config: {cfg_path}")
+            print(
+                "[EVAL] Config: "
+                f"epochs={epochs}, lr={lr}, batch_size={batch_size}, "
+                f"patience={patience}, adaptive_k={adaptive_k}"
+            )
+            print(
+                "[EVAL] Data config: "
+                f"use_processed={use_processed_data}, remove_sparse={remove_sparse}, "
+                f"min_interactions={min_interactions}, "
+                f"val_ratio={val_ratio}, test_ratio={test_ratio}"
+            )
 
-    results.to_csv(Path(settings.RESULTS_FOLDER) / f"{dataset.value}.csv")
+        dm = ElearningDataModule(
+            dataset=dataset,
+            batch_size=batch_size,
+            test_ratio=test_ratio,
+            val_ratio=val_ratio,
+            min_interactions=min_interactions,
+            remove_sparse=remove_sparse,
+            use_processed_data=use_processed_data,
+            save_atomic_files=True,
+            random_state=settings.state["random_state"],
+        )
+
+        dm.setup()
+
+        split_sizes = {
+            split: len(getattr(dm.artifacts, split))
+            for split in ("train", "val", "test")
+            if getattr(dm.artifacts, split) is not None
+        }
+        print(
+            "[EVAL] Data ready: "
+            f"users={dm.num_users:,}, items={dm.num_items:,}, "
+            f"interactions={dm.num_interactions:,}, "
+            f"sparsity={dm.sparsity:.4f}"
+        )
+        print(
+            "[EVAL] Splits: "
+            + ", ".join(f"{split}={size:,}" for split, size in split_sizes.items())
+        )
+        if settings.state["verbose"]:
+            print(
+                "[EVAL] Features: "
+                f"context={dm.train_ds.num_ctx_feats}, "
+                f"user_dense={dm.num_user_dense_feats}, "
+                f"item_dense={dm.num_item_dense_feats}, "
+                f"user_text={dm.num_user_text_feats}, "
+                f"item_text={dm.num_item_text_feats}, "
+                f"user_cat={len(dm.user_cat_cardinalities)}, "
+                f"item_cat={len(dm.item_cat_cardinalities)}"
+            )
+
+        cfg = EDuRecConfig(
+            num_users=dm.num_users,
+            num_items=dm.num_items,
+            num_ctx_feats=dm.train_ds.num_ctx_feats,
+            num_user_dense_feats=dm.num_user_dense_feats,
+            num_item_dense_feats=dm.num_item_dense_feats,
+            num_user_text_feats=dm.num_user_text_feats,
+            num_item_text_feats=dm.num_item_text_feats,
+            user_cat_cardinalities=dm.user_cat_cardinalities,
+            item_cat_cardinalities=dm.item_cat_cardinalities,
+            lr=lr,
+            adaptive_k=adaptive_k,
+            topks=eval_topks,
+        )
+
+        print("[EVAL] Running proposed model: EDuRec")
+
+        dataset_started_at = datetime.now()
+
+        artifacts_path = results_path / dataset.value / "artifacts"
+        artifacts_path.mkdir(parents=True, exist_ok=True)
+
+        proposed_results = eval_model(
+            dm=dm,
+            cfg=cfg,
+            epochs=epochs,
+            val_topk=val_topk,
+            patience=patience,
+            verbose=settings.state["verbose"],
+            results_path=artifacts_path,
+        )
+
+        print(f"[EVAL] Running SOTA models ({len(sota_models)}): {sota_label}")
+        sota_results = eval_sota_models(
+            models=sota_models,
+            dm=dm,
+            cfg_path=cfg_path,
+            epochs=epochs,
+            lr=lr,
+            batch_size=batch_size,
+            patience=patience,
+            topks=eval_topks,
+            show_progress=settings.state["verbose"],
+            results_path=artifacts_path,
+        )
+
+        results = pd.concat(
+            [proposed_results, sota_results],
+            ignore_index=True,
+            sort=False,
+        )
+
+        csv_path = results_path / dataset.value / "final_results.csv"
+        results.to_csv(csv_path, index=False)
+
+        metric_cols = [col for col in results.columns if col != "model"]
+        preferred_cols = ["model"] + sorted(
+            metric_cols,
+            key=lambda col: (
+                col.split("@", maxsplit=1)[-1].zfill(4) if "@" in col else "0000",
+                col,
+            ),
+        )
+        elapsed = str(datetime.now() - dataset_started_at).split(".", maxsplit=1)[0]
+        print("[EVAL] Results:")
+        print(results[preferred_cols].round(4).to_string(index=False))
+        print(f"[EVAL] Saved: {csv_path}")
+        print(f"[EVAL] Finished {dataset.value} in {elapsed}\n")
