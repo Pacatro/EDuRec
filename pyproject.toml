@@ -25,6 +25,7 @@ dependencies = [
   "safetensors>=0.7.0",
   "joblib>=1.5.3",
   "sentence-transformers>=5.3.0",
+  "optuna>=4.9.0",
 ]
 
 [dependency-groups]

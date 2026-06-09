@@ -130,14 +130,16 @@ def eval_models(
         [dataset]
         if dataset is not None
         else [
-            # DatasetName.MARS,
+            DatasetName.MARS,
             DatasetName.ITM,
             DatasetName.DORIS,
         ]
     )
 
-    results_path = Path(settings.RESULTS_FOLDER) / datetime.now().strftime(
-        "%Y%m%d_%H%M%S"
+    results_path = (
+        Path(settings.RESULTS_FOLDER)
+        / "evaluations"
+        / datetime.now().strftime("%Y%m%d_%H%M%S")
     )
     results_path.mkdir(parents=True, exist_ok=True)
 

@@ -18,13 +18,13 @@ class EDuRecConfig:
     num_users: int
     num_items: int
     num_ctx_feats: int
+    num_user_dense_feats: int
+    num_item_dense_feats: int
+    num_user_text_feats: int
+    num_item_text_feats: int
+    user_cat_cardinalities: list[int]
+    item_cat_cardinalities: list[int]
     emb_dim: int = settings.EMB_DIM
-    num_user_dense_feats: int = 0
-    num_item_dense_feats: int = 0
-    num_user_text_feats: int = 0
-    num_item_text_feats: int = 0
-    user_cat_cardinalities: list[int] = field(default_factory=list)
-    item_cat_cardinalities: list[int] = field(default_factory=list)
     use_item_bias: bool = True
     dropout: float = settings.DROPOUT
 
@@ -104,13 +104,15 @@ class EDuRecConfig:
             dropout=self.dropout,
         )
 
-    def save(self, path: Path) -> None:
+    def save(self, path: Path | str) -> None:
+        path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:
             yaml.dump(asdict(self), f)
 
     @classmethod
-    def load(cls, path: Path) -> Self:
+    def load(cls, path: Path | str) -> Self:
+        path = Path(path)
         if not path.exists():
             raise FileNotFoundError(f"Config file not found: {path}")
 

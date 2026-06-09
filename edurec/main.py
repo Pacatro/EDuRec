@@ -6,7 +6,7 @@ import torch
 import typer
 
 from . import settings
-from .cli import dataset_app, eval_app, test_app, train_app
+from .cli import dataset_app, eval_app, test_app, train_app, optim_app
 
 # Ignore pandas future warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -24,8 +24,7 @@ app.add_typer(train_app)
 app.add_typer(test_app)
 app.add_typer(dataset_app)
 app.add_typer(eval_app)
-# app.add_typer(train_comp_app)
-# app.add_typer(predict_app)
+app.add_typer(optim_app)
 
 
 class Device(StrEnum):

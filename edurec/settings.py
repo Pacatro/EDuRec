@@ -6,7 +6,7 @@ EXPERIMENT_NAME: str = "TFM"
 
 # Filenames and Folders
 DATA_FOLDER: str = "data"
-RESULTS_FOLDER: str = "evaluations"
+RESULTS_FOLDER: str = "results"
 MODELS_FOLDER: str = "models"
 MODEL_FILENAME = "model.pt"
 RECBOLE_INTER_FILES_FOLDER: str = f"{DATA_FOLDER}/inter"
@@ -61,10 +61,10 @@ LR: float = 2e-4
 WEIGHT_DECAY: float = 1e-4
 BATCH_SIZE: int = 128
 PATIENCE: int = 5
-TOP_K: int = 10
+TOP_K: int = 20
 MONITOR_METRIC: str = f"val/ndcg@{TOP_K}"
 EPOCHS: int = 150
-DELTA: float = 0.0003
+DELTA: float = 0.001
 NUM_WORKERS: int = 4
 VAL_RATIO: float = 0.1
 TEST_RATIO: float = 0.2
@@ -89,3 +89,6 @@ SOTA_MODELS: list[str] = [
     "SASRec",
     "BERT4Rec",
 ]
+
+# Hyperparameter optimization
+OPTIM_N_TRIALS: int = 30
