@@ -5,18 +5,33 @@ from pathlib import Path
 import typer
 
 from .. import settings
-from ..datasets import DatasetName, ElearningDataModule
-from ..recsys import EDuRecConfig, optimize_model, get_best_config
+from ..datasets import DatasetName, ElearningDataModule, dataset_loaders
+from ..recsys import EDuRecConfig, optimize_model
 
 app = typer.Typer(no_args_is_help=True)
 
 
 @app.command(name="optim", help="Run a hyperparameter optimization for the model.")
 def optimize(
-    dataset: Annotated[
-        DatasetName | None,
-        typer.Option("--dataset", "-d", help="Dataset to use."),
-    ] = None,
+    dataset: Annotated[DatasetName | None, typer.Option("--dataset", "-d")] = None,
+    epochs: Annotated[
+        int,
+        typer.Option(
+            "--epochs",
+            "-e",
+            min=1,
+            help="Number of training epochs used by all evaluated models.",
+        ),
+    ] = settings.EPOCHS,
+    patience: Annotated[
+        int,
+        typer.Option(
+            "--patience",
+            "-p",
+            min=1,
+            help="Early stopping patience used by all evaluated models.",
+        ),
+    ] = settings.PATIENCE,
     n_trials: Annotated[
         int,
         typer.Option(
@@ -43,15 +58,7 @@ def optimize(
         bool, typer.Option("--use_processed", "-P")
     ] = settings.SAVE_DATA,
 ):
-    datasets = (
-        [dataset]
-        if dataset is not None
-        else [
-            DatasetName.MARS,
-            DatasetName.ITM,
-            DatasetName.DORIS,
-        ]
-    )
+    datasets = [dataset] if dataset is not None else dataset_loaders.keys()
 
     results_root = (
         Path(settings.RESULTS_FOLDER)
@@ -60,7 +67,22 @@ def optimize(
     )
     results_root.mkdir(parents=True, exist_ok=True)
 
+    print("\n[OPTIM] Hyperparameter optimization run")
+    print(f"[OPTIM] Datasets: {', '.join(ds.value for ds in datasets)}")
+    print(f"[OPTIM] Results folder: {results_root}")
+
     for dataset in datasets:
+        if settings.state["verbose"]:
+            print(
+                f"[OPTIM] Config: epochs={epochs}, batch_size={batch_size}, trials={n_trials}, patience={patience}"
+            )
+            print(
+                "[OPTIM] Data config: "
+                f"use_processed={use_processed_data}, remove_sparse={remove_sparse}, "
+                f"min_interactions={min_interactions}, "
+                f"val_ratio={val_ratio}, test_ratio={test_ratio}"
+            )
+
         dm = ElearningDataModule(
             dataset=dataset,
             batch_size=batch_size,
@@ -74,6 +96,34 @@ def optimize(
         )
 
         dm.setup()
+
+        split_sizes = {
+            split: len(getattr(dm.artifacts, split))
+            for split in ("train", "val", "test")
+            if getattr(dm.artifacts, split) is not None
+        }
+
+        print(
+            "[OPTIM] Data ready: "
+            f"users={dm.num_users:,}, items={dm.num_items:,}, "
+            f"interactions={dm.num_interactions:,}, "
+            f"sparsity={dm.sparsity:.4f}"
+        )
+        print(
+            "[OPTIM] Splits: "
+            + ", ".join(f"{split}={size:,}" for split, size in split_sizes.items())
+        )
+        if settings.state["verbose"]:
+            print(
+                "[OPTIM] Features: "
+                f"context={dm.train_ds.num_ctx_feats}, "
+                f"user_dense={dm.num_user_dense_feats}, "
+                f"item_dense={dm.num_item_dense_feats}, "
+                f"user_text={dm.num_user_text_feats}, "
+                f"item_text={dm.num_item_text_feats}, "
+                f"user_cat={len(dm.user_cat_cardinalities)}, "
+                f"item_cat={len(dm.item_cat_cardinalities)}"
+            )
 
         cfg = EDuRecConfig(
             num_users=dm.num_users,
@@ -91,13 +141,17 @@ def optimize(
             base_config=cfg,
             dm=dm,
             n_trials=n_trials,
+            epochs=epochs,
+            patience=patience,
             verbose=settings.state["verbose"],
         )
-        cfg = get_best_config(study)
+        cfg = EDuRecConfig(**study.best_trial.user_attrs["config"])
 
-        print("Best NDCG:", study.best_value)
-        print("Params:", study.best_params)
+        print(
+            f"[OPTIM] Best NDCG {study.best_value} in trial: {study.best_trial.number}"
+        )
+        print("[OPTIM] Params:", study.best_params)
 
         cfg_path = results_root / f"config-{dataset.value}.yaml"
         cfg.save(cfg_path)
-        print("Saved config:", cfg_path)
+        print("[OPTIM] Saved config:", cfg_path)

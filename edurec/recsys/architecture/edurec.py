@@ -47,7 +47,7 @@ class EDuRecConfig:
     # Training Defaults
     lr: float = settings.LR
     weight_decay: float = settings.WEIGHT_DECAY
-    topks: list[int] = field(default_factory=lambda: [settings.TOP_K])
+    topks: list[int] = field(default_factory=lambda: settings.TOP_KS)
     alpha: float = settings.LOSS_ALPHA
     adaptive_k: bool = settings.ADAPTIVE_K
 
