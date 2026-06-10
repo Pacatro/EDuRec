@@ -1,4 +1,5 @@
 from dataclasses import asdict, replace
+from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import optuna
@@ -10,6 +11,13 @@ from ..datasets import ElearningDataModule
 from .architecture import EDuRecConfig
 from .recsys import RecSys
 from .training import train_model
+
+
+def _save_trials_callback(output_path: Path):
+    def callback(study: optuna.Study, _: optuna.trial.FrozenTrial) -> None:
+        study.trials_dataframe().to_csv(output_path, index=False)
+
+    return callback
 
 
 def objective(
@@ -124,13 +132,24 @@ def optimize_model(
     epochs: int,
     patience: int,
     verbose: bool = False,
+    results_path: Path | None = None,
 ) -> optuna.Study:
     assert dm.is_processed, "Data must be processed before optimizing the model."
 
     inter_graph = dm.build_inter_graph()
+    storage = None
+    callbacks = None
+
+    if results_path is not None:
+        results_path.mkdir(parents=True, exist_ok=True)
+        storage = f"sqlite:///{results_path / 'study.db'}"
+        callbacks = [_save_trials_callback(results_path / "trials.csv")]
 
     study = optuna.create_study(
         direction="maximize",
+        study_name=f"edurec-{dm.dataset_name.value}",
+        storage=storage,
+        load_if_exists=True,
         sampler=optuna.samplers.TPESampler(
             seed=settings.state["random_state"],
             n_startup_trials=n_trials,
@@ -150,6 +169,7 @@ def optimize_model(
         ),
         n_trials=n_trials,
         gc_after_trial=True,
+        callbacks=callbacks,
     )
 
     return study

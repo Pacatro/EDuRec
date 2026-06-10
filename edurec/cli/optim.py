@@ -137,6 +137,8 @@ def optimize(
             item_cat_cardinalities=dm.item_cat_cardinalities,
         )
 
+        dataset_results_path = results_root / dataset.value
+
         study = optimize_model(
             base_config=cfg,
             dm=dm,
@@ -144,6 +146,7 @@ def optimize(
             epochs=epochs,
             patience=patience,
             verbose=settings.state["verbose"],
+            results_path=dataset_results_path,
         )
         cfg = EDuRecConfig(**study.best_trial.user_attrs["config"])
 
@@ -155,3 +158,5 @@ def optimize(
         cfg_path = results_root / f"config-{dataset.value}.yaml"
         cfg.save(cfg_path)
         print("[OPTIM] Saved config:", cfg_path)
+        print("[OPTIM] Trials log:", dataset_results_path / "trials.csv")
+        print("[OPTIM] Study storage:", dataset_results_path / "study.db")

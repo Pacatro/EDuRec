@@ -27,6 +27,7 @@ data/atomicfiles/
 
 # Other exetensions
 *.json
+*.db
 
 # Models files
 saved_models/
