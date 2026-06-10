@@ -1,5 +1,21 @@
+import lightning as L
+
 # Global state
-state = {"verbose": False, "random_state": 42, "device": "auto"}
+DEFAULT_RANDOM_STATE: int = 42
+state = {"verbose": False, "random_state": DEFAULT_RANDOM_STATE, "device": "auto"}
+
+
+def seed_everything(seed: int | None) -> int | None:
+    """Seed the project RNGs from a single source of truth."""
+    if seed is None:
+        state["random_state"] = None
+        return None
+
+    seed = int(seed)
+    state["random_state"] = seed
+    L.seed_everything(seed, workers=True, verbose=False)
+
+    return seed
 
 # W&B
 EXPERIMENT_NAME: str = "TFM"

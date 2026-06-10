@@ -2,7 +2,6 @@ import warnings
 from enum import StrEnum
 from typing import Annotated
 
-import torch
 import typer
 
 from . import settings
@@ -10,8 +9,6 @@ from .cli import dataset_app, eval_app, test_app, train_app, optim_app
 
 # Ignore pandas future warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
-
-torch.manual_seed(settings.state["random_state"])
 
 
 app = typer.Typer(
@@ -49,7 +46,7 @@ def main(
     ] = settings.state["verbose"],
 ):
     settings.state["verbose"] = verbose
-    settings.state["random_state"] = random_state
+    settings.seed_everything(random_state)
     settings.state["device"] = device.value
 
     if verbose:
