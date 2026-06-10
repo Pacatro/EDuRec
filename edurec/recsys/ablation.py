@@ -38,24 +38,12 @@ ABLATIONS: dict[str, dict[str, Any]] = {
 }
 
 CONTENT_ABLATIONS: dict[str, dict[str, Any]] = {
-    "no_user_features": {
-        "use_user_features": False,
-    },
-    "no_item_features": {
-        "use_item_features": False,
-    },
-    "no_text_features": {
-        "use_text_features": False,
-    },
-    "no_context": {
-        "use_context": False,
-    },
-    "no_gcl": {
-        "use_gcl": False,
-    },
-    "dot_product": {
-        "scorer_type": "dot",
-    },
+    "no_user_features": {"use_user_features": False},
+    "no_item_features": {"use_item_features": False},
+    "no_text_features": {"use_text_features": False},
+    "no_context": {"use_context": False},
+    "no_gcl": {"use_gcl": False},
+    "dot_product": {"scorer_type": "dot"},
 }
 
 

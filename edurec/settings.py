@@ -1,8 +1,7 @@
 import lightning as L
 
 # Global state
-DEFAULT_RANDOM_STATE: int = 42
-state = {"verbose": False, "random_state": DEFAULT_RANDOM_STATE, "device": "auto"}
+state = {"verbose": False, "random_state": None, "device": "auto"}
 
 
 def seed_everything(seed: int | None) -> int | None:

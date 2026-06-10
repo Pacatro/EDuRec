@@ -27,6 +27,8 @@ class EDuRecConfig:
     emb_dim: int = settings.EMB_DIM
     use_item_bias: bool = True
     dropout: float = settings.DROPOUT
+
+    # Ablations
     graph_mode: Literal["id", "lightgcn", "none"] = "id"
     use_user_features: bool = True
     use_item_features: bool = True

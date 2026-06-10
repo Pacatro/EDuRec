@@ -86,7 +86,6 @@ def test_recsys(
         accelerator=settings.state["device"],
         devices="auto",
         logger=False,
-        deterministic=True,
     )
     test_results = trainer.test(model=model, datamodule=dm, weights_only=False)[0]
 

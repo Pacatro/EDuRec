@@ -63,7 +63,6 @@ def train_model(
         fast_dev_run=debug,
         enable_progress_bar=verbose,
         default_root_dir=default_root_dir,
-        deterministic=True,
     )
 
     trainer.fit(model, datamodule=dm)

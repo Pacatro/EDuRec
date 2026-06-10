@@ -131,10 +131,9 @@ class RecSys(L.LightningModule):
             target_item_ids=target_item_ids,
         )
         use_gcl = (
-            prefix == "train"
-            and self.cfg.use_gcl
-            and self.cfg.graph_mode == "lightgcn"
+            prefix == "train" and self.cfg.use_gcl and self.cfg.graph_mode == "lightgcn"
         )
+
         gcl_loss = self._compute_gcl_loss() if use_gcl else rank_loss.new_zeros(())
 
         loss = rank_loss + self.alpha * gcl_loss
