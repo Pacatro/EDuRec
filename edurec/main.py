@@ -5,7 +5,7 @@ from typing import Annotated
 import typer
 
 from . import settings
-from .cli import dataset_app, eval_app, test_app, train_app, optim_app
+from .cli import ablation_app, dataset_app, eval_app, test_app, train_app, optim_app
 
 # Ignore pandas future warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -22,6 +22,7 @@ app.add_typer(test_app)
 app.add_typer(dataset_app)
 app.add_typer(eval_app)
 app.add_typer(optim_app)
+app.add_typer(ablation_app)
 
 
 class Device(StrEnum):

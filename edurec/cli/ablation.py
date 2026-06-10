@@ -1,0 +1,222 @@
+from dataclasses import asdict
+from datetime import datetime
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from typing import Annotated
+
+import pandas as pd
+import typer
+
+from .. import settings
+from ..datasets import DatasetName, ElearningDataModule, dataset_loaders
+from ..recsys import EDuRecConfig, RecSys, train_model
+from ..recsys.ablation import (
+    ABLATIONS,
+    CONTENT_ABLATIONS,
+    get_ablation_config,
+    get_content_ablation_config,
+)
+
+app = typer.Typer(no_args_is_help=True)
+
+
+def _parse_seeds(seeds: str) -> list[int]:
+    parsed = [int(seed.strip()) for seed in seeds.split(",") if seed.strip()]
+    if not parsed:
+        raise typer.BadParameter("At least one seed is required.")
+    return parsed
+
+
+def _base_config(
+    dm: ElearningDataModule,
+    lr: float,
+    adaptive_k: bool,
+    topks: list[int],
+) -> EDuRecConfig:
+    return EDuRecConfig(
+        num_users=dm.num_users,
+        num_items=dm.num_items,
+        num_ctx_feats=dm.train_ds.num_ctx_feats,
+        num_user_dense_feats=dm.num_user_dense_feats,
+        num_item_dense_feats=dm.num_item_dense_feats,
+        num_user_text_feats=dm.num_user_text_feats,
+        num_item_text_feats=dm.num_item_text_feats,
+        user_cat_cardinalities=dm.user_cat_cardinalities,
+        item_cat_cardinalities=dm.item_cat_cardinalities,
+        lr=lr,
+        adaptive_k=adaptive_k,
+        topks=topks,
+    )
+
+
+def _num_trainable_parameters(model: RecSys) -> int:
+    return sum(param.numel() for param in model.parameters() if param.requires_grad)
+
+
+@app.command(name="ablation", help="Run EDuRec ablation variants.")
+def run_ablation(
+    dataset: Annotated[DatasetName | None, typer.Option("--dataset", "-d")] = None,
+    seeds: Annotated[
+        str,
+        typer.Option(
+            "--seeds",
+            "-s",
+            help="Comma-separated seeds to run.",
+        ),
+    ] = "13,42,77,101,2026",
+    include_content: Annotated[
+        bool,
+        typer.Option("--include-content/--main-only", help="Run content ablations."),
+    ] = True,
+    epochs: Annotated[int, typer.Option("--epochs", "-e", min=1)] = settings.EPOCHS,
+    lr: Annotated[float, typer.Option("--lr", "-l")] = settings.LR,
+    batch_size: Annotated[
+        int, typer.Option("--batch_size", "-b", min=1)
+    ] = settings.BATCH_SIZE,
+    patience: Annotated[int, typer.Option("--patience", "-p", min=1)] = settings.PATIENCE,
+    val_size: Annotated[float, typer.Option("--val_size", "-v")] = settings.VAL_RATIO,
+    test_size: Annotated[
+        float, typer.Option("--test_size", "-t")
+    ] = settings.TEST_RATIO,
+    top_k: Annotated[int, typer.Option("--top_k", "-k")] = settings.TOP_K,
+    remove_sparse: Annotated[
+        bool, typer.Option("--remove_sparse", "-R")
+    ] = settings.REMOVE_SPARSE,
+    min_interactions: Annotated[
+        int, typer.Option("--min_interactions", "-i")
+    ] = settings.MIN_INTERACTIONS,
+    adaptive_k: Annotated[
+        bool, typer.Option("--adaptive_k", "-a")
+    ] = settings.ADAPTIVE_K,
+    use_processed_data: Annotated[
+        bool, typer.Option("--use_processed", "-P")
+    ] = settings.SAVE_DATA,
+    debug: Annotated[bool, typer.Option("--debug", "-D")] = False,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", "-o", help="Root folder for ablation results."),
+    ] = Path(settings.RESULTS_FOLDER) / "ablations",
+) -> None:
+    parsed_seeds = _parse_seeds(seeds)
+    datasets = [dataset] if dataset is not None else list(dataset_loaders.keys())
+    started_at = datetime.now()
+
+    main_variants = list(ABLATIONS)
+    content_variants = list(CONTENT_ABLATIONS) if include_content else []
+    variants = main_variants + content_variants
+
+    print("\n[ABLATION] EDuRec ablation run")
+    print(f"[ABLATION] Datasets: {', '.join(ds.value for ds in datasets)}")
+    print(f"[ABLATION] Variants: {', '.join(variants)}")
+    print(f"[ABLATION] Seeds: {', '.join(str(seed) for seed in parsed_seeds)}")
+    print(f"[ABLATION] Output folder: {output_dir}")
+
+    for dataset_name in datasets:
+        dataset_root = output_dir / dataset_name.value
+        dataset_root.mkdir(parents=True, exist_ok=True)
+        rows: list[dict[str, float | int | str]] = []
+
+        for seed in parsed_seeds:
+            settings.seed_everything(seed)
+
+            dm = ElearningDataModule(
+                dataset=dataset_name,
+                batch_size=batch_size,
+                test_ratio=test_size,
+                val_ratio=val_size,
+                use_processed_data=use_processed_data,
+                random_state=seed,
+                min_interactions=min_interactions,
+                remove_sparse=remove_sparse,
+                save_atomic_files=False,
+            )
+            dm.setup()
+            inter_graph = dm.build_inter_graph()
+            base_cfg = _base_config(
+                dm=dm,
+                lr=lr,
+                adaptive_k=adaptive_k,
+                topks=settings.TOP_KS,
+            )
+
+            for variant in variants:
+                settings.seed_everything(seed)
+                cfg = (
+                    get_ablation_config(base_cfg, variant)
+                    if variant in ABLATIONS
+                    else get_content_ablation_config(base_cfg, variant)
+                )
+                variant_root = dataset_root / variant / f"seed_{seed}"
+                variant_root.mkdir(parents=True, exist_ok=True)
+                cfg.save(variant_root / "config.yaml")
+
+                print(
+                    f"[ABLATION] {dataset_name.value} | {variant} | seed={seed}"
+                )
+
+                model = RecSys(
+                    cfg=cfg,
+                    inter_graph=inter_graph,
+                    u_static_feats=dm.u_static_feats,
+                    i_static_feats=dm.i_static_feats,
+                    val_topk=top_k,
+                )
+                num_parameters = _num_trainable_parameters(model)
+
+                with TemporaryDirectory(prefix=f"edurec-ablation-{variant}-{seed}-") as tmp:
+                    trainer, best_model_path = train_model(
+                        model=model,
+                        dm=dm,
+                        debug=debug,
+                        use_logger=False,
+                        epochs=epochs,
+                        patience=patience,
+                        monitor=model.monitor,
+                        compile=False,
+                        verbose=settings.state["verbose"],
+                        default_root_dir=tmp,
+                    )
+
+                    metrics = (
+                        {}
+                        if debug
+                        else trainer.test(
+                            ckpt_path="best",
+                            datamodule=dm,
+                            weights_only=False,
+                        )[0]
+                    )
+
+                row: dict[str, float | int | str] = {
+                    "variant": variant,
+                    "seed": seed,
+                }
+                row.update(
+                    {
+                        name.removeprefix("test/"): value
+                        for name, value in metrics.items()
+                        if isinstance(value, int | float)
+                    }
+                )
+                row["num_parameters"] = num_parameters
+                rows.append(row)
+
+                pd.DataFrame([row]).to_csv(
+                    variant_root / settings.METRICS_FILENAME,
+                    index=False,
+                )
+                pd.DataFrame([asdict(cfg)]).to_csv(
+                    variant_root / "config.csv",
+                    index=False,
+                )
+
+                if settings.state["verbose"]:
+                    print(f"[ABLATION] Best checkpoint: {best_model_path}")
+
+        aggregate = pd.DataFrame(rows)
+        aggregate_path = dataset_root / "ablation_results.csv"
+        aggregate.to_csv(aggregate_path, index=False)
+        print(f"[ABLATION] Saved aggregate table: {aggregate_path}")
+
+    elapsed = str(datetime.now() - started_at).split(".", maxsplit=1)[0]
+    print(f"[ABLATION] Finished in {elapsed}")

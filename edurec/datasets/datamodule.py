@@ -218,6 +218,7 @@ class ElearningDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=settings.NUM_WORKERS,
             shuffle=True,
+            persistent_workers=True,
             generator=self._data_generator(),
         )
 
@@ -227,6 +228,7 @@ class ElearningDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=settings.NUM_WORKERS,
             shuffle=False,
+            persistent_workers=True,
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -235,6 +237,7 @@ class ElearningDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=settings.NUM_WORKERS,
             shuffle=False,
+            persistent_workers=True,
         )
 
     @property
