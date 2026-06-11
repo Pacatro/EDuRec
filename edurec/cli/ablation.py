@@ -27,28 +27,6 @@ def _parse_seeds(seeds: str) -> list[int]:
     return parsed
 
 
-def _base_config(
-    dm: ElearningDataModule,
-    lr: float,
-    adaptive_k: bool,
-    topks: list[int],
-) -> EDuRecConfig:
-    return EDuRecConfig(
-        num_users=dm.num_users,
-        num_items=dm.num_items,
-        num_ctx_feats=dm.train_ds.num_ctx_feats,
-        num_user_dense_feats=dm.num_user_dense_feats,
-        num_item_dense_feats=dm.num_item_dense_feats,
-        num_user_text_feats=dm.num_user_text_feats,
-        num_item_text_feats=dm.num_item_text_feats,
-        user_cat_cardinalities=dm.user_cat_cardinalities,
-        item_cat_cardinalities=dm.item_cat_cardinalities,
-        lr=lr,
-        adaptive_k=adaptive_k,
-        topks=topks,
-    )
-
-
 def _num_trainable_parameters(model: RecSys) -> int:
     return sum(param.numel() for param in model.parameters() if param.requires_grad)
 
@@ -73,7 +51,9 @@ def run_ablation(
     batch_size: Annotated[
         int, typer.Option("--batch_size", "-b", min=1)
     ] = settings.BATCH_SIZE,
-    patience: Annotated[int, typer.Option("--patience", "-p", min=1)] = settings.PATIENCE,
+    patience: Annotated[
+        int, typer.Option("--patience", "-p", min=1)
+    ] = settings.PATIENCE,
     val_size: Annotated[float, typer.Option("--val_size", "-v")] = settings.VAL_RATIO,
     test_size: Annotated[
         float, typer.Option("--test_size", "-t")
@@ -132,8 +112,17 @@ def run_ablation(
             )
             dm.setup()
             inter_graph = dm.build_inter_graph()
-            base_cfg = _base_config(
-                dm=dm,
+
+            base_cfg = EDuRecConfig(
+                num_users=dm.num_users,
+                num_items=dm.num_items,
+                num_ctx_feats=dm.train_ds.num_ctx_feats,
+                num_user_dense_feats=dm.num_user_dense_feats,
+                num_item_dense_feats=dm.num_item_dense_feats,
+                num_user_text_feats=dm.num_user_text_feats,
+                num_item_text_feats=dm.num_item_text_feats,
+                user_cat_cardinalities=dm.user_cat_cardinalities,
+                item_cat_cardinalities=dm.item_cat_cardinalities,
                 lr=lr,
                 adaptive_k=adaptive_k,
                 topks=settings.TOP_KS,
@@ -150,9 +139,7 @@ def run_ablation(
                 variant_root.mkdir(parents=True, exist_ok=True)
                 cfg.save(variant_root / "config.yaml")
 
-                print(
-                    f"[ABLATION] {dataset_name.value} | {variant} | seed={seed}"
-                )
+                print(f"[ABLATION] {dataset_name.value} | {variant} | seed={seed}")
 
                 model = RecSys(
                     cfg=cfg,
@@ -163,7 +150,9 @@ def run_ablation(
                 )
                 num_parameters = _num_trainable_parameters(model)
 
-                with TemporaryDirectory(prefix=f"edurec-ablation-{variant}-{seed}-") as tmp:
+                with TemporaryDirectory(
+                    prefix=f"edurec-ablation-{variant}-{seed}-"
+                ) as tmp:
                     trainer, best_model_path = train_model(
                         model=model,
                         dm=dm,

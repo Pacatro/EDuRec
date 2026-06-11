@@ -11,7 +11,7 @@ from ..recsys.io import save_model
 app = typer.Typer(no_args_is_help=True)
 
 
-@app.command(name="train", help="Train the reranker model.")
+@app.command(name="train", help="Train the model.")
 def train(
     dataset: Annotated[DatasetName | None, typer.Option("--dataset", "-d")] = None,
     epochs: Annotated[int, typer.Option("--epochs", "-e")] = settings.EPOCHS,
@@ -138,7 +138,7 @@ def train(
             topks=settings.TOP_KS,
         )
 
-        ranker = RecSys(
+        recsys = RecSys(
             cfg=cfg,
             inter_graph=dm.build_inter_graph(),
             u_static_feats=dm.u_static_feats,
@@ -147,7 +147,7 @@ def train(
 
         print("[TRAIN] Training EDuRec...")
         trainer, best_model_path = train_model(
-            model=ranker,
+            model=recsys,
             dm=dm,
             debug=debug,
             use_logger=use_logger,
@@ -163,16 +163,9 @@ def train(
             print(f"[TRAIN] Finished {dataset.value} in {elapsed}\n")
             return
 
-        print("[TRAIN] Testing best checkpoint...")
         metrics = trainer.test(ckpt_path="best", datamodule=dm, weights_only=False)[0]
         elapsed = str(datetime.now() - started_at).split(".", maxsplit=1)[0]
 
-        print("[TRAIN] Test metrics:")
-        for name, value in sorted(metrics.items()):
-            if isinstance(value, float):
-                print(f"[TRAIN]   {name}: {value:.4f}")
-            else:
-                print(f"[TRAIN]   {name}: {value}")
         print(f"[TRAIN] Best checkpoint: {best_model_path}")
 
         if save and trainer.is_global_zero:
