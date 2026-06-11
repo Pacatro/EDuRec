@@ -79,7 +79,9 @@ class SASRecEncoder(nn.Module):
 
         valid_counts = history_mask.long().sum(dim=1)
         last_indices = (valid_counts - 1).clamp(min=0)
-        gather_index = last_indices.view(batch_size, 1, 1).expand(-1, 1, self.cfg.emb_dim)
+        gather_index = last_indices.view(batch_size, 1, 1).expand(
+            -1, 1, self.cfg.emb_dim
+        )
         seq_user_emb = encoded.gather(dim=1, index=gather_index).squeeze(1)
 
         has_history = valid_counts > 0

@@ -1,4 +1,4 @@
-from .edurec import EDuRec, EDuRecConfig
+from .model import EDuRec, EDuRecConfig
 from .graph_encoder import GraphEncoder
 from .mlp_encoder import MLPEncoder, MLPEncoderConfig
 from .sasrec import SASRecConfig, SASRecEncoder

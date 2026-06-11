@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Self
+from typing import Literal, Self
 import yaml
 
 import torch
@@ -18,15 +18,25 @@ class EDuRecConfig:
     num_users: int
     num_items: int
     num_ctx_feats: int
+    num_user_dense_feats: int
+    num_item_dense_feats: int
+    num_user_text_feats: int
+    num_item_text_feats: int
+    user_cat_cardinalities: list[int]
+    item_cat_cardinalities: list[int]
     emb_dim: int = settings.EMB_DIM
-    num_user_dense_feats: int = 0
-    num_item_dense_feats: int = 0
-    num_user_text_feats: int = 0
-    num_item_text_feats: int = 0
-    user_cat_cardinalities: list[int] = field(default_factory=list)
-    item_cat_cardinalities: list[int] = field(default_factory=list)
     use_item_bias: bool = True
     dropout: float = settings.DROPOUT
+
+    # Ablations
+    graph_mode: Literal["id", "lightgcn", "none"] = "id"
+    use_user_features: bool = True
+    use_item_features: bool = True
+    use_text_features: bool = True
+    use_sasrec: bool = False
+    use_context: bool = False
+    use_gcl: bool = False
+    scorer_type: Literal["mlp", "dot"] = "mlp"
 
     # GCL Defaults
     edge_dropout: float = settings.DROP_EDGES_P
@@ -47,7 +57,7 @@ class EDuRecConfig:
     # Training Defaults
     lr: float = settings.LR
     weight_decay: float = settings.WEIGHT_DECAY
-    topks: list[int] = field(default_factory=lambda: [settings.TOP_K])
+    topks: list[int] = field(default_factory=lambda: settings.TOP_KS)
     alpha: float = settings.LOSS_ALPHA
     adaptive_k: bool = settings.ADAPTIVE_K
 
@@ -57,7 +67,7 @@ class EDuRecConfig:
             num_users=self.num_users,
             num_items=self.num_items,
             emb_dim=self.emb_dim,
-            num_layers=self.gnn_layers,
+            num_layers=self.gnn_layers if self.graph_mode == "lightgcn" else 0,
             num_user_dense_feats=self.num_user_dense_feats,
             num_item_dense_feats=self.num_item_dense_feats,
             user_cat_cardinalities=self.user_cat_cardinalities,
@@ -93,7 +103,7 @@ class EDuRecConfig:
             n_blocks=self.n_blocks,
             ff_dim=self.ff_dim,
             dropout=self.dropout,
-            num_ctx_feats=self.num_ctx_feats,
+            num_ctx_feats=self.num_ctx_feats if self.use_context else 0,
         )
 
     @property
@@ -102,15 +112,18 @@ class EDuRecConfig:
             emb_dim=self.emb_dim,
             hidden_dims=self.hidden_dims,
             dropout=self.dropout,
+            scorer_type=self.scorer_type,
         )
 
-    def save(self, path: Path) -> None:
+    def save(self, path: Path | str) -> None:
+        path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:
             yaml.dump(asdict(self), f)
 
     @classmethod
-    def load(cls, path: Path) -> Self:
+    def load(cls, path: Path | str) -> Self:
+        path = Path(path)
         if not path.exists():
             raise FileNotFoundError(f"Config file not found: {path}")
 
@@ -123,12 +136,16 @@ class EDuRec(nn.Module):
         super().__init__()
         self.cfg = cfg
 
-        self.gnn = GraphEncoder(cfg.gnn)
-        self.user_encoder = MLPEncoder(cfg.user_encoder)
-        self.item_encoder = MLPEncoder(cfg.item_encoder)
+        self.gnn = GraphEncoder(cfg.gnn) if cfg.graph_mode != "none" else None
+        self.user_encoder = (
+            MLPEncoder(cfg.user_encoder) if cfg.use_user_features else None
+        )
+        self.item_encoder = (
+            MLPEncoder(cfg.item_encoder) if cfg.use_item_features else None
+        )
         self.text_projection = (
             nn.Linear(cfg.num_item_text_feats, cfg.emb_dim, bias=False)
-            if cfg.num_item_text_feats > 0
+            if cfg.use_text_features and cfg.num_item_text_feats > 0
             else None
         )
         self.item_norm = nn.LayerNorm(cfg.emb_dim)
@@ -136,7 +153,7 @@ class EDuRec(nn.Module):
         self.item_bias = (
             nn.Parameter(torch.zeros(cfg.num_items)) if cfg.use_item_bias else None
         )
-        self.sequence_encoder = SASRecEncoder(cfg.sasrec)
+        self.sequence_encoder = SASRecEncoder(cfg.sasrec) if cfg.use_sasrec else None
         self.scorer = Scorer(cfg.scorer)
 
     def forward(
@@ -149,9 +166,22 @@ class EDuRec(nn.Module):
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
     ) -> torch.Tensor:
-        user_graph_embs, item_graph_embs = self.gnn(edge_index)
+        if self.gnn is None:
+            user_graph_embs = u_static_feats.new_zeros(
+                self.cfg.num_users, self.cfg.emb_dim
+            )
+            item_graph_embs = i_static_feats.new_zeros(
+                self.cfg.num_items, self.cfg.emb_dim
+            )
+        else:
+            user_graph_embs, item_graph_embs = self.gnn(edge_index)
 
-        user_feature_embs = self.user_encoder(u_static_feats)
+        if self.user_encoder is None:
+            user_feature_embs = u_static_feats.new_zeros(
+                self.cfg.num_users, self.cfg.emb_dim
+            )
+        else:
+            user_feature_embs = self.user_encoder(u_static_feats)
         item_feature_embs, text_embs = self._encode_item_features(i_static_feats)
 
         item_feats_emb = (
@@ -166,7 +196,14 @@ class EDuRec(nn.Module):
         )
 
         hist_emb = padded_item_embs[h_ids.clamp(min=0)]
-        seq_user_emb = self.sequence_encoder(hist_emb, h_mask, h_ctx)
+        if self.sequence_encoder is None:
+            seq_user_emb = hist_emb.new_zeros(hist_emb.size(0), self.cfg.emb_dim)
+        else:
+            seq_user_emb = self.sequence_encoder(
+                hist_emb,
+                h_mask,
+                h_ctx if self.cfg.use_context else None,
+            )
 
         user_graph_emb = user_graph_embs[u_ids]
         user_feature_emb = user_feature_embs[u_ids]
@@ -187,19 +224,24 @@ class EDuRec(nn.Module):
         )
         cat_start = self.cfg.num_item_dense_feats
 
-        parts = []
-        if struct_dim > 0:
-            parts.append(item_static_feats[..., :struct_dim])
-        if self.cfg.item_cat_cardinalities:
-            parts.append(item_static_feats[..., cat_start:])
-
-        if parts:
-            structured_inputs = torch.cat(parts, dim=-1)
-            item_feature_emb = self.item_encoder(structured_inputs)
-        else:
+        if self.item_encoder is None:
             item_feature_emb = item_static_feats.new_zeros(
                 item_static_feats.size(0), self.cfg.emb_dim
             )
+        else:
+            parts = []
+            if struct_dim > 0:
+                parts.append(item_static_feats[..., :struct_dim])
+            if self.cfg.item_cat_cardinalities:
+                parts.append(item_static_feats[..., cat_start:])
+
+            if parts:
+                structured_inputs = torch.cat(parts, dim=-1)
+                item_feature_emb = self.item_encoder(structured_inputs)
+            else:
+                item_feature_emb = item_static_feats.new_zeros(
+                    item_static_feats.size(0), self.cfg.emb_dim
+                )
 
         if self.text_projection is None:
             return item_feature_emb, None

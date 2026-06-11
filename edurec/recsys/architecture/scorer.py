@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Literal
 
 import torch
 from torch import nn
@@ -9,11 +10,13 @@ class ScorerConfig:
     emb_dim: int
     hidden_dims: list[int] = field(default_factory=list)
     dropout: float = 0.1
+    scorer_type: Literal["mlp", "dot"] = "mlp"
 
 
 class Scorer(nn.Module):
     def __init__(self, cfg: ScorerConfig):
         super().__init__()
+        self.scorer_type = cfg.scorer_type
 
         input_dim = cfg.emb_dim * 2
 
@@ -35,6 +38,9 @@ class Scorer(nn.Module):
         self.mlp = nn.Sequential(*layers)
 
     def forward(self, user_emb: torch.Tensor, item_emb: torch.Tensor) -> torch.Tensor:
+        if self.scorer_type == "dot":
+            return user_emb @ item_emb.T
+
         batch_size = user_emb.shape[0]
         num_items = item_emb.shape[0]
 

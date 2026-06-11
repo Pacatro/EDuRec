@@ -204,12 +204,22 @@ class ElearningDataModule(L.LightningDataModule):
         )
         return graph
 
+    def _data_generator(self) -> torch.Generator | None:
+        if self.random_state is None:
+            return None
+
+        generator = torch.Generator()
+        generator.manual_seed(int(self.random_state))
+        return generator
+
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
             self.train_ds,
             batch_size=self.batch_size,
             num_workers=settings.NUM_WORKERS,
             shuffle=True,
+            persistent_workers=True,
+            generator=self._data_generator(),
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -218,6 +228,7 @@ class ElearningDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=settings.NUM_WORKERS,
             shuffle=False,
+            persistent_workers=True,
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -226,6 +237,7 @@ class ElearningDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=settings.NUM_WORKERS,
             shuffle=False,
+            persistent_workers=True,
         )
 
     @property

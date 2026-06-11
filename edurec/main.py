@@ -2,16 +2,13 @@ import warnings
 from enum import StrEnum
 from typing import Annotated
 
-import torch
 import typer
 
 from . import settings
-from .cli import dataset_app, eval_app, test_app, train_app
+from .cli import ablation_app, dataset_app, eval_app, test_app, train_app, optim_app
 
 # Ignore pandas future warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
-
-torch.manual_seed(settings.state["random_state"])
 
 
 app = typer.Typer(
@@ -24,8 +21,8 @@ app.add_typer(train_app)
 app.add_typer(test_app)
 app.add_typer(dataset_app)
 app.add_typer(eval_app)
-# app.add_typer(train_comp_app)
-# app.add_typer(predict_app)
+app.add_typer(optim_app)
+app.add_typer(ablation_app)
 
 
 class Device(StrEnum):
@@ -50,7 +47,7 @@ def main(
     ] = settings.state["verbose"],
 ):
     settings.state["verbose"] = verbose
-    settings.state["random_state"] = random_state
+    settings.seed_everything(random_state)
     settings.state["device"] = device.value
 
     if verbose:

@@ -5,6 +5,7 @@ build/
 dist/
 wheels/
 *.egg-info
+.DS_Store
 
 # Virtual environments
 .venv
@@ -27,12 +28,14 @@ data/atomicfiles/
 
 # Other exetensions
 *.json
+*.db
 
 # Models files
 saved_models/
 models/
 saved/
 *.pt
+results/
 
 # Codex files
 .codex

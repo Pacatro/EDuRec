@@ -6,7 +6,7 @@ import pandas as pd
 import typer
 
 from .. import settings
-from ..datasets import DatasetName, ElearningDataModule
+from ..datasets import DatasetName, ElearningDataModule, dataset_loaders
 from ..evaluation import eval_model, eval_sota_models
 from ..recsys import EDuRecConfig
 
@@ -126,18 +126,12 @@ def eval_models(
     val_ratio = 0.1
     test_ratio = 0.1
 
-    datasets = (
-        [dataset]
-        if dataset is not None
-        else [
-            # DatasetName.MARS,
-            DatasetName.ITM,
-            DatasetName.DORIS,
-        ]
-    )
+    datasets = [dataset] if dataset is not None else dataset_loaders.keys()
 
-    results_path = Path(settings.RESULTS_FOLDER) / datetime.now().strftime(
-        "%Y%m%d_%H%M%S"
+    results_path = (
+        Path(settings.RESULTS_FOLDER)
+        / "evaluations"
+        / datetime.now().strftime("%Y%m%d_%H%M%S")
     )
     results_path.mkdir(parents=True, exist_ok=True)
 

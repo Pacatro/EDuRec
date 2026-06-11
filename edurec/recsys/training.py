@@ -1,8 +1,9 @@
+from collections.abc import Sequence
 from pathlib import Path
 from typing import cast
 
 import lightning as L
-from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+from lightning.pytorch.callbacks import Callback, EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 import torch
 
@@ -20,6 +21,8 @@ def train_model(
     monitor: str,
     compile: bool = settings.COMPILE_MODEL,
     verbose: bool = False,
+    callbacks: Sequence[Callback] = (),
+    default_root_dir: Path | str | None = None,
 ) -> tuple[L.Trainer, Path]:
     model_name = model.model_name
 
@@ -56,9 +59,10 @@ def train_model(
         accelerator=settings.state["device"],
         devices="auto",
         log_every_n_steps=10,
-        callbacks=[early_stopping, checkpoint],
+        callbacks=[early_stopping, checkpoint, *callbacks],
         fast_dev_run=debug,
         enable_progress_bar=verbose,
+        default_root_dir=default_root_dir,
     )
 
     trainer.fit(model, datamodule=dm)

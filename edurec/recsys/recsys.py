@@ -130,9 +130,11 @@ class RecSys(L.LightningModule):
             scores=scores,
             target_item_ids=target_item_ids,
         )
-        gcl_loss = (
-            self._compute_gcl_loss() if prefix == "train" else rank_loss.new_zeros(())
+        use_gcl = (
+            prefix == "train" and self.cfg.use_gcl and self.cfg.graph_mode == "lightgcn"
         )
+
+        gcl_loss = self._compute_gcl_loss() if use_gcl else rank_loss.new_zeros(())
 
         loss = rank_loss + self.alpha * gcl_loss
 
@@ -199,6 +201,9 @@ class RecSys(L.LightningModule):
         return F.cross_entropy(scores, target_item_ids)
 
     def _compute_gcl_loss(self) -> torch.Tensor:
+        if self.model.gnn is None:
+            raise RuntimeError("GCL requires an active graph encoder.")
+
         p = self.cfg.edge_dropout
 
         assert isinstance(self.edge_index, torch.Tensor)
