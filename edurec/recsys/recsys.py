@@ -27,11 +27,19 @@ class RecSys(L.LightningModule):
         inter_graph: Data,
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
+        user_stats: torch.Tensor,
+        item_stats: torch.Tensor,
         val_topk: int = settings.TOP_K,
     ):
         super().__init__()
         self.save_hyperparameters(
-            ignore=["inter_graph", "u_static_feats", "i_static_feats"]
+            ignore=[
+                "inter_graph",
+                "u_static_feats",
+                "i_static_feats",
+                "user_stats",
+                "item_stats",
+            ]
         )
         self.cfg = cfg
         self.lr = cfg.lr
@@ -44,6 +52,8 @@ class RecSys(L.LightningModule):
         self.register_buffer("edge_index", inter_graph.edge_index, persistent=False)
         self.register_buffer("u_static_feats", u_static_feats, persistent=False)
         self.register_buffer("i_static_feats", i_static_feats, persistent=False)
+        self.register_buffer("user_stats", user_stats, persistent=False)
+        self.register_buffer("item_stats", item_stats, persistent=False)
 
         self.gcl_loss = InfoNCELoss(
             tau=cfg.temperature,
@@ -90,6 +100,8 @@ class RecSys(L.LightningModule):
             edge_index=self.edge_index,
             u_static_feats=self.u_static_feats,
             i_static_feats=self.i_static_feats,
+            user_stats=self.user_stats,
+            item_stats=self.item_stats,
         )
 
         if scores.ndim == 3:

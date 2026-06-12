@@ -33,25 +33,7 @@ class Router(nn.Module):
         nn.init.zeros_(output_layer.weight)
         nn.init.zeros_(output_layer.bias)
 
-    def forward(
-        self,
-        ctx: torch.Tensor,
-        availability: torch.Tensor | None = None,
-    ) -> torch.Tensor:
+    def forward(self, ctx: torch.Tensor) -> torch.Tensor:
         logits = self.net(ctx)
-
-        if availability is None:
-            weights = F.softmax(logits, dim=-1)
-            return weights * self.cfg.num_modules
-
-        availability = availability.bool()
-
-        logits = logits.masked_fill(~availability, float("-inf"))
         weights = F.softmax(logits, dim=-1)
-
-        num_available = availability.sum(
-            dim=-1,
-            keepdim=True,
-        ).to(weights.dtype)
-
-        return weights * num_available
+        return weights * self.cfg.num_modules

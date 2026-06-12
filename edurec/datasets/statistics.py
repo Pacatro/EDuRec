@@ -27,13 +27,25 @@ def build_user_stats(
         prefix="users",
         size=num_users,
     )
+    text_length = _raw_text_length_ratio(
+        frame=users,
+        id_col=settings.USER_COL,
+        id_map=processor.user_id_map,
+        processor=processor,
+        prefix="users",
+        size=num_users,
+    )
 
     stats[:, 0] = torch.log1p(counts)
     stats[:, 1] = (counts / max(settings.MAX_HISTORY_LEN, 1)).clamp(max=1.0)
     stats[:, 2] = missing_ratio
     stats[:, 3] = (counts > 0).float()
-    if _num_non_text_feats(processor, "users") > 0:
+    has_non_text_feats = _num_non_text_feats(processor, "users") > 0
+    has_text_feats = _num_text_feats(processor, "users") > 0
+    if has_non_text_feats:
         stats[:, 4] = (missing_ratio < 1.0).float()
+    if has_text_feats:
+        stats[:, 4] = torch.maximum(stats[:, 4], (text_length > 0).float())
     stats[:, 5] = (counts > 0).float()
     return stats
 
@@ -180,6 +192,13 @@ def _num_non_text_feats(processor: DataProcessor, prefix: str) -> int:
     if metadata is None:
         return 0
     return len(metadata.dense_cols) + len(metadata.categorical_cols)
+
+
+def _num_text_feats(processor: DataProcessor, prefix: str) -> int:
+    metadata = processor.feature_metadata.get(prefix)
+    if metadata is None:
+        return 0
+    return len(metadata.text_embedding_cols)
 
 
 def _is_missing_value(value: object) -> bool:
