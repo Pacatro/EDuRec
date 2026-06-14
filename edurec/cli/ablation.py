@@ -10,7 +10,7 @@ import typer
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule, dataset_loaders
 from ..recsys import EDuRecConfig, RecSys, train_model
-from ..recsys.ablation import (
+from ..evaluation.ablation import (
     ABLATIONS,
     CONTENT_ABLATIONS,
     get_ablation_config,
@@ -159,7 +159,6 @@ def run_ablation(
                         model=model,
                         dm=dm,
                         debug=debug,
-                        use_logger=False,
                         epochs=epochs,
                         patience=patience,
                         monitor=model.monitor,

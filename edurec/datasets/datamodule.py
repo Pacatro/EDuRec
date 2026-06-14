@@ -194,6 +194,7 @@ class ElearningDataModule(L.LightningDataModule):
         ).contiguous()
 
         graph = Data(edge_index=edge_index, num_nodes=self.num_users + self.num_items)
+
         graph.num_users = self.num_users
         graph.num_items = self.num_items
         graph.node_type = torch.cat(

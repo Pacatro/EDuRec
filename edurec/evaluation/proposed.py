@@ -32,7 +32,6 @@ def eval_model(
         model=recsys,
         dm=dm,
         debug=False,
-        use_logger=False,
         epochs=epochs,
         patience=patience,
         monitor=f"val/ndcg@{val_topk}",

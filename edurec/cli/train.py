@@ -36,7 +36,6 @@ def train(
     adaptive_k: Annotated[
         bool, typer.Option("--adaptive_k", "-a")
     ] = settings.ADAPTIVE_K,
-    use_logger: Annotated[bool, typer.Option("--use_logger", "-L")] = False,
     debug: Annotated[bool, typer.Option("--debug", "-D")] = False,
     save: Annotated[bool, typer.Option("--save_model", "-S")] = False,
     optimize: Annotated[
@@ -65,6 +64,9 @@ def train(
     configs_folder: Annotated[
         str, typer.Option("--configs-folder", "-C")
     ] = settings.CONFIGS_FOLDER,
+    experiment_name: Annotated[
+        str | None, typer.Option("--experiment-name", "-E")
+    ] = None,
 ) -> None:
     started_at = datetime.now()
     monitor_metric = f"val/ndcg@{top_k}"
@@ -90,8 +92,13 @@ def train(
                 "[TRAIN] Config: "
                 f"epochs={epochs}, lr={lr}, batch_size={batch_size}, "
                 f"patience={patience}, adaptive_k={adaptive_k}, debug={debug}, "
-                f"use_logger={use_logger}, optimize={optimize}, trials={n_trials}"
+                f"optimize={optimize}, trials={n_trials}"
             )
+
+            if experiment_name is not None:
+                experiment_name = f"{experiment_name}_{dataset.value}"
+                print(f"[TRAIN] Logger: WandB, experiment_name={experiment_name}")
+
             print(
                 "[TRAIN] Data config: "
                 f"use_processed={use_processed_data}, remove_sparse={remove_sparse}, "
@@ -220,13 +227,14 @@ def train(
         )
 
         print("[TRAIN] Training EDuRec...")
+
         trainer, best_model_path = train_model(
             model=recsys,
             dm=dm,
             debug=debug,
-            use_logger=use_logger,
             epochs=epochs,
             patience=patience,
+            experiment_name=experiment_name,
             monitor=monitor_metric,
             verbose=settings.state["verbose"],
         )

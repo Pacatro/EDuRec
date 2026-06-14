@@ -1,7 +1,7 @@
 from dataclasses import replace
 from typing import Any
 
-from .architecture import EDuRecConfig
+from ..recsys.architecture import EDuRecConfig
 
 
 ABLATIONS: dict[str, dict[str, Any]] = {

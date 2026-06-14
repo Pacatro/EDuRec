@@ -101,7 +101,6 @@ def objective(
             model=model,
             dm=datamodule,
             debug=False,
-            use_logger=False,
             epochs=epochs,
             patience=patience,
             monitor=model.monitor,
