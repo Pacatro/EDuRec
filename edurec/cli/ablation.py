@@ -36,11 +36,7 @@ def run_ablation(
     dataset: Annotated[DatasetName | None, typer.Option("--dataset", "-d")] = None,
     seeds: Annotated[
         str,
-        typer.Option(
-            "--seeds",
-            "-s",
-            help="Comma-separated seeds to run.",
-        ),
+        typer.Option("--seeds", "-s", help="Comma-separated seeds to run."),
     ] = "13,42,77,101,2026",
     include_content: Annotated[
         bool,
@@ -94,7 +90,10 @@ def run_ablation(
     for dataset_name in datasets:
         dataset_root = output_dir / dataset_name.value
         dataset_root.mkdir(parents=True, exist_ok=True)
-        rows: list[dict[str, float | int | str]] = []
+        base_cfg_path = (
+            Path(settings.CONFIGS_FOLDER) / f"config-{dataset_name.value}.yaml"
+        )
+        rows = []
 
         for seed in parsed_seeds:
             settings.seed_everything(seed)
@@ -113,20 +112,28 @@ def run_ablation(
             dm.setup()
             inter_graph = dm.build_inter_graph()
 
-            base_cfg = EDuRecConfig(
-                num_users=dm.num_users,
-                num_items=dm.num_items,
-                num_ctx_feats=dm.train_ds.num_ctx_feats,
-                num_user_dense_feats=dm.num_user_dense_feats,
-                num_item_dense_feats=dm.num_item_dense_feats,
-                num_user_text_feats=dm.num_user_text_feats,
-                num_item_text_feats=dm.num_item_text_feats,
-                user_cat_cardinalities=dm.user_cat_cardinalities,
-                item_cat_cardinalities=dm.item_cat_cardinalities,
-                lr=lr,
-                adaptive_k=adaptive_k,
-                topks=settings.TOP_KS,
-            )
+            if base_cfg_path.exists():
+                print("Using existing config file:", base_cfg_path)
+                base_cfg = EDuRecConfig.load(base_cfg_path)
+            else:
+                print(
+                    "No config file found, creating new config for dataset:",
+                    dataset_name.value,
+                )
+                base_cfg = EDuRecConfig(
+                    num_users=dm.num_users,
+                    num_items=dm.num_items,
+                    num_ctx_feats=dm.train_ds.num_ctx_feats,
+                    num_user_dense_feats=dm.num_user_dense_feats,
+                    num_item_dense_feats=dm.num_item_dense_feats,
+                    num_user_text_feats=dm.num_user_text_feats,
+                    num_item_text_feats=dm.num_item_text_feats,
+                    user_cat_cardinalities=dm.user_cat_cardinalities,
+                    item_cat_cardinalities=dm.item_cat_cardinalities,
+                    lr=lr,
+                    adaptive_k=adaptive_k,
+                    topks=settings.TOP_KS,
+                )
 
             for variant in variants:
                 settings.seed_everything(seed)
