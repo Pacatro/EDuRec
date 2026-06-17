@@ -9,8 +9,12 @@ from torch import nn
 from ... import settings
 from .graph_encoder import GraphEncoder, GraphEncoderConfig
 from .mlp_encoder import MLPEncoder, MLPEncoderConfig
+from .router import Router, RouterConfig
 from .sasrec import SASRecConfig, SASRecEncoder
 from .scorer import Scorer, ScorerConfig
+
+ROUTER_CTX_DIM = 3
+ROUTER_NUM_MODULES = 3
 
 
 @dataclass
@@ -29,13 +33,13 @@ class EDuRecConfig:
     dropout: float = settings.DROPOUT
 
     # Ablations
-    graph_mode: Literal["id", "lightgcn", "none"] = "id"
+    graph_mode: Literal["id", "lightgcn", "none"] = "lightgcn"
     use_user_features: bool = True
     use_item_features: bool = True
     use_text_features: bool = True
-    use_sasrec: bool = False
-    use_context: bool = False
-    use_gcl: bool = False
+    use_sasrec: bool = True
+    use_context: bool = True
+    use_gcl: bool = True
     scorer_type: Literal["mlp", "dot"] = "mlp"
 
     # GCL Defaults
@@ -115,6 +119,14 @@ class EDuRecConfig:
             scorer_type=self.scorer_type,
         )
 
+    @property
+    def router(self) -> RouterConfig:
+        return RouterConfig(
+            ctx_dim=ROUTER_CTX_DIM,
+            num_modules=ROUTER_NUM_MODULES,
+            dropout=self.dropout,
+        )
+
     def save(self, path: Path | str) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -154,6 +166,8 @@ class EDuRec(nn.Module):
             nn.Parameter(torch.zeros(cfg.num_items)) if cfg.use_item_bias else None
         )
         self.sequence_encoder = SASRecEncoder(cfg.sasrec) if cfg.use_sasrec else None
+        self.user_router = Router(cfg.router)
+        self.item_router = Router(cfg.router)
         self.scorer = Scorer(cfg.scorer)
 
     def forward(
@@ -165,7 +179,11 @@ class EDuRec(nn.Module):
         edge_index: torch.Tensor,
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
+        user_stats: torch.Tensor,
+        item_stats: torch.Tensor,
     ) -> torch.Tensor:
+        self._validate_router_stats(user_stats, item_stats)
+
         if self.gnn is None:
             user_graph_embs = u_static_feats.new_zeros(
                 self.cfg.num_users, self.cfg.emb_dim
@@ -184,11 +202,15 @@ class EDuRec(nn.Module):
             user_feature_embs = self.user_encoder(u_static_feats)
         item_feature_embs, text_embs = self._encode_item_features(i_static_feats)
 
-        item_feats_emb = (
-            item_graph_embs + item_feature_embs
-            if text_embs is None
-            else item_graph_embs + item_feature_embs + text_embs
+        if text_embs is None:
+            text_embs = item_graph_embs.new_zeros(item_graph_embs.shape)
+
+        item_weights = self.item_router(item_stats[:, :ROUTER_CTX_DIM])
+        item_modules = torch.stack(
+            [item_graph_embs, item_feature_embs, text_embs],
+            dim=1,
         )
+        item_feats_emb = (item_modules * item_weights.unsqueeze(-1)).sum(dim=1)
 
         item_emb = self.item_norm(item_feats_emb)
         padded_item_embs = torch.cat(
@@ -207,7 +229,15 @@ class EDuRec(nn.Module):
 
         user_graph_emb = user_graph_embs[u_ids]
         user_feature_emb = user_feature_embs[u_ids]
-        user_emb = self.user_norm(user_graph_emb + user_feature_emb + seq_user_emb)
+        batch_user_stats = user_stats[u_ids]
+        user_weights = self.user_router(batch_user_stats[:, :ROUTER_CTX_DIM])
+        user_modules = torch.stack(
+            [user_graph_emb, user_feature_emb, seq_user_emb],
+            dim=1,
+        )
+        user_emb = self.user_norm(
+            (user_modules * user_weights.unsqueeze(-1)).sum(dim=1)
+        )
 
         scores = self.scorer(user_emb, item_emb)
 
@@ -250,3 +280,20 @@ class EDuRec(nn.Module):
         text_end = text_start + self.cfg.num_item_text_feats
         text_emb = self.text_projection(item_static_feats[..., text_start:text_end])
         return item_feature_emb, text_emb
+
+    def _validate_router_stats(
+        self,
+        user_stats: torch.Tensor,
+        item_stats: torch.Tensor,
+    ) -> None:
+        expected_width = ROUTER_CTX_DIM + ROUTER_NUM_MODULES
+        expected_shapes = (
+            ("user_stats", user_stats, self.cfg.num_users),
+            ("item_stats", item_stats, self.cfg.num_items),
+        )
+        for name, stats, expected_rows in expected_shapes:
+            if stats.ndim != 2 or stats.shape != (expected_rows, expected_width):
+                raise ValueError(
+                    f"{name} must have shape "
+                    f"[{expected_rows}, {expected_width}], got {tuple(stats.shape)}."
+                )

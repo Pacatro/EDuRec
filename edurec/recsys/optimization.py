@@ -27,17 +27,11 @@ def objective(
     inter_graph: Data,
     epochs: int,
     patience: int,
+    val_topk: int = settings.TOP_K,
     verbose: bool = False,
 ) -> float:
-    emb_dim = trial.suggest_categorical(
-        "emb_dim",
-        sorted({64, settings.EMB_DIM, 256}),
-    )
-
-    scorer = trial.suggest_categorical(
-        "scorer",
-        ["linear", "single", "funnel"],
-    )
+    emb_dim = trial.suggest_categorical("emb_dim", sorted({64, settings.EMB_DIM, 256}))
+    scorer = trial.suggest_categorical("scorer", ["linear", "single", "funnel"])
 
     hidden_dims = {
         "linear": [],
@@ -49,13 +43,12 @@ def objective(
 
     config = replace(
         base_config,
-        # Representaciones
         emb_dim=emb_dim,
-        # Encoder del grafo
+        # LightGCN
         gnn_layers=trial.suggest_categorical(
             "gnn_layers", sorted({1, settings.GNN_LAYERS, 3})
         ),
-        # Encoder secuencial
+        # SASRec
         n_heads=trial.suggest_categorical(
             "n_heads", sorted({2, settings.NUM_HEADS, 8})
         ),
@@ -98,7 +91,9 @@ def objective(
         inter_graph=inter_graph,
         u_static_feats=datamodule.u_static_feats,
         i_static_feats=datamodule.i_static_feats,
-        val_topk=settings.TOP_K,
+        user_stats=datamodule.user_stats,
+        item_stats=datamodule.item_stats,
+        val_topk=val_topk,
     )
 
     with TemporaryDirectory(prefix=f"edurec-optuna-{trial.number}-") as root_dir:
@@ -106,7 +101,6 @@ def objective(
             model=model,
             dm=datamodule,
             debug=False,
-            use_logger=False,
             epochs=epochs,
             patience=patience,
             monitor=model.monitor,
@@ -131,6 +125,7 @@ def optimize_model(
     n_trials: int,
     epochs: int,
     patience: int,
+    val_topk: int = settings.TOP_K,
     verbose: bool = False,
     results_path: Path | None = None,
 ) -> optuna.Study:
@@ -165,6 +160,7 @@ def optimize_model(
             inter_graph,
             epochs,
             patience,
+            val_topk,
             verbose,
         ),
         n_trials=n_trials,

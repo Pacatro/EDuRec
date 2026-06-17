@@ -5,6 +5,7 @@ import torch
 from .. import settings
 from .cache import ProcessedData
 from .dataprocessor import DataProcessor
+from .statistics import build_item_stats, build_user_stats
 
 
 def clean_cols(df: pd.DataFrame) -> pd.DataFrame:
@@ -66,16 +67,34 @@ def filter_sparse(
     interactions: pd.DataFrame,
     min_interactions: int,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Remove users with fewer than ``min_interactions`` in the full dataset."""
-    user_counts = interactions[settings.USER_COL].value_counts(sort=False)
-    valid_users = user_counts[user_counts >= min_interactions].index
-    user_mask = users[settings.USER_COL].isin(valid_users)
-    interaction_mask = interactions[settings.USER_COL].isin(valid_users)
+    """Remove users and items with fewer than ``min_interactions``."""
+
+    filtered = interactions.copy()
+
+    while True:
+        previous_size = len(filtered)
+
+        user_counts = filtered[settings.USER_COL].value_counts(sort=False)
+        item_counts = filtered[settings.ITEM_COL].value_counts(sort=False)
+
+        valid_users = user_counts[user_counts >= min_interactions].index
+        valid_items = item_counts[item_counts >= min_interactions].index
+
+        filtered = filtered.loc[
+            filtered[settings.USER_COL].isin(valid_users)
+            & filtered[settings.ITEM_COL].isin(valid_items)
+        ]
+
+        if len(filtered) == previous_size:
+            break
+
+    valid_users = filtered[settings.USER_COL].unique()
+    valid_items = filtered[settings.ITEM_COL].unique()
 
     return (
-        users.loc[user_mask].reset_index(drop=True),
-        items.reset_index(drop=True),
-        interactions.loc[interaction_mask].reset_index(drop=True),
+        users.loc[users[settings.USER_COL].isin(valid_users)].reset_index(drop=True),
+        items.loc[items[settings.ITEM_COL].isin(valid_items)].reset_index(drop=True),
+        filtered.reset_index(drop=True),
     )
 
 
@@ -173,5 +192,17 @@ def preprocess(
         test=split_dfs["test"],
         u_static_feats=static_feats["users"],
         i_static_feats=static_feats["items"],
+        user_stats=build_user_stats(
+            users=users,
+            train=split_dfs["train"],
+            processor=processor,
+            num_users=static_feats["users"].shape[0],
+        ),
+        item_stats=build_item_stats(
+            items=items,
+            train=split_dfs["train"],
+            processor=processor,
+            num_items=static_feats["items"].shape[0],
+        ),
         data_processor=processor,
     )

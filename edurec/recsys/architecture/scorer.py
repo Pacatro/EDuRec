@@ -18,6 +18,10 @@ class Scorer(nn.Module):
         super().__init__()
         self.scorer_type = cfg.scorer_type
 
+        if cfg.scorer_type == "dot":
+            self.mlp = None
+            return
+
         input_dim = cfg.emb_dim * 2
 
         layers = []
@@ -40,6 +44,9 @@ class Scorer(nn.Module):
     def forward(self, user_emb: torch.Tensor, item_emb: torch.Tensor) -> torch.Tensor:
         if self.scorer_type == "dot":
             return user_emb @ item_emb.T
+
+        if self.mlp is None:
+            raise RuntimeError("MLP scorer is not initialized.")
 
         batch_size = user_emb.shape[0]
         num_items = item_emb.shape[0]

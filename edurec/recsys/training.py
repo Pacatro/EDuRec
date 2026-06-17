@@ -15,10 +15,10 @@ def train_model(
     model: L.LightningModule,
     dm: ElearningDataModule,
     debug: bool,
-    use_logger: bool,
     epochs: int,
     patience: int,
     monitor: str,
+    experiment_name: str | None = None,
     compile: bool = settings.COMPILE_MODEL,
     verbose: bool = False,
     callbacks: Sequence[Callback] = (),
@@ -45,11 +45,8 @@ def train_model(
     )
 
     logger = (
-        WandbLogger(
-            project=settings.EXPERIMENT_NAME,
-            name=f"train_{model_name}_{dm.dataset_name}",
-        )
-        if use_logger and not debug
+        WandbLogger(project=settings.EXPERIMENT_NAME, name=experiment_name)
+        if experiment_name is not None and not debug
         else None
     )
 

@@ -194,6 +194,7 @@ class ElearningDataModule(L.LightningDataModule):
         ).contiguous()
 
         graph = Data(edge_index=edge_index, num_nodes=self.num_users + self.num_items)
+
         graph.num_users = self.num_users
         graph.num_items = self.num_items
         graph.node_type = torch.cat(
@@ -329,6 +330,20 @@ class ElearningDataModule(L.LightningDataModule):
             if self.num_users == 0 or self.num_items == 0
             else 1 - self.num_interactions / (self.num_users * self.num_items)
         )
+
+    @property
+    def user_stats(self) -> torch.Tensor:
+        if self.artifacts.user_stats is None:
+            raise RuntimeError("User router statistics are not available.")
+
+        return self.artifacts.user_stats
+
+    @property
+    def item_stats(self) -> torch.Tensor:
+        if self.artifacts.item_stats is None:
+            raise RuntimeError("Item router statistics are not available.")
+
+        return self.artifacts.item_stats
 
     @property
     def num_user_feats(self) -> int:

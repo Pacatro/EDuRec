@@ -27,11 +27,19 @@ class RecSys(L.LightningModule):
         inter_graph: Data,
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
+        user_stats: torch.Tensor,
+        item_stats: torch.Tensor,
         val_topk: int = settings.TOP_K,
     ):
         super().__init__()
         self.save_hyperparameters(
-            ignore=["inter_graph", "u_static_feats", "i_static_feats"]
+            ignore=[
+                "inter_graph",
+                "u_static_feats",
+                "i_static_feats",
+                "user_stats",
+                "item_stats",
+            ]
         )
         self.cfg = cfg
         self.lr = cfg.lr
@@ -44,6 +52,8 @@ class RecSys(L.LightningModule):
         self.register_buffer("edge_index", inter_graph.edge_index, persistent=False)
         self.register_buffer("u_static_feats", u_static_feats, persistent=False)
         self.register_buffer("i_static_feats", i_static_feats, persistent=False)
+        self.register_buffer("user_stats", user_stats, persistent=False)
+        self.register_buffer("item_stats", item_stats, persistent=False)
 
         self.gcl_loss = InfoNCELoss(
             tau=cfg.temperature,
@@ -90,6 +100,8 @@ class RecSys(L.LightningModule):
             edge_index=self.edge_index,
             u_static_feats=self.u_static_feats,
             i_static_feats=self.i_static_feats,
+            user_stats=self.user_stats,
+            item_stats=self.item_stats,
         )
 
         if scores.ndim == 3:
@@ -134,7 +146,7 @@ class RecSys(L.LightningModule):
             prefix == "train" and self.cfg.use_gcl and self.cfg.graph_mode == "lightgcn"
         )
 
-        gcl_loss = self._compute_gcl_loss() if use_gcl else rank_loss.new_zeros(())
+        gcl_loss = self._compute_gcl_loss(batch) if use_gcl else rank_loss.new_zeros(())
 
         loss = rank_loss + self.alpha * gcl_loss
 
@@ -200,7 +212,7 @@ class RecSys(L.LightningModule):
 
         return F.cross_entropy(scores, target_item_ids)
 
-    def _compute_gcl_loss(self) -> torch.Tensor:
+    def _compute_gcl_loss(self, batch: RecSysQuery) -> torch.Tensor:
         if self.model.gnn is None:
             raise RuntimeError("GCL requires an active graph encoder.")
 
@@ -213,9 +225,29 @@ class RecSys(L.LightningModule):
         u_emb1, i_emb1 = self.model.gnn(edge_index_1)
         u_emb2, i_emb2 = self.model.gnn(edge_index_2)
 
-        gcl_loss = self.gcl_loss(u_emb1, i_emb1, u_emb2, i_emb2)
+        user_ids, item_ids = self._contrastive_batch_ids(batch)
+        gcl_loss = self.gcl_loss(
+            u_emb1[user_ids],
+            i_emb1[item_ids],
+            u_emb2[user_ids],
+            i_emb2[item_ids],
+        )
 
         return gcl_loss
+
+    @staticmethod
+    def _contrastive_batch_ids(
+        batch: RecSysQuery,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        user_ids = batch.user_id.reshape(-1).long().unique()
+        target_item_ids = batch.target_item_id.reshape(-1).long()
+
+        history_item_ids = (
+            batch.history_items[batch.history_valid_mask].reshape(-1).long() - 1
+        )
+        item_ids = torch.cat([target_item_ids, history_item_ids]).unique()
+
+        return user_ids, item_ids
 
     def on_validation_epoch_start(self):
         self.val_ranking_metrics.reset()

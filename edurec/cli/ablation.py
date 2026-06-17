@@ -10,7 +10,7 @@ import typer
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule, dataset_loaders
 from ..recsys import EDuRecConfig, RecSys, train_model
-from ..recsys.ablation import (
+from ..evaluation.ablation import (
     ABLATIONS,
     CONTENT_ABLATIONS,
     get_ablation_config,
@@ -27,28 +27,6 @@ def _parse_seeds(seeds: str) -> list[int]:
     return parsed
 
 
-def _base_config(
-    dm: ElearningDataModule,
-    lr: float,
-    adaptive_k: bool,
-    topks: list[int],
-) -> EDuRecConfig:
-    return EDuRecConfig(
-        num_users=dm.num_users,
-        num_items=dm.num_items,
-        num_ctx_feats=dm.train_ds.num_ctx_feats,
-        num_user_dense_feats=dm.num_user_dense_feats,
-        num_item_dense_feats=dm.num_item_dense_feats,
-        num_user_text_feats=dm.num_user_text_feats,
-        num_item_text_feats=dm.num_item_text_feats,
-        user_cat_cardinalities=dm.user_cat_cardinalities,
-        item_cat_cardinalities=dm.item_cat_cardinalities,
-        lr=lr,
-        adaptive_k=adaptive_k,
-        topks=topks,
-    )
-
-
 def _num_trainable_parameters(model: RecSys) -> int:
     return sum(param.numel() for param in model.parameters() if param.requires_grad)
 
@@ -58,11 +36,7 @@ def run_ablation(
     dataset: Annotated[DatasetName | None, typer.Option("--dataset", "-d")] = None,
     seeds: Annotated[
         str,
-        typer.Option(
-            "--seeds",
-            "-s",
-            help="Comma-separated seeds to run.",
-        ),
+        typer.Option("--seeds", "-s", help="Comma-separated seeds to run."),
     ] = "13,42,77,101,2026",
     include_content: Annotated[
         bool,
@@ -73,7 +47,9 @@ def run_ablation(
     batch_size: Annotated[
         int, typer.Option("--batch_size", "-b", min=1)
     ] = settings.BATCH_SIZE,
-    patience: Annotated[int, typer.Option("--patience", "-p", min=1)] = settings.PATIENCE,
+    patience: Annotated[
+        int, typer.Option("--patience", "-p", min=1)
+    ] = settings.PATIENCE,
     val_size: Annotated[float, typer.Option("--val_size", "-v")] = settings.VAL_RATIO,
     test_size: Annotated[
         float, typer.Option("--test_size", "-t")
@@ -114,7 +90,10 @@ def run_ablation(
     for dataset_name in datasets:
         dataset_root = output_dir / dataset_name.value
         dataset_root.mkdir(parents=True, exist_ok=True)
-        rows: list[dict[str, float | int | str]] = []
+        base_cfg_path = (
+            Path(settings.CONFIGS_FOLDER) / f"config-{dataset_name.value}.yaml"
+        )
+        rows = []
 
         for seed in parsed_seeds:
             settings.seed_everything(seed)
@@ -132,12 +111,29 @@ def run_ablation(
             )
             dm.setup()
             inter_graph = dm.build_inter_graph()
-            base_cfg = _base_config(
-                dm=dm,
-                lr=lr,
-                adaptive_k=adaptive_k,
-                topks=settings.TOP_KS,
-            )
+
+            if base_cfg_path.exists():
+                print("[ABLATION] Using existing config file:", base_cfg_path)
+                base_cfg = EDuRecConfig.load(base_cfg_path)
+            else:
+                print(
+                    "[ABLATION] No config file found, creating new config for dataset:",
+                    dataset_name.value,
+                )
+                base_cfg = EDuRecConfig(
+                    num_users=dm.num_users,
+                    num_items=dm.num_items,
+                    num_ctx_feats=dm.train_ds.num_ctx_feats,
+                    num_user_dense_feats=dm.num_user_dense_feats,
+                    num_item_dense_feats=dm.num_item_dense_feats,
+                    num_user_text_feats=dm.num_user_text_feats,
+                    num_item_text_feats=dm.num_item_text_feats,
+                    user_cat_cardinalities=dm.user_cat_cardinalities,
+                    item_cat_cardinalities=dm.item_cat_cardinalities,
+                    lr=lr,
+                    adaptive_k=adaptive_k,
+                    topks=settings.TOP_KS,
+                )
 
             for variant in variants:
                 settings.seed_everything(seed)
@@ -150,25 +146,26 @@ def run_ablation(
                 variant_root.mkdir(parents=True, exist_ok=True)
                 cfg.save(variant_root / "config.yaml")
 
-                print(
-                    f"[ABLATION] {dataset_name.value} | {variant} | seed={seed}"
-                )
+                print(f"[ABLATION] {dataset_name.value} | {variant} | seed={seed}")
 
                 model = RecSys(
                     cfg=cfg,
                     inter_graph=inter_graph,
                     u_static_feats=dm.u_static_feats,
                     i_static_feats=dm.i_static_feats,
+                    user_stats=dm.user_stats,
+                    item_stats=dm.item_stats,
                     val_topk=top_k,
                 )
                 num_parameters = _num_trainable_parameters(model)
 
-                with TemporaryDirectory(prefix=f"edurec-ablation-{variant}-{seed}-") as tmp:
+                with TemporaryDirectory(
+                    prefix=f"edurec-ablation-{variant}-{seed}-"
+                ) as tmp:
                     trainer, best_model_path = train_model(
                         model=model,
                         dm=dm,
                         debug=debug,
-                        use_logger=False,
                         epochs=epochs,
                         patience=patience,
                         monitor=model.monitor,

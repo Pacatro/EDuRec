@@ -1,197 +1,265 @@
 # EDuRec
 
-This repository is part of the Master's Thesis (TFM) by Francisco de Paula Algar Muñoz at the Menéndez Pelayo International University.
+EDuRec is a PyTorch Lightning recommendation system for e-learning datasets. It
+combines collaborative graph signals, user and item side information, item text
+representations, and sequential user history to recommend educational resources.
 
-The goal of this project is to develop a Deep Learning-based educational recommendation system that optimizes the learning experience through intelligent resource selection. The system uses deep neural networks to capture complex patterns in student interaction data, considering both academic history and preferences to generate accurate and adaptive recommendations. Performance is validated using standard metrics (Precision@K, Recall@K, NDCG) and compared against classical and state-of-the-art (SOTA) approaches.
+This repository is part of the Master's Thesis by Francisco de Paula Algar
+Munoz at the Menendez Pelayo International University.
 
-## Features
+## Project Description
 
-- **Deep Learning Model**: Implements EDuRec, a neural recommendation model using PyTorch Lightning with configurable architectures.
-- **Cross-Validation**: Supports multiple cross-validation strategies (K-Fold, Stratified K-Fold) for robust evaluation.
-- **State-of-the-Art Comparison**: Evaluates and compares the model against algorithms like DeepFM using the RecBole framework.
-- **Statistical Analysis**: Includes Friedman and Nemenyi tests to compare model performances statistically.
-- **Command-Line Interface**: Provides a powerful CLI built with Typer for training, evaluation, and analysis.
-- **Multiple Datasets**: Supports two e-learning datasets: MARS and ITM.
-- **Experiment Tracking**: Integrates Weights & Biases for experiment logging and monitoring.
+The project implements and evaluates a hybrid educational recommender for
+implicit and explicit student-resource interactions. The codebase includes:
 
-## Getting Started
+- Dataset loaders and preprocessing for `mars`, `itm`, and `doris`.
+- The proposed EDuRec model, implemented with PyTorch, PyTorch Geometric, and
+  Lightning.
+- Training, testing, dataset inspection, hyperparameter optimization, benchmark
+  evaluation, and ablation commands through a Typer CLI.
+- RecBole-based comparisons against classical and state-of-the-art recommenders.
+- Ranking metrics at multiple cutoffs, including Precision, Recall, NDCG, Hit
+  Rate, MAP, and MRR.
 
-> [!NOTE]
-> To run this project, you need to have the [`uv`](https://docs.astral.sh/uv/) package manager installed.
+## Installation
 
-Follow these steps to run the project:
+The project uses Python 3.12 or newer and [`uv`](https://docs.astral.sh/uv/) for
+dependency management.
 
-1. **Clone the repository**
+```bash
+git clone https://github.com/Pacatro/EDuRec.git
+cd EDuRec
+uv sync
+```
 
-   ```bash
-   git clone https://github.com/Pacatro/edurec.git
-   cd edurec
-   ```
+For development dependencies such as `pytest` and `wandb`, use:
 
-2. **Install dependencies and create a virtual environment**
+```bash
+uv sync --group dev
+```
 
-   ```bash
-   uv sync
-   ```
+The repository expects raw datasets under `data/raw/<dataset>`. The included
+loaders currently support:
 
-3. **Run the application**
-
-   To see all available commands and options, run:
-
-   ```bash
-   uv run edurec --help
-   ```
+- `data/raw/mars`
+- `data/raw/itm`
+- `data/raw/doris`
 
 ## Usage
 
-The application provides a main CLI with subcommands for training and evaluation.
-
-### Global Options
-
-- `--device, -d`: Device to use (auto, cpu, cuda)
-- `--random-state, -r`: Random state for reproducibility (default: 42)
-- `--verbose, -v`: Enable verbose mode
-
-### Train
-
-Train the recommendation model.
+All commands are exposed through the `edurec` CLI.
 
 ```bash
-uv run edurec train [OPTIONS]
+uv run edurec --help
 ```
 
-**Options:**
+Global options:
 
-| Option                | Description                     | Default  |
-| --------------------- | ------------------------------- | -------- |
-| `--dataset, -d`       | Dataset to use (mars, itm)      | mars     |
-| `--epochs, -e`        | Number of training epochs       | 100      |
-| `--lr, -l`            | Learning rate                   | 0.001    |
-| `--batch_size, -b`    | Batch size                      | 256      |
-| `--val_size, -v`      | Validation set ratio            | 0.1      |
-| `--test_size, -t`     | Test set ratio                  | 0.2      |
-| `--top_k, -k`         | Top-k value for recommendations | 10       |
-| `--monitor, -m`       | Metric to monitor               | val_loss |
-| `--use_logger, -L`    | Use W&B logger                  | False    |
-| `--debug, -D`         | Debug mode (fast dev run)       | False    |
-| `--save_model, -S`    | Save the trained model          | False    |
-| `--save_data, -P`     | Save processed data             | False    |
-| `--models-folder, -M` | Folder to save models           | models   |
+```text
+-d, --device [auto|cpu|cuda]  Device to use
+-r, --random-state INTEGER    Random seed
+-v, --verbose                 Verbose output
+-h, --help                    Show help
+```
 
-**Example:**
+### Inspect a Dataset
 
-Train the EDuRec model on the `mars` dataset for 50 epochs with a batch size of 128:
+Print basic statistics and sample rows from a dataset.
 
 ```bash
-uv run edurec train --dataset mars --epochs 50 --batch_size 128 --save_model
+uv run edurec dataset --dataset mars --max_rows 10
 ```
 
-### Evaluate
+Options:
 
-Evaluate model performance using cross-validation and statistical tests.
+```text
+-d, --dataset [mars|itm|doris]  Dataset to use
+-m, --max_rows INTEGER          Number of rows to show
+```
+
+### Train EDuRec
+
+Train the proposed model on one dataset. If `--dataset` is omitted, the command
+iterates through all registered datasets.
 
 ```bash
-uv run edurec eval [OPTIONS]
+uv run edurec train --dataset mars --use_processed --save_model
 ```
 
-#### eval subcommand
+Common options:
 
-Evaluates the EDuRec model (and optionally SOTA models) using cross-validation.
+```text
+-d, --dataset [mars|itm|doris]
+-e, --epochs INTEGER            Default: 150
+-l, --lr FLOAT                  Default: 0.0002
+-b, --batch_size INTEGER        Default: 128
+-p, --patience INTEGER          Default: 5
+-v, --val_size FLOAT            Default: 0.1
+-t, --test_size FLOAT           Default: 0.2
+-k, --top_k INTEGER             Default: 20
+-R, --remove_sparse             Remove sparse users/items
+-i, --min_interactions INTEGER  Default: 3
+-a, --adaptive_k                Use adaptive-k metrics where supported
+-D, --debug                     Fast debug run
+-S, --save_model                Save checkpoint, config, and metrics
+-o, --optimize                  Run hyperparameter optimization first
+-n, --trials INTEGER            Optimization trials, default: 30
+-P, --use_processed             Reuse cached processed data
+-M, --models-folder TEXT        Default: models
+-C, --configs-folder TEXT       Default: configs
+-E, --experiment-name TEXT      Optional logger experiment name
+```
+
+Example with optimization before the final training run:
 
 ```bash
-uv run edurec eval [OPTIONS]
+uv run edurec train -d doris -P -S --optimize --trials 30
 ```
 
-**Options:**
+### Test a Saved Model
 
-| Option             | Description                               | Default  |
-| ------------------ | ----------------------------------------- | -------- |
-| `--eval-sota, -S`  | Also evaluate SOTA models (DeepFM)        | False    |
-| `--dataset, -d`    | Dataset to use                            | mars     |
-| `--batch-size, -b` | Batch size for training                   | 256      |
-| `--top-k, -k`      | Top-k value for recommendations           | 10       |
-| `--epochs, -e`     | Number of training epochs                 | 100      |
-| `--n-splits, -n`   | Number of CV splits                       | 5        |
-| `--patience, -p`   | Patience for early stopping               | 10       |
-| `--delta`          | Minimum improvement for early stopping    | 0.001    |
-| `--monitor, -m`    | Metric to monitor                         | val_loss |
-| `--cv-type`        | Cross-validation type (kfold, stratified) | kfold    |
-| `--results-folder` | Folder to save results                    | results  |
-
-**Example:**
-
-Run a 5-fold cross-validation on the `itm` dataset:
+Load the most recent saved model for a dataset and evaluate it on the test
+split.
 
 ```bash
-uv run edurec eval --dataset itm --n_splits 5
+uv run edurec test --dataset mars --use_processed
 ```
 
-Evaluate with SOTA comparison:
+Options include dataset, batch size, validation/test split sizes, top-k,
+adaptive-k, sparse filtering, and the models folder.
+
+### Evaluate EDuRec and SOTA Models
+
+Run the proposed EDuRec model and RecBole baselines on the selected dataset. If
+`--dataset` is omitted, all datasets are evaluated.
 
 ```bash
-uv run edurec eval --dataset mars --eval-sota --epochs 50
+uv run edurec eval --dataset itm --use-processed --top-k 5 --top-k 10 --top-k 20
 ```
 
-<!-- #### stats subcommand -->
-<!---->
-<!-- Performs Friedman and Nemenyi statistical tests to compare model performances. -->
-<!---->
-<!-- ```bash -->
-<!-- uv run edurec stats [OPTIONS] -->
-<!-- ``` -->
-<!---->
-<!-- **Options:** -->
-<!---->
-<!-- | Option        | Description | Default | -->
-<!-- | ------------- | ----------- | ------- | -->
-<!-- | `--top_k, -k` | Top-k value | 10      | -->
-<!---->
-<!-- **Example:** -->
-<!---->
-<!-- Run statistical tests for top-10 recommendations: -->
-<!---->
-<!-- ```bash -->
-<!-- uv run edurec eval stats --top_k 10 -->
-<!-- ``` -->
+Default SOTA models:
 
-## Project Structure
+- `ItemKNN`
+- `NeuMF`
+- `LightGCN`
+- `MultiVAE`
+- `SGL`
+- `SASRec`
+- `BERT4Rec`
 
+Useful options:
+
+```text
+-d, --dataset [mars|itm|doris]
+-e, --epochs INTEGER            Default: 150
+-l, --lr FLOAT                  Default: 0.0002
+-b, --batch-size INTEGER        Default: 128
+-p, --patience INTEGER          Default: 5
+-k, --top-k INTEGER             Repeat for multiple cutoffs
+-R, --remove-sparse / -K, --keep-sparse
+-I, --min-interactions INTEGER  Default: 3
+-P, --use-processed / -N, --no-use-processed
+-c, --cfg-path FILE             Extra RecBole config
+-m, --sota-model TEXT           Repeat to choose baseline models
+-a, --adaptive-k / -A, --fixed-k
 ```
-/
-├── edurec/                  # Main source code
-│   ├── cli/                 # CLI commands (train, eval)
-│   │   ├── train.py         # Training command
-│   │   └── eval.py          # Evaluation and stats commands
-│   ├── training/            # Training logic
-│   │   ├── engine.py        # RecSys training engine
-│   │   ├── model.py         # EDuRec model definition
-│   │   └── io.py            # Model I/O operations
-│   ├── datasets/            # Data handling
-│   │   ├── datamodule.py    # PyTorch Lightning DataModule
-│   │   ├── loaders.py       # Dataset loaders
-│   │   ├── data_processor.py # Data preprocessing
-│   │   └── utils.py         # Dataset utilities
-│   ├── evaluation/          # Evaluation metrics and methods
-│   │   ├── cross_validation.py # Cross-validation logic
-│   │   ├── cv_datamodule.py # CV DataModule
-│   │   └── stats.py         # Statistical tests (Friedman, Nemenyi)
-│   ├── config.py            # Configuration settings
-│   └── main.py              # CLI entry point
-├── data/                    # Datasets
-├── tests/                   # Unit tests
-├── results/                 # Evaluation results
-├── pyproject.toml           # Project configuration
-└── README.md                # This file
+
+Results are written to `results/evaluations/<timestamp>/<dataset>/`, with one
+artifact CSV per model and an aggregate `final_results.csv`.
+
+### Optimize Hyperparameters
+
+Run Optuna-based hyperparameter optimization for EDuRec.
+
+```bash
+uv run edurec optim --dataset mars --trials 30 --use_processed
 ```
+
+The command saves the best configuration, trial log, and study database under
+`results/optimization/<timestamp>/`.
+
+### Run Ablations
+
+Evaluate EDuRec variants across multiple random seeds.
+
+```bash
+uv run edurec ablation --dataset doris --seeds 13,42,77,101,2026 --use_processed
+```
+
+Implemented main variants:
+
+- `base`: ID-only dot-product baseline.
+- `full`: full EDuRec architecture.
+- `no_graph`: removes LightGCN and graph contrastive learning.
+- `no_features`: removes user, item, and text feature encoders.
+- `no_sequence`: removes SASRec history encoding and context.
+- `no_context`: keeps sequence modeling but removes contextual history features.
+- `no_gcl`: removes graph contrastive learning.
+- `dot_product`: replaces the MLP scorer with dot-product scoring.
+
+Aggregated outputs are saved to `results/ablations/<dataset>/`.
+
+## Model Architecture
+
+![EDuRec model architecture](model-diagram.png)
+
+EDuRec builds user and item representations from multiple complementary
+modules:
+
+- **Graph encoder**: a LightGCN-style encoder over the user-item interaction
+  graph produces collaborative user and item embeddings.
+- **Feature encoders**: MLP encoders transform dense and categorical user/item
+  features into the shared embedding space.
+- **Text projection**: preprocessed item text embeddings are projected into the
+  same latent dimension as the other item modules.
+- **Sequential encoder**: a SASRec-style Transformer encodes each user's recent
+  item history, optionally enriched with interaction context features.
+- **Routers**: small routing networks weight and combine the available user
+  modules and item modules using user/item statistics.
+- **Scorer**: the final user and item embeddings are scored with either an MLP
+  scorer or a dot-product scorer. An optional item bias can be added.
+
+Training uses cross-entropy over all candidate items. When enabled, graph
+contrastive learning applies edge dropout to create two graph views and adds an
+InfoNCE loss for user and item embeddings.
+
+## Implemented Experiments
+
+### Proposed Model Evaluation
+
+`uv run edurec eval` trains EDuRec, evaluates the best checkpoint on the test
+split, and reports Precision, Recall, NDCG, Hit Rate, MAP, and MRR at the
+configured top-k values.
+
+### SOTA Benchmark Evaluation
+
+The same evaluation command exports RecBole atomic files and runs comparable
+baseline models with aligned split files, metrics, learning rate, epoch count,
+patience, batch size, and top-k settings.
+
+### Hyperparameter Optimization
+
+`uv run edurec optim` and `uv run edurec train --optimize` run Optuna studies for
+EDuRec and save the best model configuration as YAML for later training or
+ablation experiments.
+
+### Ablation Study
+
+`uv run edurec ablation` evaluates architecture variants across configurable
+seeds and records metrics, parameter counts, and per-run configuration files.
+This is intended to isolate the contribution of graph modeling, side features,
+text features, sequential history, context, graph contrastive learning, and the
+scoring function.
 
 ## Author
 
-[**Francisco de Paula Algar Muñoz**](https://github.com/Pacatro)
+[Francisco de Paula Algar Munoz](https://github.com/Pacatro)
 
 ## Advisors
 
-**Amelia Zafra Gómez**
+Amelia Zafra Gomez
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for
+details.
