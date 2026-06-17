@@ -113,11 +113,11 @@ def run_ablation(
             inter_graph = dm.build_inter_graph()
 
             if base_cfg_path.exists():
-                print("Using existing config file:", base_cfg_path)
+                print("[ABLATION] Using existing config file:", base_cfg_path)
                 base_cfg = EDuRecConfig.load(base_cfg_path)
             else:
                 print(
-                    "No config file found, creating new config for dataset:",
+                    "[ABLATION] No config file found, creating new config for dataset:",
                     dataset_name.value,
                 )
                 base_cfg = EDuRecConfig(
