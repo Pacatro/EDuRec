@@ -11,6 +11,7 @@ BASE_ABLATION: dict[str, Any] = {
     "use_text_features": False,
     "use_sasrec": False,
     "use_context": False,
+    "use_routers": False,
     "use_gcl": False,
     "use_item_bias": False,
     "scorer_type": "dot",
@@ -24,6 +25,7 @@ FULL_ABLATION: dict[str, Any] = {
     "use_text_features": True,
     "use_sasrec": True,
     "use_context": True,
+    "use_routers": True,
     "use_gcl": True,
     "scorer_type": "mlp",
 }
@@ -49,6 +51,7 @@ ABLATIONS: dict[str, dict[str, Any]] = {
         "use_context": False,
     },
     "no_context": {**FULL_ABLATION, "use_context": False},
+    "no_routers": {**FULL_ABLATION, "use_routers": False},
     "no_gcl": {**FULL_ABLATION, "use_gcl": False},
     "dot_product": {**FULL_ABLATION, "scorer_type": "dot", "hidden_dims": []},
 }

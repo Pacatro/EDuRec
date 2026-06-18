@@ -194,6 +194,7 @@ Implemented main variants:
 - `no_features`: removes user, item, and text feature encoders.
 - `no_sequence`: removes SASRec history encoding and context.
 - `no_context`: keeps sequence modeling but removes contextual history features.
+- `no_routers`: replaces routing networks with uniform module combination.
 - `no_gcl`: removes graph contrastive learning.
 - `dot_product`: replaces the MLP scorer with dot-product scoring.
 
@@ -248,8 +249,8 @@ ablation experiments.
 `uv run edurec ablation` evaluates architecture variants across configurable
 seeds and records metrics, parameter counts, and per-run configuration files.
 This is intended to isolate the contribution of graph modeling, side features,
-text features, sequential history, context, graph contrastive learning, and the
-scoring function.
+text features, sequential history, context, routing networks, graph contrastive
+learning, and the scoring function.
 
 ## Author
 
