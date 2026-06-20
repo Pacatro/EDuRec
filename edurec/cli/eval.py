@@ -7,7 +7,7 @@ import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule, dataset_loaders
-from ..evaluation import eval_model, eval_sota_models
+from ..evaluation import eval_model, eval_sota_models, eval_upgpr
 from ..recsys import EDuRecConfig
 
 app = typer.Typer(no_args_is_help=True)
@@ -15,7 +15,7 @@ app = typer.Typer(no_args_is_help=True)
 
 @app.command(
     name="eval",
-    help="Evaluate the proposed EDuRec model and RecBole SOTA models.",
+    help="Evaluate EDuRec against UPGPR and RecBole SOTA models.",
 )
 def eval_models(
     dataset: Annotated[
@@ -46,7 +46,7 @@ def eval_models(
             "--batch-size",
             "-b",
             min=1,
-            help="Batch size used by EDuRec preprocessing and RecBole.",
+            help="Batch size used by EDuRec, UPGPR and RecBole.",
         ),
     ] = settings.BATCH_SIZE,
     patience: Annotated[
@@ -139,14 +139,14 @@ def eval_models(
 
     print("\n[EVAL] Evaluation run")
     print(f"[EVAL] Datasets: {', '.join(ds.value for ds in datasets)}")
-    print(f"[EVAL] Models: EDuRec + {len(sota_models)} SOTA")
+    print(f"[EVAL] Models: EDuRec, UPGPR + {len(sota_models)} SOTA")
     print(f"[EVAL] Results folder: {results_path}")
     print(f"[EVAL] Top-k: {eval_topks} | val@{val_topk}\n")
 
     for dataset_idx, dataset in enumerate(datasets, start=1):
         batch_size = settings.BATCH_SIZE if dataset != DatasetName.ITM else 32
         print(f"[EVAL] [{dataset_idx}/{len(datasets)}] Dataset: {dataset.value}")
-        print(f"[EVAL] Models: EDuRec, {sota_label}")
+        print(f"[EVAL] Models: EDuRec, UPGPR, {sota_label}")
         print("[EVAL] Preparing data...")
 
         if settings.state["verbose"]:
@@ -237,6 +237,19 @@ def eval_models(
             results_path=artifacts_path,
         )
 
+        print("[EVAL] Running comparison model: UPGPR")
+        upgpr_results = eval_upgpr(
+            dm=dm,
+            epochs=epochs,
+            lr=lr,
+            val_topk=val_topk,
+            topks=eval_topks,
+            patience=patience,
+            adaptive_k=adaptive_k,
+            verbose=settings.state["verbose"],
+            results_path=artifacts_path,
+        )
+
         print(f"[EVAL] Running SOTA models ({len(sota_models)}): {sota_label}")
         sota_results = eval_sota_models(
             models=sota_models,
@@ -252,7 +265,7 @@ def eval_models(
         )
 
         results = pd.concat(
-            [proposed_results, sota_results],
+            [proposed_results, upgpr_results, sota_results],
             ignore_index=True,
             sort=False,
         )
