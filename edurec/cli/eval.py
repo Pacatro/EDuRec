@@ -205,37 +205,37 @@ def eval_models(
                 f"item_cat={len(dm.item_cat_cardinalities)}"
             )
 
-        cfg = EDuRecConfig(
-            num_users=dm.num_users,
-            num_items=dm.num_items,
-            num_ctx_feats=dm.train_ds.num_ctx_feats,
-            num_user_dense_feats=dm.num_user_dense_feats,
-            num_item_dense_feats=dm.num_item_dense_feats,
-            num_user_text_feats=dm.num_user_text_feats,
-            num_item_text_feats=dm.num_item_text_feats,
-            user_cat_cardinalities=dm.user_cat_cardinalities,
-            item_cat_cardinalities=dm.item_cat_cardinalities,
-            lr=lr,
-            adaptive_k=adaptive_k,
-            topks=eval_topks,
-        )
+        # cfg = EDuRecConfig(
+        #     num_users=dm.num_users,
+        #     num_items=dm.num_items,
+        #     num_ctx_feats=dm.train_ds.num_ctx_feats,
+        #     num_user_dense_feats=dm.num_user_dense_feats,
+        #     num_item_dense_feats=dm.num_item_dense_feats,
+        #     num_user_text_feats=dm.num_user_text_feats,
+        #     num_item_text_feats=dm.num_item_text_feats,
+        #     user_cat_cardinalities=dm.user_cat_cardinalities,
+        #     item_cat_cardinalities=dm.item_cat_cardinalities,
+        #     lr=lr,
+        #     adaptive_k=adaptive_k,
+        #     topks=eval_topks,
+        # )
 
-        print("[EVAL] Running proposed model: EDuRec")
+        # print("[EVAL] Running proposed model: EDuRec")
 
         dataset_started_at = datetime.now()
 
         artifacts_path = results_path / dataset.value / "artifacts"
         artifacts_path.mkdir(parents=True, exist_ok=True)
 
-        proposed_results = eval_model(
-            dm=dm,
-            cfg=cfg,
-            epochs=epochs,
-            val_topk=val_topk,
-            patience=patience,
-            verbose=settings.state["verbose"],
-            results_path=artifacts_path,
-        )
+        # proposed_results = eval_model(
+        #     dm=dm,
+        #     cfg=cfg,
+        #     epochs=epochs,
+        #     val_topk=val_topk,
+        #     patience=patience,
+        #     verbose=settings.state["verbose"],
+        #     results_path=artifacts_path,
+        # )
 
         print("[EVAL] Running comparison model: UPGPR")
         upgpr_results = eval_upgpr(
@@ -250,39 +250,39 @@ def eval_models(
             results_path=artifacts_path,
         )
 
-        print(f"[EVAL] Running SOTA models ({len(sota_models)}): {sota_label}")
-        sota_results = eval_sota_models(
-            models=sota_models,
-            dm=dm,
-            cfg_path=cfg_path,
-            epochs=epochs,
-            lr=lr,
-            batch_size=batch_size,
-            patience=patience,
-            topks=eval_topks,
-            show_progress=settings.state["verbose"],
-            results_path=artifacts_path,
-        )
+        # print(f"[EVAL] Running SOTA models ({len(sota_models)}): {sota_label}")
+        # sota_results = eval_sota_models(
+        #     models=sota_models,
+        #     dm=dm,
+        #     cfg_path=cfg_path,
+        #     epochs=epochs,
+        #     lr=lr,
+        #     batch_size=batch_size,
+        #     patience=patience,
+        #     topks=eval_topks,
+        #     show_progress=settings.state["verbose"],
+        #     results_path=artifacts_path,
+        # )
 
-        results = pd.concat(
-            [proposed_results, upgpr_results, sota_results],
-            ignore_index=True,
-            sort=False,
-        )
+        # results = pd.concat(
+        #     [proposed_results, upgpr_results, sota_results],
+        #     ignore_index=True,
+        #     sort=False,
+        # )
 
-        csv_path = results_path / dataset.value / "final_results.csv"
-        results.to_csv(csv_path, index=False)
+        # csv_path = results_path / dataset.value / "final_results.csv"
+        # results.to_csv(csv_path, index=False)
 
-        metric_cols = [col for col in results.columns if col != "model"]
-        preferred_cols = ["model"] + sorted(
-            metric_cols,
-            key=lambda col: (
-                col.split("@", maxsplit=1)[-1].zfill(4) if "@" in col else "0000",
-                col,
-            ),
-        )
-        elapsed = str(datetime.now() - dataset_started_at).split(".", maxsplit=1)[0]
-        print("[EVAL] Results:")
-        print(results[preferred_cols].round(4).to_string(index=False))
-        print(f"[EVAL] Saved: {csv_path}")
-        print(f"[EVAL] Finished {dataset.value} in {elapsed}\n")
+        # metric_cols = [col for col in results.columns if col != "model"]
+        # preferred_cols = ["model"] + sorted(
+        #     metric_cols,
+        #     key=lambda col: (
+        #         col.split("@", maxsplit=1)[-1].zfill(4) if "@" in col else "0000",
+        #         col,
+        #     ),
+        # )
+        # elapsed = str(datetime.now() - dataset_started_at).split(".", maxsplit=1)[0]
+        # print("[EVAL] Results:")
+        # print(results[preferred_cols].round(4).to_string(index=False))
+        # print(f"[EVAL] Saved: {csv_path}")
+        # print(f"[EVAL] Finished {dataset.value} in {elapsed}\n")
