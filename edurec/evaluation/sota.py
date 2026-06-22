@@ -42,15 +42,25 @@ def eval_sota_models(
 
     for model in models:
         print(f"[EVAL] Evaluating {model}...")
-        result = _run_model(
+        metrics = _run_model(
             model=model,
             dataset_name=dataset_name,
             cfg_path=cfg_path,
             config_dict=_config_for_model(model, base_config),
         )
+        result = {
+            "model": model,
+            "seed": settings.state["random_state"],
+            **metrics,
+        }
 
         if results_path is not None:
-            pd.DataFrame([result]).to_csv(results_path / f"{model}.csv", index=True)
+            model_root = results_path / model / f"seed_{result['seed']}"
+            model_root.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame([result]).to_csv(
+                model_root / settings.METRICS_FILENAME,
+                index=False,
+            )
 
         results.append(result)
 
@@ -71,7 +81,7 @@ def _run_model(
         saved=False,
     )
 
-    return {"model": model, **result["test_result"]}
+    return result["test_result"]
 
 
 def _config_for_model(model: str, base_config: dict[str, object]) -> dict[str, object]:

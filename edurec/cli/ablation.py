@@ -8,7 +8,7 @@ import pandas as pd
 import typer
 
 from .. import settings
-from ..datasets import DatasetName, ElearningDataModule, dataset_loaders
+from ..datasets import DatasetName, ElearningDataModule
 from ..recsys import EDuRecConfig, RecSys, train_model
 from ..evaluation.ablation import (
     ABLATIONS,
@@ -16,19 +16,9 @@ from ..evaluation.ablation import (
     get_ablation_config,
     get_content_ablation_config,
 )
+from .utils import build_config, datasets_to_run, parse_seeds
 
 app = typer.Typer(no_args_is_help=True)
-
-
-def _parse_seeds(seeds: str) -> list[int]:
-    parsed = [int(seed.strip()) for seed in seeds.split(",") if seed.strip()]
-    if not parsed:
-        raise typer.BadParameter("At least one seed is required.")
-    return parsed
-
-
-def _num_trainable_parameters(model: RecSys) -> int:
-    return sum(param.numel() for param in model.parameters() if param.requires_grad)
 
 
 @app.command(name="ablation", help="Run EDuRec ablation variants.")
@@ -73,13 +63,12 @@ def run_ablation(
         typer.Option("--output-dir", "-o", help="Root folder for ablation results."),
     ] = Path(settings.RESULTS_FOLDER) / "ablations",
 ) -> None:
-    parsed_seeds = _parse_seeds(seeds)
-    datasets = [dataset] if dataset is not None else list(dataset_loaders.keys())
+    parsed_seeds = parse_seeds(seeds)
+    datasets = datasets_to_run(dataset)
     started_at = datetime.now()
+    verbose = settings.state["verbose"]
 
-    main_variants = list(ABLATIONS)
-    content_variants = list(CONTENT_ABLATIONS) if include_content else []
-    variants = main_variants + content_variants
+    variants = list(ABLATIONS) + (list(CONTENT_ABLATIONS) if include_content else [])
 
     print("\n[ABLATION] EDuRec ablation run")
     print(f"[ABLATION] Datasets: {', '.join(ds.value for ds in datasets)}")
@@ -120,16 +109,8 @@ def run_ablation(
                     "[ABLATION] No config file found, creating new config for dataset:",
                     dataset_name.value,
                 )
-                base_cfg = EDuRecConfig(
-                    num_users=dm.num_users,
-                    num_items=dm.num_items,
-                    num_ctx_feats=dm.train_ds.num_ctx_feats,
-                    num_user_dense_feats=dm.num_user_dense_feats,
-                    num_item_dense_feats=dm.num_item_dense_feats,
-                    num_user_text_feats=dm.num_user_text_feats,
-                    num_item_text_feats=dm.num_item_text_feats,
-                    user_cat_cardinalities=dm.user_cat_cardinalities,
-                    item_cat_cardinalities=dm.item_cat_cardinalities,
+                base_cfg = build_config(
+                    dm,
                     lr=lr,
                     adaptive_k=adaptive_k,
                     topks=settings.TOP_KS,
@@ -157,7 +138,9 @@ def run_ablation(
                     item_stats=dm.item_stats,
                     val_topk=top_k,
                 )
-                num_parameters = _num_trainable_parameters(model)
+                num_parameters = sum(
+                    param.numel() for param in model.parameters() if param.requires_grad
+                )
 
                 with TemporaryDirectory(
                     prefix=f"edurec-ablation-{variant}-{seed}-"
@@ -170,7 +153,7 @@ def run_ablation(
                         patience=patience,
                         monitor=model.monitor,
                         compile=False,
-                        verbose=settings.state["verbose"],
+                        verbose=verbose,
                         default_root_dir=tmp,
                     )
 
@@ -187,15 +170,13 @@ def run_ablation(
                 row: dict[str, float | int | str] = {
                     "variant": variant,
                     "seed": seed,
-                }
-                row.update(
-                    {
+                    **{
                         name.removeprefix("test/"): value
                         for name, value in metrics.items()
                         if isinstance(value, int | float)
-                    }
-                )
-                row["num_parameters"] = num_parameters
+                    },
+                    "num_parameters": num_parameters,
+                }
                 rows.append(row)
 
                 pd.DataFrame([row]).to_csv(
@@ -207,7 +188,7 @@ def run_ablation(
                     index=False,
                 )
 
-                if settings.state["verbose"]:
+                if verbose:
                     print(f"[ABLATION] Best checkpoint: {best_model_path}")
 
         aggregate = pd.DataFrame(rows)
