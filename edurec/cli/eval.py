@@ -36,6 +36,69 @@ def _save_seed_results(
     return rows
 
 
+def _target_models(sota_models: list[str]) -> list[str]:
+    models = ["EDuRec", "UPGPR", *sota_models]
+    return list(dict.fromkeys(models))
+
+
+def _load_seed_result(
+    dataset_root: Path,
+    model: str,
+    seed: int,
+) -> dict[str, object] | None:
+    path = dataset_root / model / f"seed_{seed}" / settings.METRICS_FILENAME
+    if not path.exists():
+        return None
+
+    try:
+        result = pd.read_csv(path).iloc[0].to_dict()
+    except (IndexError, pd.errors.EmptyDataError, OSError):
+        return None
+
+    result["model"] = str(result.get("model", model))
+    result["seed"] = int(result.get("seed", seed))
+    return result  # type: ignore
+
+
+def _evaluated_seeds_by_model(
+    dataset_root: Path,
+    models: list[str],
+) -> dict[str, set[int]]:
+    evaluated: dict[str, set[int]] = {model: set() for model in models}
+    for model in models:
+        model_root = dataset_root / model
+        if not model_root.exists():
+            continue
+
+        for seed_root in model_root.glob("seed_*"):
+            try:
+                seed = int(seed_root.name.removeprefix("seed_"))
+            except ValueError:
+                continue
+
+            if _load_seed_result(dataset_root, model, seed) is not None:
+                evaluated[model].add(seed)
+    return evaluated
+
+
+def _collect_seed_results(
+    dataset_root: Path,
+    models: list[str],
+    seeds: list[int],
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for seed in seeds:
+        for model in models:
+            row = _load_seed_result(dataset_root, model, seed)
+            if row is not None:
+                rows.append(row)
+    return rows
+
+
+def _last_seed_label(seeds: set[int]) -> str:
+    return str(max(seeds)) if seeds else "none"
+
+
 @app.command(
     name="eval",
     help="Evaluate EDuRec against UPGPR and RecBole SOTA models.",
@@ -48,7 +111,7 @@ def eval_models(
     seeds: Annotated[
         str,
         typer.Option("--seeds", "-s", help="Comma-separated seeds to run."),
-    ] = "13,42,77,101,2026",
+    ] = "13,42,77",
     epochs: Annotated[
         int,
         typer.Option(
@@ -179,6 +242,7 @@ def eval_models(
     datasets = datasets_to_run(dataset)
 
     sota_label = ", ".join(sota_models) if sota_models else "none"
+    models = _target_models(sota_models)
 
     print("\n[EVAL] Evaluation run")
     print(f"[EVAL] Datasets: {', '.join(ds.value for ds in datasets)}")
@@ -192,13 +256,31 @@ def eval_models(
         batch_size = settings.BATCH_SIZE if dataset != DatasetName.ITM else 32
         dataset_root = output_dir / dataset.value
         dataset_root.mkdir(parents=True, exist_ok=True)
-        rows: list[dict[str, object]] = []
         dataset_started_at = datetime.now()
         config_path = configs_folder / f"config-{dataset.value}.yaml"
         optimized_cfg = EDuRecConfig.load(config_path) if config_path.exists() else None
+        evaluated_seeds = _evaluated_seeds_by_model(dataset_root, models)
+        pending_by_seed = {
+            seed: [
+                model
+                for model in models
+                if seed not in evaluated_seeds.get(model, set())
+            ]
+            for seed in parsed_seeds
+        }
+        pending_by_seed = {
+            seed: pending_models
+            for seed, pending_models in pending_by_seed.items()
+            if pending_models
+        }
 
         print(f"[EVAL] [{dataset_idx}/{len(datasets)}] Dataset: {dataset.value}")
         print(f"[EVAL] Models: EDuRec, UPGPR, {sota_label}")
+        print("[EVAL] Last evaluated seed by model:")
+        for model in models:
+            print(f"[EVAL]   {model}: {_last_seed_label(evaluated_seeds[model])}")
+        if not pending_by_seed:
+            print("[EVAL] All requested seeds are already evaluated. Skipping runs.")
         if optimized_cfg is not None:
             print(f"[EVAL] Using optimized config: {config_path}")
 
@@ -217,9 +299,12 @@ def eval_models(
                 f"val_ratio={val_ratio}, test_ratio={test_ratio}"
             )
 
-        for seed in parsed_seeds:
+        for seed, pending_models in pending_by_seed.items():
             settings.seed_everything(seed)
-            print(f"[EVAL] Preparing data for seed={seed}...")
+            print(
+                f"[EVAL] Preparing data for seed={seed} "
+                f"({', '.join(pending_models)})..."
+            )
 
             dm = ElearningDataModule(
                 dataset=dataset,
@@ -274,48 +359,56 @@ def eval_models(
                 topks=eval_topks,
             )
 
-            settings.seed_everything(seed)
-            print(f"[EVAL] Running EDuRec | seed={seed}")
-            proposed_results = eval_model(
-                dm=dm,
-                cfg=cfg,
-                epochs=epochs,
-                val_topk=val_topk,
-                patience=patience,
-                verbose=verbose,
-            )
-            rows.extend(_save_seed_results(proposed_results, dataset_root, seed))
+            if "EDuRec" in pending_models:
+                settings.seed_everything(seed)
+                print(f"[EVAL] Running EDuRec | seed={seed}")
+                proposed_results = eval_model(
+                    dm=dm,
+                    cfg=cfg,
+                    epochs=epochs,
+                    val_topk=val_topk,
+                    patience=patience,
+                    verbose=verbose,
+                )
+                _save_seed_results(proposed_results, dataset_root, seed)
 
-            settings.seed_everything(seed)
-            print(f"[EVAL] Running UPGPR | seed={seed}")
-            upgpr_results = eval_upgpr(
-                dm=dm,
-                epochs=epochs,
-                lr=lr,
-                val_topk=val_topk,
-                topks=eval_topks,
-                patience=patience,
-                adaptive_k=adaptive_k,
-                verbose=verbose,
-            )
-            rows.extend(_save_seed_results(upgpr_results, dataset_root, seed))
+            if "UPGPR" in pending_models:
+                settings.seed_everything(seed)
+                print(f"[EVAL] Running UPGPR | seed={seed}")
+                upgpr_results = eval_upgpr(
+                    dm=dm,
+                    epochs=epochs,
+                    lr=lr,
+                    val_topk=val_topk,
+                    topks=eval_topks,
+                    patience=patience,
+                    adaptive_k=adaptive_k,
+                    verbose=verbose,
+                )
+                _save_seed_results(upgpr_results, dataset_root, seed)
 
-            settings.seed_everything(seed)
-            print(f"[EVAL] Running SOTA models | seed={seed}: {sota_label}")
-            sota_results = eval_sota_models(
-                models=sota_models,
-                dm=dm,
-                cfg_path=cfg_path,
-                epochs=epochs,
-                lr=lr,
-                batch_size=batch_size,
-                patience=patience,
-                topks=eval_topks,
-                results_path=dataset_root,
-                show_progress=verbose,
-            )
-            rows.extend(_save_seed_results(sota_results, dataset_root, seed))
+            pending_sota_models = [
+                model for model in sota_models if model in pending_models
+            ]
+            if pending_sota_models:
+                settings.seed_everything(seed)
+                pending_sota_label = ", ".join(pending_sota_models)
+                print(f"[EVAL] Running SOTA models | seed={seed}: {pending_sota_label}")
+                sota_results = eval_sota_models(
+                    models=pending_sota_models,
+                    dm=dm,
+                    cfg_path=cfg_path,
+                    epochs=epochs,
+                    lr=lr,
+                    batch_size=batch_size,
+                    patience=patience,
+                    topks=eval_topks,
+                    results_path=dataset_root,
+                    show_progress=verbose,
+                )
+                _save_seed_results(sota_results, dataset_root, seed)
 
+        rows = _collect_seed_results(dataset_root, models, parsed_seeds)
         results = pd.DataFrame(rows)
         csv_path = dataset_root / "evaluation_results.csv"
         results.to_csv(csv_path, index=False)
