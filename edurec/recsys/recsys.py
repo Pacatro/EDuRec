@@ -236,9 +236,7 @@ class RecSys(L.LightningModule):
         return gcl_loss
 
     @staticmethod
-    def _contrastive_batch_ids(
-        batch: RecSysQuery,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def _contrastive_batch_ids(batch: RecSysQuery) -> tuple[torch.Tensor, torch.Tensor]:
         user_ids = batch.user_id.reshape(-1).long().unique()
         target_item_ids = batch.target_item_id.reshape(-1).long()
 
