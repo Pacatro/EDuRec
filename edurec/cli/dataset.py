@@ -16,7 +16,7 @@ def dataset_command(
     max_rows: Annotated[
         int, typer.Option("--max_rows", "-m", help="Maximum number of rows to show")
     ] = 10,
-):
+) -> None:
     dm = ElearningDataModule(
         dataset=dataset,
         batch_size=settings.BATCH_SIZE,
@@ -35,8 +35,9 @@ def dataset_command(
     print(f"Number of item features: {dm.num_item_feats}")
     print(f"Number of interactions context features: {dm.num_ctx_feats}")
 
-    assert dm.raw_dataset is not None
+    raw_dataset = dm.raw_dataset
+    assert raw_dataset is not None
 
-    print(f"\nUser information:\n{dm.raw_dataset.user_features.head(max_rows)}\n")
-    print(f"Item information:\n{dm.raw_dataset.item_features.head(max_rows)}\n")
-    print(f"Interactions:\n{dm.raw_dataset.interactions.head(max_rows)}")
+    print(f"\nUser information:\n{raw_dataset.user_features.head(max_rows)}\n")
+    print(f"Item information:\n{raw_dataset.item_features.head(max_rows)}\n")
+    print(f"Interactions:\n{raw_dataset.interactions.head(max_rows)}")

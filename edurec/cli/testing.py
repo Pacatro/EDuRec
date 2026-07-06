@@ -39,7 +39,7 @@ def test_recsys(
             "--adaptive_k", "-a", help="Use adaptive k to compute some metrics"
         ),
     ] = settings.ADAPTIVE_K,
-    use_procesed_data: Annotated[
+    use_processed_data: Annotated[
         bool, typer.Option("--use_processed", "-P", help="Use saved processed data")
     ] = settings.SAVE_DATA,
     remove_sparse: Annotated[
@@ -51,7 +51,7 @@ def test_recsys(
             "--models-folder", "-M", help="Folder where saved models are stored."
         ),
     ] = settings.MODELS_FOLDER,
-):
+) -> None:
     model_path, cfg = load_model(
         models_folder=models_folder,
         dataset_name=dataset.value,
@@ -62,7 +62,7 @@ def test_recsys(
         batch_size=batch_size,
         test_ratio=test_size,
         val_ratio=val_size,
-        use_processed_data=use_procesed_data,
+        use_processed_data=use_processed_data,
         random_state=settings.state["random_state"],
         remove_sparse=remove_sparse,
     )

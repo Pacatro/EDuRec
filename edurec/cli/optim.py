@@ -1,12 +1,13 @@
 from datetime import datetime
-from typing import Annotated
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
 from .. import settings
-from ..datasets import DatasetName, ElearningDataModule, dataset_loaders
+from ..datasets import DatasetName, ElearningDataModule
 from ..recsys import EDuRecConfig, optimize_model
+from .utils import build_config, datasets_to_run, print_data_summary
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -57,8 +58,9 @@ def optimize(
     use_processed_data: Annotated[
         bool, typer.Option("--use_processed", "-P")
     ] = settings.SAVE_DATA,
-):
-    datasets = [dataset] if dataset is not None else dataset_loaders.keys()
+) -> None:
+    datasets = datasets_to_run(dataset)
+    verbose = settings.state["verbose"]
 
     results_root = (
         Path(settings.RESULTS_FOLDER)
@@ -72,7 +74,7 @@ def optimize(
     print(f"[OPTIM] Results folder: {results_root}")
 
     for dataset in datasets:
-        if settings.state["verbose"]:
+        if verbose:
             print(
                 f"[OPTIM] Config: epochs={epochs}, batch_size={batch_size}, trials={n_trials}, patience={patience}"
             )
@@ -97,58 +99,20 @@ def optimize(
 
         dm.setup()
 
-        split_sizes = {
-            split: len(getattr(dm.artifacts, split))
-            for split in ("train", "val", "test")
-            if getattr(dm.artifacts, split) is not None
-        }
-
-        print(
-            "[OPTIM] Data ready: "
-            f"users={dm.num_users:,}, items={dm.num_items:,}, "
-            f"interactions={dm.num_interactions:,}, "
-            f"sparsity={dm.sparsity:.4f}"
-        )
-        print(
-            "[OPTIM] Splits: "
-            + ", ".join(f"{split}={size:,}" for split, size in split_sizes.items())
-        )
-        if settings.state["verbose"]:
-            print(
-                "[OPTIM] Features: "
-                f"context={dm.train_ds.num_ctx_feats}, "
-                f"user_dense={dm.num_user_dense_feats}, "
-                f"item_dense={dm.num_item_dense_feats}, "
-                f"user_text={dm.num_user_text_feats}, "
-                f"item_text={dm.num_item_text_feats}, "
-                f"user_cat={len(dm.user_cat_cardinalities)}, "
-                f"item_cat={len(dm.item_cat_cardinalities)}"
-            )
-
-        cfg = EDuRecConfig(
-            num_users=dm.num_users,
-            num_items=dm.num_items,
-            num_ctx_feats=dm.train_ds.num_ctx_feats,
-            num_user_dense_feats=dm.num_user_dense_feats,
-            num_item_dense_feats=dm.num_item_dense_feats,
-            num_user_text_feats=dm.num_user_text_feats,
-            num_item_text_feats=dm.num_item_text_feats,
-            user_cat_cardinalities=dm.user_cat_cardinalities,
-            item_cat_cardinalities=dm.item_cat_cardinalities,
-        )
+        print_data_summary("OPTIM", dm)
 
         dataset_results_path = results_root / dataset.value
 
         study = optimize_model(
-            base_config=cfg,
+            base_config=build_config(dm),
             dm=dm,
             n_trials=n_trials,
             epochs=epochs,
             patience=patience,
-            verbose=settings.state["verbose"],
+            verbose=verbose,
             results_path=dataset_results_path,
         )
-        cfg = EDuRecConfig(**study.best_trial.user_attrs["config"])
+        best_cfg = EDuRecConfig(**study.best_trial.user_attrs["config"])
 
         print(
             f"[OPTIM] Best NDCG {study.best_value} in trial: {study.best_trial.number}"
@@ -156,7 +120,7 @@ def optimize(
         print("[OPTIM] Params:", study.best_params)
 
         cfg_path = results_root / f"config-{dataset.value}.yaml"
-        cfg.save(cfg_path)
+        best_cfg.save(cfg_path)
         print("[OPTIM] Saved config:", cfg_path)
         print("[OPTIM] Trials log:", dataset_results_path / "trials.csv")
         print("[OPTIM] Study storage:", dataset_results_path / "study.db")

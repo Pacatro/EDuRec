@@ -6,9 +6,10 @@ from typing import Annotated
 import typer
 
 from .. import settings
-from ..datasets import DatasetName, ElearningDataModule, dataset_loaders
+from ..datasets import DatasetName, ElearningDataModule
 from ..recsys import EDuRecConfig, RecSys, optimize_model, train_model
 from ..recsys.io import save_model
+from .utils import build_config, datasets_to_run, print_data_summary
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -69,6 +70,7 @@ def train(
     ] = None,
 ) -> None:
     started_at = datetime.now()
+    verbose = settings.state["verbose"]
     monitor_metric = f"val/ndcg@{top_k}"
     optimization_root = (
         Path(settings.RESULTS_FOLDER)
@@ -76,9 +78,12 @@ def train(
         / started_at.strftime("%Y%m%d_%H%M%S")
     )
 
-    datasets = [dataset] if dataset is not None else dataset_loaders.keys()
+    datasets = datasets_to_run(dataset)
 
     for dataset_idx, dataset in enumerate(datasets, start=1):
+        dataset_experiment_name = (
+            f"{experiment_name}_{dataset.value}" if experiment_name else None
+        )
         print("\n[TRAIN] Training run")
         print(f"[TRAIN] Dataset {dataset_idx}/{len(datasets)}: {dataset.value}")
         print("[TRAIN] Model: EDuRec")
@@ -87,7 +92,7 @@ def train(
         print(f"[TRAIN] Optimize hyperparameters: {optimize}")
         print("[TRAIN] Preparing data...")
 
-        if settings.state["verbose"]:
+        if verbose:
             print(
                 "[TRAIN] Config: "
                 f"epochs={epochs}, lr={lr}, batch_size={batch_size}, "
@@ -95,9 +100,10 @@ def train(
                 f"optimize={optimize}, trials={n_trials}"
             )
 
-            if experiment_name is not None:
-                experiment_name = f"{experiment_name}_{dataset.value}"
-                print(f"[TRAIN] Logger: WandB, experiment_name={experiment_name}")
+            if dataset_experiment_name:
+                print(
+                    f"[TRAIN] Logger: WandB, experiment_name={dataset_experiment_name}"
+                )
 
             print(
                 "[TRAIN] Data config: "
@@ -118,7 +124,7 @@ def train(
             save_atomic_files=True,
         )
 
-        if settings.state["verbose"]:
+        if verbose:
             if use_processed_data and dm.is_processed:
                 print(
                     f"[TRAIN] Using saved processed data from {settings.PROCESSED_FOLDER}"
@@ -130,46 +136,12 @@ def train(
 
         dm.setup()
 
-        split_sizes = {
-            split: len(getattr(dm.artifacts, split))
-            for split in ("train", "val", "test")
-            if getattr(dm.artifacts, split) is not None
-        }
-
-        print(
-            "[TRAIN] Data ready: "
-            f"users={dm.num_users}, items={dm.num_items}, "
-            f"interactions={dm.num_interactions}, sparsity={dm.sparsity:.4f}"
-        )
-        print(
-            "[TRAIN] Splits: "
-            + ", ".join(f"{split}={size}" for split, size in split_sizes.items())
-        )
-
-        if settings.state["verbose"]:
-            print(
-                "[TRAIN] Features: "
-                f"context={dm.train_ds.num_ctx_feats}, "
-                f"user_dense={dm.num_user_dense_feats}, "
-                f"item_dense={dm.num_item_dense_feats}, "
-                f"user_text={dm.num_user_text_feats}, "
-                f"item_text={dm.num_item_text_feats}, "
-                f"user_cat={len(dm.user_cat_cardinalities)}, "
-                f"item_cat={len(dm.item_cat_cardinalities)}"
-            )
+        print_data_summary("TRAIN", dm)
 
         config_path = Path(configs_folder) / f"config-{dataset.value}.yaml"
 
-        base_cfg = EDuRecConfig(
-            num_users=dm.num_users,
-            num_items=dm.num_items,
-            num_ctx_feats=dm.train_ds.num_ctx_feats,
-            num_user_dense_feats=dm.num_user_dense_feats,
-            num_item_dense_feats=dm.num_item_dense_feats,
-            num_user_text_feats=dm.num_user_text_feats,
-            num_item_text_feats=dm.num_item_text_feats,
-            user_cat_cardinalities=dm.user_cat_cardinalities,
-            item_cat_cardinalities=dm.item_cat_cardinalities,
+        base_cfg = build_config(
+            dm,
             lr=lr,
             adaptive_k=adaptive_k,
             topks=settings.TOP_KS,
@@ -185,7 +157,7 @@ def train(
                 epochs=epochs,
                 patience=patience,
                 val_topk=top_k,
-                verbose=settings.state["verbose"],
+                verbose=verbose,
                 results_path=dataset_results_path,
             )
             cfg = EDuRecConfig(**study.best_trial.user_attrs["config"])
@@ -234,9 +206,9 @@ def train(
             debug=debug,
             epochs=epochs,
             patience=patience,
-            experiment_name=experiment_name,
+            experiment_name=dataset_experiment_name,
             monitor=monitor_metric,
-            verbose=settings.state["verbose"],
+            verbose=verbose,
         )
 
         if debug:
@@ -246,8 +218,6 @@ def train(
             return
 
         metrics = trainer.test(ckpt_path="best", datamodule=dm, weights_only=False)[0]
-        elapsed = str(datetime.now() - started_at).split(".", maxsplit=1)[0]
-
         print(f"[TRAIN] Best checkpoint: {best_model_path}")
 
         if save and trainer.is_global_zero:
@@ -263,4 +233,5 @@ def train(
             print(f"[TRAIN] Model config saved: {model_config_path}")
             print(f"[TRAIN] Metrics saved: {metrics_path}")
 
+        elapsed = str(datetime.now() - started_at).split(".", maxsplit=1)[0]
         print(f"[TRAIN] Finished {dataset.value} in {elapsed}\n")
