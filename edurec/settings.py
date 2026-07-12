@@ -36,6 +36,7 @@ TIME_COL: str = "timestamp"
 RATING_COL: str = "rating"
 RELEVANT_COL: str = "relevant"
 MIN_INTERACTIONS: int = 3
+TRAIN_NEGATIVES_PER_POSITIVE: int = 4
 
 # Preprocessing
 PROCESSED_FOLDER: str = f"{DATA_FOLDER}/processed"

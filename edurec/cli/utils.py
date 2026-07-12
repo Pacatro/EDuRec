@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Any
 
 import typer
@@ -9,6 +10,28 @@ from ..recsys import EDuRecConfig
 
 def datasets_to_run(dataset: DatasetName | None) -> list[DatasetName]:
     return [dataset] if dataset is not None else list(dataset_loaders)
+
+
+def dataset_run_name(dataset: DatasetName, limit: int | None = None) -> str:
+    return dataset.value if limit is None else f"{dataset.value}_limit_{limit}"
+
+
+def dataset_config_path(
+    folder: str | Path,
+    dataset: DatasetName,
+    limit: int | None = None,
+) -> Path:
+    """Resolve a dataset config, retaining the former explicit MARS config."""
+    preferred = Path(folder) / f"config-{dataset_run_name(dataset, limit)}.yaml"
+    legacy = Path(folder) / "config-mars.yaml"
+    if (
+        dataset is DatasetName.EXPLICIT_MARS
+        and limit is None
+        and not preferred.exists()
+        and legacy.exists()
+    ):
+        return legacy
+    return preferred
 
 
 def parse_seeds(seeds: str) -> list[int]:
@@ -41,12 +64,22 @@ def print_data_summary(prefix: str, dm: ElearningDataModule) -> None:
     }
     print(
         f"[{prefix}] Data ready: users={dm.num_users:,}, items={dm.num_items:,}, "
-        f"interactions={dm.num_interactions:,}, sparsity={dm.sparsity:.4f}"
+        f"interactions={dm.num_interactions:,}, sparsity={dm.sparsity:.4f}, "
+        f"feedback={dm.feedback_type}"
     )
     print(
         f"[{prefix}] Splits: "
         + ", ".join(f"{split}={size:,}" for split, size in split_sizes.items())
     )
+    if dm.limit is not None:
+        print(f"[{prefix}] Interaction limit: {dm.limit:,}")
+    if not dm.is_explicit:
+        negatives = dm.train_ds.negative_item_ids
+        print(
+            f"[{prefix}] Train negatives: "
+            f"{settings.TRAIN_NEGATIVES_PER_POSITIVE} per positive "
+            f"({negatives.numel():,} precomputed)"
+        )
 
     if settings.state["verbose"]:
         print(

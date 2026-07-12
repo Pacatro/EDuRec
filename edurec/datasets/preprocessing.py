@@ -99,6 +99,7 @@ def filter_sparse(
 
 
 def get_relevance_threshold(train_df: pd.DataFrame) -> tuple[pd.Series, float] | None:
+    """Fit per-user relevance thresholds using the training split only."""
     if settings.RATING_COL not in train_df.columns:
         return None
 
@@ -112,23 +113,80 @@ def add_relevance(
     df: pd.DataFrame,
     thresholds: tuple[pd.Series, float] | None,
 ) -> pd.DataFrame:
+    """Normalize explicit ratings or implicit events to binary relevance."""
     df = df.copy()
-
-    if settings.RELEVANT_COL in df.columns:
-        return df.reset_index(drop=True)
 
     if settings.RATING_COL not in df.columns:
         df[settings.RELEVANT_COL] = 1
         return df.reset_index(drop=True)
 
     if thresholds is None:
-        raise RuntimeError("Relevance thresholds are required for rated interactions.")
+        raise RuntimeError("Relevance thresholds are required for explicit feedback.")
 
     user_mean, global_mean = thresholds
     threshold = df[settings.USER_COL].map(user_mean).fillna(global_mean)
     df[settings.RELEVANT_COL] = df[settings.RATING_COL] >= threshold
 
     return df.reset_index(drop=True)
+
+
+def generate_negative_samples(
+    interactions: pd.DataFrame,
+    item_ids: pd.Series | np.ndarray | list[int],
+    num_negatives: int = 1,
+    random_state: int | None = None,
+) -> np.ndarray:
+    """Precompute random negative item IDs aligned with positive interactions.
+
+    Each output row corresponds to the interaction at the same input position.
+    Samples are unique within a row and exclude every item observed by that
+    user in ``interactions``.
+    """
+    required_cols = {settings.USER_COL, settings.ITEM_COL}
+    missing_cols = required_cols.difference(interactions.columns)
+    if missing_cols:
+        missing = ", ".join(sorted(missing_cols))
+        raise ValueError(f"Interactions are missing required columns: {missing}.")
+    if num_negatives < 0:
+        raise ValueError("num_negatives must be greater than or equal to zero.")
+    if (
+        settings.RELEVANT_COL in interactions.columns
+        and not interactions[settings.RELEVANT_COL].gt(0).all()
+    ):
+        raise ValueError("Negative sampling expects only positive interactions.")
+
+    negatives = np.empty((len(interactions), num_negatives), dtype=np.int64)
+    if num_negatives == 0 or interactions.empty:
+        return negatives
+
+    items = pd.Index(pd.unique(np.asarray(item_ids, dtype=np.int64))).dropna()
+    if len(items) < num_negatives:
+        raise ValueError(
+            f"At least {num_negatives} candidate items are required for sampling."
+        )
+
+    observed_by_user = interactions.groupby(settings.USER_COL, sort=False)[
+        settings.ITEM_COL
+    ].agg(set)
+    rng = np.random.default_rng(random_state)
+    candidates_by_user: dict[object, np.ndarray] = {}
+    for user_id in observed_by_user.index:
+        unseen_items = items.difference(observed_by_user[user_id], sort=False)
+        if len(unseen_items) < num_negatives:
+            raise ValueError(
+                f"User {user_id!r} has only {len(unseen_items)} unseen items; "
+                f"cannot generate {num_negatives} unique negatives."
+            )
+        candidates_by_user[user_id] = unseen_items.to_numpy(dtype=np.int64)
+
+    for row_idx, user_id in enumerate(interactions[settings.USER_COL]):
+        negatives[row_idx] = rng.choice(
+            candidates_by_user[user_id],
+            size=num_negatives,
+            replace=False,
+        )
+
+    return negatives
 
 
 def preprocess(

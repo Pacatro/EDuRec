@@ -67,13 +67,13 @@ Global options:
 Print basic statistics and sample rows from a dataset.
 
 ```bash
-uv run edurec dataset --dataset mars --max_rows 10
+uv run edurec dataset --dataset explicit_mars --max_rows 10
 ```
 
 Options:
 
 ```text
--d, --dataset [mars|itm|doris]  Dataset to use
+-d, --dataset [explicit_mars|implicit_mars|itm|doris]  Dataset to use
 -m, --max_rows INTEGER          Number of rows to show
 ```
 
@@ -83,13 +83,13 @@ Train the proposed model on one dataset. If `--dataset` is omitted, the command
 iterates through all registered datasets.
 
 ```bash
-uv run edurec train --dataset mars --use_processed --save_model
+uv run edurec train --dataset explicit_mars --use_processed --save_model
 ```
 
 Common options:
 
 ```text
--d, --dataset [mars|itm|doris]
+-d, --dataset [explicit_mars|implicit_mars|itm|doris]
 -e, --epochs INTEGER            Default: 150
 -l, --lr FLOAT                  Default: 0.0002
 -b, --batch_size INTEGER        Default: 128
@@ -122,7 +122,7 @@ Load the most recent saved model for a dataset and evaluate it on the test
 split.
 
 ```bash
-uv run edurec test --dataset mars --use_processed
+uv run edurec test --dataset explicit_mars --use_processed
 ```
 
 Options include dataset, batch size, validation/test split sizes, top-k,
@@ -150,7 +150,7 @@ Default SOTA models:
 Useful options:
 
 ```text
--d, --dataset [mars|itm|doris]
+-d, --dataset [explicit_mars|implicit_mars|itm|doris]
 -e, --epochs INTEGER            Default: 150
 -l, --lr FLOAT                  Default: 0.0002
 -b, --batch-size INTEGER        Default: 128
@@ -172,7 +172,7 @@ artifact CSV per model and an aggregate `final_results.csv`.
 Run Optuna-based hyperparameter optimization for EDuRec.
 
 ```bash
-uv run edurec optim --dataset mars --trials 30 --use_processed
+uv run edurec optim --dataset explicit_mars --trials 30 --use_processed
 ```
 
 The command saves the best configuration, trial log, and study database under

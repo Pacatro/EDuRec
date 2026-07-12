@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import lightning as L
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from torch_geometric.data import Data
@@ -14,6 +15,7 @@ from .preprocessing import (
     add_relevance,
     clean_cols,
     filter_sparse,
+    generate_negative_samples,
     get_relevance_threshold,
     preprocess,
     split_data,
@@ -34,6 +36,7 @@ class ElearningDataModule(L.LightningDataModule):
         use_processed_data: bool = False,
         save_atomic_files: bool = False,
         random_state: int | None = None,
+        limit: int | None = None,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -47,9 +50,15 @@ class ElearningDataModule(L.LightningDataModule):
         self.use_processed_data = use_processed_data
         self.save_atomic_files = save_atomic_files
         self.random_state = random_state
+        if limit is not None and limit < 1:
+            raise ValueError("limit must be greater than zero.")
+        self.limit = limit
 
-        self.processed_folder = Path(settings.PROCESSED_FOLDER) / dataset.value
-        self.atomic_folder = Path(settings.ATOMICFILES_FOLDER) / dataset.value
+        self.data_variant = (
+            dataset.value if limit is None else f"{dataset.value}_limit_{limit}"
+        )
+        self.processed_folder = Path(settings.PROCESSED_FOLDER) / self.data_variant
+        self.atomic_folder = Path(settings.ATOMICFILES_FOLDER) / self.data_variant
         self.raw_dataset: RawData | None = None
         self.artifacts = ProcessedData()
 
@@ -65,8 +74,11 @@ class ElearningDataModule(L.LightningDataModule):
             self.artifacts = ProcessedData.load(self.processed_folder)
         else:
             raw = load_raw_data(dataset)
+            interactions = clean_cols(raw.interactions)
+            if limit is not None:
+                interactions = interactions.head(limit).reset_index(drop=True)
             self.raw_dataset = RawData(
-                interactions=clean_cols(raw.interactions),
+                interactions=interactions,
                 user_features=clean_cols(raw.user_features),
                 item_features=clean_cols(raw.item_features),
                 schema=raw.schema,
@@ -116,7 +128,7 @@ class ElearningDataModule(L.LightningDataModule):
         if self.save_atomic_files:
             self.atomic_files = save_atomic_files(
                 self.artifacts,
-                dataset_name=self.dataset_name.value,
+                dataset_name=self.data_variant,
                 output_dir=self.atomic_folder,
             )
 
@@ -137,7 +149,23 @@ class ElearningDataModule(L.LightningDataModule):
         )
 
         if stage in ("fit", None):
-            self.train_ds = self._make_dataset("train", histories)
+            train_negatives = None
+            if not self.is_explicit:
+                train_interactions = relevant_splits["train"]
+                if train_interactions is None:
+                    raise RuntimeError("Processed train split is not available.")
+                train_negatives = generate_negative_samples(
+                    interactions=train_interactions,
+                    item_ids=np.arange(self.num_items),
+                    num_negatives=settings.TRAIN_NEGATIVES_PER_POSITIVE,
+                    random_state=self.random_state,
+                )
+
+            self.train_ds = self._make_dataset(
+                "train",
+                histories,
+                negative_item_ids=train_negatives,
+            )
             self.val_ds = self._make_dataset("val", histories)
         elif stage == "test":
             self.test_ds = self._make_dataset("test", histories)
@@ -146,6 +174,7 @@ class ElearningDataModule(L.LightningDataModule):
         self,
         split: str,
         histories: dict[str, UserHistory],
+        negative_item_ids: np.ndarray | None = None,
     ) -> RecSysDataset:
         df = getattr(self.artifacts, split)
         if df is None:
@@ -162,6 +191,7 @@ class ElearningDataModule(L.LightningDataModule):
             interactions=interactions,
             history=history,
             num_ctx_feats=self.num_ctx_feats,
+            negative_item_ids=negative_item_ids,
         )
 
     def build_inter_graph(self) -> Data:
@@ -219,7 +249,7 @@ class ElearningDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=settings.NUM_WORKERS,
             shuffle=True,
-            persistent_workers=True,
+            persistent_workers=settings.NUM_WORKERS > 0,
             generator=self._data_generator(),
         )
 
@@ -229,7 +259,7 @@ class ElearningDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=settings.NUM_WORKERS,
             shuffle=False,
-            persistent_workers=True,
+            persistent_workers=settings.NUM_WORKERS > 0,
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -238,12 +268,27 @@ class ElearningDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=settings.NUM_WORKERS,
             shuffle=False,
-            persistent_workers=True,
+            persistent_workers=settings.NUM_WORKERS > 0,
         )
 
     @property
     def is_processed(self) -> bool:
         return self.artifacts.is_ready
+
+    @property
+    def feedback_type(self) -> str:
+        return "explicit" if self.is_explicit else "implicit"
+
+    @property
+    def is_explicit(self) -> bool:
+        interactions = (
+            self.raw_dataset.interactions
+            if self.raw_dataset is not None
+            else self.artifacts.train
+        )
+        if interactions is None:
+            raise RuntimeError("Interactions are not available.")
+        return settings.RATING_COL in interactions.columns
 
     @property
     def schema(self) -> Schema:

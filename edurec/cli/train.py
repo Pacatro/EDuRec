@@ -9,7 +9,13 @@ from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
 from ..recsys import EDuRecConfig, RecSys, optimize_model, train_model
 from ..recsys.io import save_model
-from .utils import build_config, datasets_to_run, print_data_summary
+from .utils import (
+    build_config,
+    dataset_config_path,
+    dataset_run_name,
+    datasets_to_run,
+    print_data_summary,
+)
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -19,6 +25,14 @@ def train(
     dataset: Annotated[DatasetName | None, typer.Option("--dataset", "-d")] = None,
     epochs: Annotated[int, typer.Option("--epochs", "-e")] = settings.EPOCHS,
     lr: Annotated[float, typer.Option("--lr", "-l")] = settings.LR,
+    limit: Annotated[
+        int | None,
+        typer.Option(
+            "--limit",
+            min=1,
+            help="Maximum number of interactions to use before splitting.",
+        ),
+    ] = None,
     batch_size: Annotated[
         int, typer.Option("--batch_size", "-b")
     ] = settings.BATCH_SIZE,
@@ -81,11 +95,12 @@ def train(
     datasets = datasets_to_run(dataset)
 
     for dataset_idx, dataset in enumerate(datasets, start=1):
+        run_name = dataset_run_name(dataset, limit)
         dataset_experiment_name = (
-            f"{experiment_name}_{dataset.value}" if experiment_name else None
+            f"{experiment_name}_{run_name}" if experiment_name else None
         )
         print("\n[TRAIN] Training run")
-        print(f"[TRAIN] Dataset {dataset_idx}/{len(datasets)}: {dataset.value}")
+        print(f"[TRAIN] Dataset {dataset_idx}/{len(datasets)}: {run_name}")
         print("[TRAIN] Model: EDuRec")
         print(f"[TRAIN] Monitor: {monitor_metric}")
         print(f"[TRAIN] Save model: {save}")
@@ -109,7 +124,7 @@ def train(
                 "[TRAIN] Data config: "
                 f"use_processed={use_processed_data}, remove_sparse={remove_sparse}, "
                 f"min_interactions={min_interactions}, "
-                f"val_ratio={val_size}, test_ratio={test_size}"
+                f"val_ratio={val_size}, test_ratio={test_size}, limit={limit}"
             )
 
         dm = ElearningDataModule(
@@ -122,6 +137,7 @@ def train(
             min_interactions=min_interactions,
             remove_sparse=remove_sparse,
             save_atomic_files=True,
+            limit=limit,
         )
 
         if verbose:
@@ -138,7 +154,7 @@ def train(
 
         print_data_summary("TRAIN", dm)
 
-        config_path = Path(configs_folder) / f"config-{dataset.value}.yaml"
+        config_path = dataset_config_path(configs_folder, dataset, limit)
 
         base_cfg = build_config(
             dm,
@@ -148,7 +164,7 @@ def train(
         )
 
         if optimize:
-            dataset_results_path = optimization_root / dataset.value
+            dataset_results_path = optimization_root / run_name
             print(f"[TRAIN] Optimizing {n_trials} trials...")
             study = optimize_model(
                 base_config=base_cfg,
@@ -223,7 +239,7 @@ def train(
         if save and trainer.is_global_zero:
             model_file_path, model_config_path, metrics_path = save_model(
                 model_config=cfg,
-                dataset_name=dataset.value,
+                dataset_name=run_name,
                 best_model_path=best_model_path,
                 models_folder=models_folder,
                 metrics=metrics,

@@ -23,7 +23,7 @@ def eval_sota_models(
     results_path: Path | None = None,
     show_progress: bool = False,
 ) -> pd.DataFrame:
-    dataset_name = dm.dataset_name.value
+    dataset_name = dm.data_variant
     atomic_dataset_dir = dm.atomic_folder
 
     base_config = _build_config_dict(

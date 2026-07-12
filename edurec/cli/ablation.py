@@ -16,7 +16,14 @@ from ..evaluation.ablation import (
     get_ablation_config,
     get_content_ablation_config,
 )
-from .utils import build_config, datasets_to_run, parse_seeds
+from .utils import (
+    build_config,
+    dataset_config_path,
+    dataset_run_name,
+    datasets_to_run,
+    parse_seeds,
+    print_data_summary,
+)
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -34,6 +41,14 @@ def run_ablation(
     ] = True,
     epochs: Annotated[int, typer.Option("--epochs", "-e", min=1)] = settings.EPOCHS,
     lr: Annotated[float, typer.Option("--lr", "-l")] = settings.LR,
+    limit: Annotated[
+        int | None,
+        typer.Option(
+            "--limit",
+            min=1,
+            help="Maximum number of interactions to use before splitting.",
+        ),
+    ] = None,
     batch_size: Annotated[
         int, typer.Option("--batch_size", "-b", min=1)
     ] = settings.BATCH_SIZE,
@@ -77,10 +92,13 @@ def run_ablation(
     print(f"[ABLATION] Output folder: {output_dir}")
 
     for dataset_name in datasets:
-        dataset_root = output_dir / dataset_name.value
+        run_name = dataset_run_name(dataset_name, limit)
+        dataset_root = output_dir / run_name
         dataset_root.mkdir(parents=True, exist_ok=True)
-        base_cfg_path = (
-            Path(settings.CONFIGS_FOLDER) / f"config-{dataset_name.value}.yaml"
+        base_cfg_path = dataset_config_path(
+            settings.CONFIGS_FOLDER,
+            dataset_name,
+            limit,
         )
         rows = []
 
@@ -97,8 +115,10 @@ def run_ablation(
                 min_interactions=min_interactions,
                 remove_sparse=remove_sparse,
                 save_atomic_files=False,
+                limit=limit,
             )
             dm.setup()
+            print_data_summary("ABLATION", dm)
             inter_graph = dm.build_inter_graph()
 
             if base_cfg_path.exists():
@@ -107,7 +127,7 @@ def run_ablation(
             else:
                 print(
                     "[ABLATION] No config file found, creating new config for dataset:",
-                    dataset_name.value,
+                    run_name,
                 )
                 base_cfg = build_config(
                     dm,
@@ -127,7 +147,7 @@ def run_ablation(
                 variant_root.mkdir(parents=True, exist_ok=True)
                 cfg.save(variant_root / "config.yaml")
 
-                print(f"[ABLATION] {dataset_name.value} | {variant} | seed={seed}")
+                print(f"[ABLATION] {run_name} | {variant} | seed={seed}")
 
                 model = RecSys(
                     cfg=cfg,
