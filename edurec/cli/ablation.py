@@ -16,7 +16,13 @@ from ..evaluation.ablation import (
     get_ablation_config,
     get_content_ablation_config,
 )
-from .utils import build_config, dataset_config_path, datasets_to_run, parse_seeds
+from .utils import (
+    build_config,
+    dataset_config_path,
+    datasets_to_run,
+    parse_seeds,
+    print_data_summary,
+)
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -97,6 +103,7 @@ def run_ablation(
                 save_atomic_files=False,
             )
             dm.setup()
+            print_data_summary("ABLATION", dm)
             inter_graph = dm.build_inter_graph()
 
             if base_cfg_path.exists():

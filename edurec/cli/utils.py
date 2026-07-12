@@ -62,6 +62,13 @@ def print_data_summary(prefix: str, dm: ElearningDataModule) -> None:
         f"[{prefix}] Splits: "
         + ", ".join(f"{split}={size:,}" for split, size in split_sizes.items())
     )
+    if not dm.is_explicit:
+        negatives = dm.train_ds.negative_item_ids
+        print(
+            f"[{prefix}] Train negatives: "
+            f"{settings.TRAIN_NEGATIVES_PER_POSITIVE} per positive "
+            f"({negatives.numel():,} precomputed)"
+        )
 
     if settings.state["verbose"]:
         print(

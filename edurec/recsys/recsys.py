@@ -141,6 +141,9 @@ class RecSys(L.LightningModule):
         rank_loss = self._compute_rec_loss(
             scores=scores,
             target_item_ids=target_item_ids,
+            negative_item_ids=(
+                batch.negative_item_ids if prefix == "train" else None
+            ),
         )
         use_gcl = (
             prefix == "train" and self.cfg.use_gcl and self.cfg.graph_mode == "lightgcn"
@@ -197,6 +200,7 @@ class RecSys(L.LightningModule):
         self,
         scores: torch.Tensor,
         target_item_ids: torch.Tensor,
+        negative_item_ids: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if scores.ndim != 2:
             raise RuntimeError(
@@ -210,7 +214,20 @@ class RecSys(L.LightningModule):
                 "target_item_ids must have one target item per batch row."
             )
 
-        return F.cross_entropy(scores, target_item_ids)
+        if negative_item_ids is None or negative_item_ids.size(1) == 0:
+            return F.cross_entropy(scores, target_item_ids)
+
+        candidate_ids = torch.cat(
+            [target_item_ids.unsqueeze(1), negative_item_ids.long()],
+            dim=1,
+        )
+        candidate_scores = scores.gather(1, candidate_ids)
+        positive_labels = torch.zeros(
+            scores.size(0),
+            dtype=torch.long,
+            device=scores.device,
+        )
+        return F.cross_entropy(candidate_scores, positive_labels)
 
     def _compute_gcl_loss(self, batch: RecSysQuery) -> torch.Tensor:
         if self.model.gnn is None:

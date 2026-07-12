@@ -28,6 +28,11 @@ def dataset_command(
 
     print(f"Dataset name: {dataset.value}")
     print(f"Feedback type: {dm.feedback_type}")
+    if not dm.is_explicit:
+        print(
+            "Training negatives: "
+            f"{settings.TRAIN_NEGATIVES_PER_POSITIVE} per positive interaction"
+        )
     print(f"Dataset sparsity: {dm.sparsity}")
     print(f"Number of users: {dm.num_users}")
     print(f"Number of items: {dm.num_items}")

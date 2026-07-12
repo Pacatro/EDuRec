@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import lightning as L
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from torch_geometric.data import Data
@@ -14,6 +15,7 @@ from .preprocessing import (
     add_relevance,
     clean_cols,
     filter_sparse,
+    generate_negative_samples,
     get_relevance_threshold,
     preprocess,
     split_data,
@@ -137,7 +139,23 @@ class ElearningDataModule(L.LightningDataModule):
         )
 
         if stage in ("fit", None):
-            self.train_ds = self._make_dataset("train", histories)
+            train_negatives = None
+            if not self.is_explicit:
+                train_interactions = relevant_splits["train"]
+                if train_interactions is None:
+                    raise RuntimeError("Processed train split is not available.")
+                train_negatives = generate_negative_samples(
+                    interactions=train_interactions,
+                    item_ids=np.arange(self.num_items),
+                    num_negatives=settings.TRAIN_NEGATIVES_PER_POSITIVE,
+                    random_state=self.random_state,
+                )
+
+            self.train_ds = self._make_dataset(
+                "train",
+                histories,
+                negative_item_ids=train_negatives,
+            )
             self.val_ds = self._make_dataset("val", histories)
         elif stage == "test":
             self.test_ds = self._make_dataset("test", histories)
@@ -146,6 +164,7 @@ class ElearningDataModule(L.LightningDataModule):
         self,
         split: str,
         histories: dict[str, UserHistory],
+        negative_item_ids: np.ndarray | None = None,
     ) -> RecSysDataset:
         df = getattr(self.artifacts, split)
         if df is None:
@@ -162,6 +181,7 @@ class ElearningDataModule(L.LightningDataModule):
             interactions=interactions,
             history=history,
             num_ctx_feats=self.num_ctx_feats,
+            negative_item_ids=negative_item_ids,
         )
 
     def build_inter_graph(self) -> Data:
