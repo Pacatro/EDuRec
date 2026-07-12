@@ -9,7 +9,7 @@ from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
 from ..recsys import EDuRecConfig, RecSys, optimize_model, train_model
 from ..recsys.io import save_model
-from .utils import build_config, datasets_to_run, print_data_summary
+from .utils import build_config, dataset_config_path, datasets_to_run, print_data_summary
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -138,7 +138,7 @@ def train(
 
         print_data_summary("TRAIN", dm)
 
-        config_path = Path(configs_folder) / f"config-{dataset.value}.yaml"
+        config_path = dataset_config_path(configs_folder, dataset)
 
         base_cfg = build_config(
             dm,

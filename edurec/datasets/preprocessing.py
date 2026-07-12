@@ -99,6 +99,7 @@ def filter_sparse(
 
 
 def get_relevance_threshold(train_df: pd.DataFrame) -> tuple[pd.Series, float] | None:
+    """Fit per-user relevance thresholds using the training split only."""
     if settings.RATING_COL not in train_df.columns:
         return None
 
@@ -112,17 +113,15 @@ def add_relevance(
     df: pd.DataFrame,
     thresholds: tuple[pd.Series, float] | None,
 ) -> pd.DataFrame:
+    """Normalize explicit ratings or implicit events to binary relevance."""
     df = df.copy()
-
-    if settings.RELEVANT_COL in df.columns:
-        return df.reset_index(drop=True)
 
     if settings.RATING_COL not in df.columns:
         df[settings.RELEVANT_COL] = 1
         return df.reset_index(drop=True)
 
     if thresholds is None:
-        raise RuntimeError("Relevance thresholds are required for rated interactions.")
+        raise RuntimeError("Relevance thresholds are required for explicit feedback.")
 
     user_mean, global_mean = thresholds
     threshold = df[settings.USER_COL].map(user_mean).fillna(global_mean)

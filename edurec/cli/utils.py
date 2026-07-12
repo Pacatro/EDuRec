@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Any
 
 import typer
@@ -9,6 +10,19 @@ from ..recsys import EDuRecConfig
 
 def datasets_to_run(dataset: DatasetName | None) -> list[DatasetName]:
     return [dataset] if dataset is not None else list(dataset_loaders)
+
+
+def dataset_config_path(folder: str | Path, dataset: DatasetName) -> Path:
+    """Resolve a dataset config, retaining the former explicit MARS config."""
+    preferred = Path(folder) / f"config-{dataset.value}.yaml"
+    legacy = Path(folder) / "config-mars.yaml"
+    if (
+        dataset is DatasetName.EXPLICIT_MARS
+        and not preferred.exists()
+        and legacy.exists()
+    ):
+        return legacy
+    return preferred
 
 
 def parse_seeds(seeds: str) -> list[int]:
@@ -41,7 +55,8 @@ def print_data_summary(prefix: str, dm: ElearningDataModule) -> None:
     }
     print(
         f"[{prefix}] Data ready: users={dm.num_users:,}, items={dm.num_items:,}, "
-        f"interactions={dm.num_interactions:,}, sparsity={dm.sparsity:.4f}"
+        f"interactions={dm.num_interactions:,}, sparsity={dm.sparsity:.4f}, "
+        f"feedback={dm.feedback_type}"
     )
     print(
         f"[{prefix}] Splits: "

@@ -219,7 +219,7 @@ class ElearningDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=settings.NUM_WORKERS,
             shuffle=True,
-            persistent_workers=True,
+            persistent_workers=settings.NUM_WORKERS > 0,
             generator=self._data_generator(),
         )
 
@@ -229,7 +229,7 @@ class ElearningDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=settings.NUM_WORKERS,
             shuffle=False,
-            persistent_workers=True,
+            persistent_workers=settings.NUM_WORKERS > 0,
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -238,12 +238,27 @@ class ElearningDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=settings.NUM_WORKERS,
             shuffle=False,
-            persistent_workers=True,
+            persistent_workers=settings.NUM_WORKERS > 0,
         )
 
     @property
     def is_processed(self) -> bool:
         return self.artifacts.is_ready
+
+    @property
+    def feedback_type(self) -> str:
+        return "explicit" if self.is_explicit else "implicit"
+
+    @property
+    def is_explicit(self) -> bool:
+        interactions = (
+            self.raw_dataset.interactions
+            if self.raw_dataset is not None
+            else self.artifacts.train
+        )
+        if interactions is None:
+            raise RuntimeError("Interactions are not available.")
+        return settings.RATING_COL in interactions.columns
 
     @property
     def schema(self) -> Schema:

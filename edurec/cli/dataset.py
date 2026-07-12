@@ -12,7 +12,7 @@ app = typer.Typer(no_args_is_help=True)
 def dataset_command(
     dataset: Annotated[
         DatasetName, typer.Option("--dataset", "-d", help="Dataset to use")
-    ] = DatasetName.MARS,
+    ] = DatasetName.EXPLICIT_MARS,
     max_rows: Annotated[
         int, typer.Option("--max_rows", "-m", help="Maximum number of rows to show")
     ] = 10,
@@ -27,6 +27,7 @@ def dataset_command(
     )
 
     print(f"Dataset name: {dataset.value}")
+    print(f"Feedback type: {dm.feedback_type}")
     print(f"Dataset sparsity: {dm.sparsity}")
     print(f"Number of users: {dm.num_users}")
     print(f"Number of items: {dm.num_items}")

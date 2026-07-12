@@ -1,7 +1,7 @@
 from enum import StrEnum
 from functools import wraps
 from pathlib import Path
-from typing import Callable, NamedTuple
+from typing import Callable, NamedTuple, Literal
 
 import numpy as np
 import pandas as pd
@@ -12,7 +12,8 @@ RAW_DATA_FOLDER = Path(settings.DATA_FOLDER) / "raw"
 
 
 class DatasetName(StrEnum):
-    MARS = "mars"
+    EXPLICIT_MARS = "explicit_mars"
+    IMPLICIT_MARS = "implicit_mars"
     ITM = "itm"
     DORIS = "doris"
 
@@ -40,8 +41,8 @@ def register_dataset(ds_name: DatasetName) -> Callable[[ExportFn], ExportFn]:
 
     Example:
         ```python
-        @register_dataset(DatasetName.MARS)
-        def load_mars() -> pd.DataFrame:
+        @register_dataset(DatasetName.EXPLICIT_MARS)
+        def load_explicit_mars() -> RawData:
             ...
         ```
 
@@ -63,8 +64,7 @@ def register_dataset(ds_name: DatasetName) -> Callable[[ExportFn], ExportFn]:
     return decorator
 
 
-@register_dataset(DatasetName.MARS)
-def load_mars() -> RawData:
+def load_mars(data_type: Literal["explicit", "implicit"]) -> RawData:
     """Load the MARS dataset.
 
     This loader combines English and French rating files and merges them with
@@ -74,13 +74,13 @@ def load_mars() -> RawData:
     Returns:
         pd.DataFrame: The MARS dataset.
     """
-    mars_folder = RAW_DATA_FOLDER / DatasetName.MARS.value
+    mars_folder = RAW_DATA_FOLDER / "mars"
     items_en = pd.read_csv(mars_folder / "items_en.csv")
     items_fr = pd.read_csv(mars_folder / "items_fr.csv")
     users_en = pd.read_csv(mars_folder / "users_en.csv")
     users_fr = pd.read_csv(mars_folder / "users_fr.csv")
-    ratings_en = pd.read_csv(mars_folder / "explicit_ratings_en.csv")
-    ratings_fr = pd.read_csv(mars_folder / "explicit_ratings_fr.csv")
+    ratings_en = pd.read_csv(mars_folder / f"{data_type}_ratings_en.csv")
+    ratings_fr = pd.read_csv(mars_folder / f"{data_type}_ratings_fr.csv")
 
     interactions = pd.concat([ratings_en, ratings_fr], ignore_index=True)
     items = pd.concat([items_en, items_fr], ignore_index=True)
@@ -120,7 +120,7 @@ def load_mars() -> RawData:
         },
         "inter": {
             "bin": [],
-            "num": ["watch_percentage"],
+            "num": ["watch_percentage"] if data_type == "explicit" else [],
             "cat": [],
             "text": [],
             "list": [],
@@ -133,6 +133,16 @@ def load_mars() -> RawData:
         user_features=users,
         schema=schema,
     )
+
+
+@register_dataset(DatasetName.EXPLICIT_MARS)
+def load_explicit_mars() -> RawData:
+    return load_mars(data_type="explicit")
+
+
+@register_dataset(DatasetName.IMPLICIT_MARS)
+def load_implicit_mars() -> RawData:
+    return load_mars(data_type="implicit")
 
 
 @register_dataset(DatasetName.ITM)

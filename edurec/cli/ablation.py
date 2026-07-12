@@ -16,7 +16,7 @@ from ..evaluation.ablation import (
     get_ablation_config,
     get_content_ablation_config,
 )
-from .utils import build_config, datasets_to_run, parse_seeds
+from .utils import build_config, dataset_config_path, datasets_to_run, parse_seeds
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -79,9 +79,7 @@ def run_ablation(
     for dataset_name in datasets:
         dataset_root = output_dir / dataset_name.value
         dataset_root.mkdir(parents=True, exist_ok=True)
-        base_cfg_path = (
-            Path(settings.CONFIGS_FOLDER) / f"config-{dataset_name.value}.yaml"
-        )
+        base_cfg_path = dataset_config_path(settings.CONFIGS_FOLDER, dataset_name)
         rows = []
 
         for seed in parsed_seeds:

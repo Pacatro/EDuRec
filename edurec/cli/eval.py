@@ -10,7 +10,13 @@ from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
 from ..evaluation import eval_model, eval_sota_models, eval_upgpr
 from ..recsys import EDuRecConfig, optimize_model
-from .utils import build_config, datasets_to_run, parse_seeds, print_data_summary
+from .utils import (
+    build_config,
+    dataset_config_path,
+    datasets_to_run,
+    parse_seeds,
+    print_data_summary,
+)
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -257,7 +263,7 @@ def eval_models(
         dataset_root = output_dir / dataset.value
         dataset_root.mkdir(parents=True, exist_ok=True)
         dataset_started_at = datetime.now()
-        config_path = configs_folder / f"config-{dataset.value}.yaml"
+        config_path = dataset_config_path(configs_folder, dataset)
         optimized_cfg = EDuRecConfig.load(config_path) if config_path.exists() else None
         evaluated_seeds = _evaluated_seeds_by_model(dataset_root, models)
         pending_by_seed = {
