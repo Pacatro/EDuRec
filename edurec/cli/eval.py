@@ -13,6 +13,7 @@ from ..recsys import EDuRecConfig, optimize_model
 from .utils import (
     build_config,
     dataset_config_path,
+    dataset_run_name,
     datasets_to_run,
     parse_seeds,
     print_data_summary,
@@ -136,6 +137,14 @@ def eval_models(
             help="Learning rate used by all evaluated models.",
         ),
     ] = settings.LR,
+    limit: Annotated[
+        int | None,
+        typer.Option(
+            "--limit",
+            min=1,
+            help="Maximum number of interactions to use before splitting.",
+        ),
+    ] = None,
     batch_size: Annotated[
         int,
         typer.Option(
@@ -259,11 +268,12 @@ def eval_models(
     print(f"[EVAL] Top-k: {eval_topks} | val@{val_topk}\n")
 
     for dataset_idx, dataset in enumerate(datasets, start=1):
+        run_name = dataset_run_name(dataset, limit)
         batch_size = settings.BATCH_SIZE if dataset != DatasetName.ITM else 32
-        dataset_root = output_dir / dataset.value
+        dataset_root = output_dir / run_name
         dataset_root.mkdir(parents=True, exist_ok=True)
         dataset_started_at = datetime.now()
-        config_path = dataset_config_path(configs_folder, dataset)
+        config_path = dataset_config_path(configs_folder, dataset, limit)
         optimized_cfg = EDuRecConfig.load(config_path) if config_path.exists() else None
         evaluated_seeds = _evaluated_seeds_by_model(dataset_root, models)
         pending_by_seed = {
@@ -280,7 +290,7 @@ def eval_models(
             if pending_models
         }
 
-        print(f"[EVAL] [{dataset_idx}/{len(datasets)}] Dataset: {dataset.value}")
+        print(f"[EVAL] [{dataset_idx}/{len(datasets)}] Dataset: {run_name}")
         print(f"[EVAL] Models: EDuRec, UPGPR, {sota_label}")
         print("[EVAL] Last evaluated seed by model:")
         for model in models:
@@ -302,7 +312,7 @@ def eval_models(
                 "[EVAL] Data config: "
                 f"use_processed={use_processed_data}, remove_sparse={remove_sparse}, "
                 f"min_interactions={min_interactions}, "
-                f"val_ratio={val_ratio}, test_ratio={test_ratio}"
+                f"val_ratio={val_ratio}, test_ratio={test_ratio}, limit={limit}"
             )
 
         for seed, pending_models in pending_by_seed.items():
@@ -322,6 +332,7 @@ def eval_models(
                 use_processed_data=use_processed_data,
                 save_atomic_files=True,
                 random_state=seed,
+                limit=limit,
             )
 
             dm.setup()
@@ -431,4 +442,4 @@ def eval_models(
         print(results[preferred_cols].round(4).to_string(index=False))
         print(f"[EVAL] Saved: {csv_path}")
         elapsed = str(datetime.now() - dataset_started_at).split(".", maxsplit=1)[0]
-        print(f"[EVAL] Finished {dataset.value} in {elapsed}\n")
+        print(f"[EVAL] Finished {run_name} in {elapsed}\n")

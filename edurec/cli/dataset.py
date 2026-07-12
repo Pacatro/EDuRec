@@ -13,6 +13,15 @@ def dataset_command(
     dataset: Annotated[
         DatasetName, typer.Option("--dataset", "-d", help="Dataset to use")
     ] = DatasetName.EXPLICIT_MARS,
+    limit: Annotated[
+        int | None,
+        typer.Option(
+            "--limit",
+            "-l",
+            min=1,
+            help="Maximum number of interactions to inspect.",
+        ),
+    ] = None,
     max_rows: Annotated[
         int, typer.Option("--max_rows", "-m", help="Maximum number of rows to show")
     ] = 10,
@@ -24,10 +33,13 @@ def dataset_command(
         val_ratio=settings.VAL_RATIO,
         use_processed_data=False,
         remove_sparse=False,
+        limit=limit,
     )
 
     print(f"Dataset name: {dataset.value}")
     print(f"Feedback type: {dm.feedback_type}")
+    if dm.limit is not None:
+        print(f"Interaction limit: {dm.limit}")
     if not dm.is_explicit:
         print(
             "Training negatives: "

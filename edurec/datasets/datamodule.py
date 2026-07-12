@@ -36,6 +36,7 @@ class ElearningDataModule(L.LightningDataModule):
         use_processed_data: bool = False,
         save_atomic_files: bool = False,
         random_state: int | None = None,
+        limit: int | None = None,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -49,9 +50,15 @@ class ElearningDataModule(L.LightningDataModule):
         self.use_processed_data = use_processed_data
         self.save_atomic_files = save_atomic_files
         self.random_state = random_state
+        if limit is not None and limit < 1:
+            raise ValueError("limit must be greater than zero.")
+        self.limit = limit
 
-        self.processed_folder = Path(settings.PROCESSED_FOLDER) / dataset.value
-        self.atomic_folder = Path(settings.ATOMICFILES_FOLDER) / dataset.value
+        self.data_variant = (
+            dataset.value if limit is None else f"{dataset.value}_limit_{limit}"
+        )
+        self.processed_folder = Path(settings.PROCESSED_FOLDER) / self.data_variant
+        self.atomic_folder = Path(settings.ATOMICFILES_FOLDER) / self.data_variant
         self.raw_dataset: RawData | None = None
         self.artifacts = ProcessedData()
 
@@ -67,8 +74,11 @@ class ElearningDataModule(L.LightningDataModule):
             self.artifacts = ProcessedData.load(self.processed_folder)
         else:
             raw = load_raw_data(dataset)
+            interactions = clean_cols(raw.interactions)
+            if limit is not None:
+                interactions = interactions.head(limit).reset_index(drop=True)
             self.raw_dataset = RawData(
-                interactions=clean_cols(raw.interactions),
+                interactions=interactions,
                 user_features=clean_cols(raw.user_features),
                 item_features=clean_cols(raw.item_features),
                 schema=raw.schema,
@@ -118,7 +128,7 @@ class ElearningDataModule(L.LightningDataModule):
         if self.save_atomic_files:
             self.atomic_files = save_atomic_files(
                 self.artifacts,
-                dataset_name=self.dataset_name.value,
+                dataset_name=self.data_variant,
                 output_dir=self.atomic_folder,
             )
 

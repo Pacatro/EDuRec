@@ -8,6 +8,7 @@ from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
 from ..recsys.io import load_model, save_metrics
 from ..recsys.recsys import RecSys
+from .utils import dataset_run_name
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -21,6 +22,15 @@ def test_recsys(
         DatasetName,
         typer.Option("--dataset", "-d", help="Dataset to use"),
     ] = DatasetName.EXPLICIT_MARS,
+    limit: Annotated[
+        int | None,
+        typer.Option(
+            "--limit",
+            "-l",
+            min=1,
+            help="Maximum number of interactions to use before splitting.",
+        ),
+    ] = None,
     batch_size: Annotated[
         int, typer.Option("--batch_size", "-b", help="Batch size")
     ] = settings.BATCH_SIZE,
@@ -54,7 +64,7 @@ def test_recsys(
 ) -> None:
     model_path, cfg = load_model(
         models_folder=models_folder,
-        dataset_name=dataset.value,
+        dataset_name=dataset_run_name(dataset, limit),
     )
 
     dm = ElearningDataModule(
@@ -65,6 +75,7 @@ def test_recsys(
         use_processed_data=use_processed_data,
         random_state=settings.state["random_state"],
         remove_sparse=remove_sparse,
+        limit=limit,
     )
     dm.setup()
     test_graph = dm.build_inter_graph()

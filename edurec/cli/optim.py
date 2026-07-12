@@ -7,7 +7,7 @@ import typer
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
 from ..recsys import EDuRecConfig, optimize_model
-from .utils import build_config, datasets_to_run, print_data_summary
+from .utils import build_config, dataset_run_name, datasets_to_run, print_data_summary
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -15,6 +15,15 @@ app = typer.Typer(no_args_is_help=True)
 @app.command(name="optim", help="Run a hyperparameter optimization for the model.")
 def optimize(
     dataset: Annotated[DatasetName | None, typer.Option("--dataset", "-d")] = None,
+    limit: Annotated[
+        int | None,
+        typer.Option(
+            "--limit",
+            "-l",
+            min=1,
+            help="Maximum number of interactions to use before splitting.",
+        ),
+    ] = None,
     epochs: Annotated[
         int,
         typer.Option(
@@ -74,6 +83,7 @@ def optimize(
     print(f"[OPTIM] Results folder: {results_root}")
 
     for dataset in datasets:
+        run_name = dataset_run_name(dataset, limit)
         if verbose:
             print(
                 f"[OPTIM] Config: epochs={epochs}, batch_size={batch_size}, trials={n_trials}, patience={patience}"
@@ -82,7 +92,7 @@ def optimize(
                 "[OPTIM] Data config: "
                 f"use_processed={use_processed_data}, remove_sparse={remove_sparse}, "
                 f"min_interactions={min_interactions}, "
-                f"val_ratio={val_ratio}, test_ratio={test_ratio}"
+                f"val_ratio={val_ratio}, test_ratio={test_ratio}, limit={limit}"
             )
 
         dm = ElearningDataModule(
@@ -95,13 +105,14 @@ def optimize(
             min_interactions=min_interactions,
             remove_sparse=remove_sparse,
             save_atomic_files=False,
+            limit=limit,
         )
 
         dm.setup()
 
         print_data_summary("OPTIM", dm)
 
-        dataset_results_path = results_root / dataset.value
+        dataset_results_path = results_root / run_name
 
         study = optimize_model(
             base_config=build_config(dm),
@@ -119,7 +130,7 @@ def optimize(
         )
         print("[OPTIM] Params:", study.best_params)
 
-        cfg_path = results_root / f"config-{dataset.value}.yaml"
+        cfg_path = results_root / f"config-{run_name}.yaml"
         best_cfg.save(cfg_path)
         print("[OPTIM] Saved config:", cfg_path)
         print("[OPTIM] Trials log:", dataset_results_path / "trials.csv")
