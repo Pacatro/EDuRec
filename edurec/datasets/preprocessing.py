@@ -5,7 +5,6 @@ import torch
 from .. import settings
 from .cache import ProcessedData
 from .dataprocessor import DataProcessor
-from .statistics import build_item_stats, build_user_stats
 
 
 def clean_cols(df: pd.DataFrame) -> pd.DataFrame:
@@ -250,17 +249,5 @@ def preprocess(
         test=split_dfs["test"],
         u_static_feats=static_feats["users"],
         i_static_feats=static_feats["items"],
-        user_stats=build_user_stats(
-            users=users,
-            train=split_dfs["train"],
-            processor=processor,
-            num_users=static_feats["users"].shape[0],
-        ),
-        item_stats=build_item_stats(
-            items=items,
-            train=split_dfs["train"],
-            processor=processor,
-            num_items=static_feats["items"].shape[0],
-        ),
         data_processor=processor,
     )

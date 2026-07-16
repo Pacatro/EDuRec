@@ -210,8 +210,6 @@ def train(
             inter_graph=dm.build_inter_graph(),
             u_static_feats=dm.u_static_feats,
             i_static_feats=dm.i_static_feats,
-            user_stats=dm.user_stats,
-            item_stats=dm.item_stats,
         )
 
         print("[TRAIN] Training EDuRec...")

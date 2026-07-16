@@ -377,20 +377,6 @@ class ElearningDataModule(L.LightningDataModule):
         )
 
     @property
-    def user_stats(self) -> torch.Tensor:
-        if self.artifacts.user_stats is None:
-            raise RuntimeError("User router statistics are not available.")
-
-        return self.artifacts.user_stats
-
-    @property
-    def item_stats(self) -> torch.Tensor:
-        if self.artifacts.item_stats is None:
-            raise RuntimeError("Item router statistics are not available.")
-
-        return self.artifacts.item_stats
-
-    @property
     def num_user_feats(self) -> int:
         metadata = self.data_processor.feature_metadata.get("users")
         if metadata is not None:

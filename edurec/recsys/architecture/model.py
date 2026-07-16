@@ -7,14 +7,15 @@ import torch
 from torch import nn
 
 from ... import settings
+from .fusion import FusionConfig, SelfAttentionFusion
 from .graph_encoder import GraphEncoder, GraphEncoderConfig
 from .mlp_encoder import MLPEncoder, MLPEncoderConfig
-from .router import Router, RouterConfig
 from .sasrec import SASRecConfig, SASRecEncoder
 from .scorer import Scorer, ScorerConfig
 
-ROUTER_CTX_DIM = 3
-ROUTER_NUM_MODULES = 3
+NUM_MODULE_TYPES = 6
+USER_MODULE_TYPES = (0, 1, 2)
+ITEM_MODULE_TYPES = (3, 4, 5)
 
 
 @dataclass
@@ -39,7 +40,6 @@ class EDuRecConfig:
     use_text_features: bool = True
     use_sasrec: bool = True
     use_context: bool = True
-    use_routers: bool = True
     use_gcl: bool = True
     scorer_type: Literal["mlp", "dot"] = "mlp"
 
@@ -121,10 +121,11 @@ class EDuRecConfig:
         )
 
     @property
-    def router(self) -> RouterConfig:
-        return RouterConfig(
-            ctx_dim=ROUTER_CTX_DIM,
-            num_modules=ROUTER_NUM_MODULES,
+    def fusion(self) -> FusionConfig:
+        return FusionConfig(
+            emb_dim=self.emb_dim,
+            n_heads=self.n_heads,
+            num_module_types=NUM_MODULE_TYPES,
             dropout=self.dropout,
         )
 
@@ -167,8 +168,35 @@ class EDuRec(nn.Module):
             nn.Parameter(torch.zeros(cfg.num_items)) if cfg.use_item_bias else None
         )
         self.sequence_encoder = SASRecEncoder(cfg.sasrec) if cfg.use_sasrec else None
-        self.user_router = Router(cfg.router) if cfg.use_routers else None
-        self.item_router = Router(cfg.router) if cfg.use_routers else None
+        self.fusion = SelfAttentionFusion(cfg.fusion)
+        self.register_buffer(
+            "user_module_types", torch.tensor(USER_MODULE_TYPES), persistent=False
+        )
+        self.register_buffer(
+            "item_module_types", torch.tensor(ITEM_MODULE_TYPES), persistent=False
+        )
+        self.register_buffer(
+            "active_user_modules",
+            torch.tensor(
+                [
+                    cfg.graph_mode != "none",
+                    cfg.use_user_features,
+                    cfg.use_sasrec,
+                ]
+            ),
+            persistent=False,
+        )
+        self.register_buffer(
+            "active_item_modules",
+            torch.tensor(
+                [
+                    cfg.graph_mode != "none",
+                    cfg.use_item_features,
+                    cfg.use_text_features and cfg.num_item_text_feats > 0,
+                ]
+            ),
+            persistent=False,
+        )
         self.scorer = Scorer(cfg.scorer)
 
     def forward(
@@ -180,12 +208,7 @@ class EDuRec(nn.Module):
         edge_index: torch.Tensor,
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
-        user_stats: torch.Tensor,
-        item_stats: torch.Tensor,
     ) -> torch.Tensor:
-        if self.cfg.use_routers:
-            self._validate_router_stats(user_stats, item_stats)
-
         if self.gnn is None:
             user_graph_embs = u_static_feats.new_zeros(
                 self.cfg.num_users, self.cfg.emb_dim
@@ -211,10 +234,10 @@ class EDuRec(nn.Module):
             [item_graph_embs, item_feature_embs, text_embs],
             dim=1,
         )
-        item_feats_emb = self._combine_modules(
+        item_feats_emb = self.fusion(
             item_modules,
-            self.item_router,
-            item_stats[:, :ROUTER_CTX_DIM],
+            self.item_module_types,
+            self.active_item_modules,
         )
 
         item_emb = self.item_norm(item_feats_emb)
@@ -234,16 +257,15 @@ class EDuRec(nn.Module):
 
         user_graph_emb = user_graph_embs[u_ids]
         user_feature_emb = user_feature_embs[u_ids]
-        batch_user_stats = user_stats[u_ids]
         user_modules = torch.stack(
             [user_graph_emb, user_feature_emb, seq_user_emb],
             dim=1,
         )
         user_emb = self.user_norm(
-            self._combine_modules(
+            self.fusion(
                 user_modules,
-                self.user_router,
-                batch_user_stats[:, :ROUTER_CTX_DIM],
+                self.user_module_types,
+                self.active_user_modules,
             )
         )
 
@@ -288,32 +310,3 @@ class EDuRec(nn.Module):
         text_end = text_start + self.cfg.num_item_text_feats
         text_emb = self.text_projection(item_static_feats[..., text_start:text_end])
         return item_feature_emb, text_emb
-
-    def _combine_modules(
-        self,
-        modules: torch.Tensor,
-        router: Router | None,
-        router_ctx: torch.Tensor,
-    ) -> torch.Tensor:
-        if router is None:
-            return modules.sum(dim=1)
-
-        weights = router(router_ctx)
-        return (modules * weights.unsqueeze(-1)).sum(dim=1)
-
-    def _validate_router_stats(
-        self,
-        user_stats: torch.Tensor,
-        item_stats: torch.Tensor,
-    ) -> None:
-        expected_width = ROUTER_CTX_DIM + ROUTER_NUM_MODULES
-        expected_shapes = (
-            ("user_stats", user_stats, self.cfg.num_users),
-            ("item_stats", item_stats, self.cfg.num_items),
-        )
-        for name, stats, expected_rows in expected_shapes:
-            if stats.ndim != 2 or stats.shape != (expected_rows, expected_width):
-                raise ValueError(
-                    f"{name} must have shape "
-                    f"[{expected_rows}, {expected_width}], got {tuple(stats.shape)}."
-                )
