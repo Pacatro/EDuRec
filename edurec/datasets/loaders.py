@@ -16,6 +16,7 @@ class DatasetName(StrEnum):
     IMPLICIT_MARS = "implicit_mars"
     ITM = "itm"
     DORIS = "doris"
+    MOOCCUBEX = "mooccubex"
 
 
 type Schema = dict[str, dict[str, list[str]]]
@@ -273,6 +274,102 @@ def load_doris() -> RawData:
         interactions=ratings_df,
         item_features=items_df,
         user_features=users_df,
+        schema=schema,
+    )
+
+
+@register_dataset(DatasetName.MOOCCUBEX)
+def load_mooccubex() -> RawData:
+    """Load MOOCubeX course enrollments as implicit interactions.
+
+    Both source files are JSON Lines files.  The much larger user file is read
+    in chunks so that the nested enrollment arrays can be expanded without
+    first loading the complete JSON document into memory.
+    """
+    entities_folder = RAW_DATA_FOLDER / DatasetName.MOOCCUBEX.value / "entities"
+
+    items = pd.read_json(entities_folder / "course.json", lines=True)
+    items.rename(columns={"id": settings.ITEM_COL}, inplace=True)
+    items["resource_count"] = items["resource"].map(len)
+    items = items.drop(columns=["resource"])
+
+    user_frames: list[pd.DataFrame] = []
+    interaction_frames: list[pd.DataFrame] = []
+    user_columns = ["id", "gender", "school", "year_of_birth"]
+
+    for chunk in pd.read_json(
+        entities_folder / "user.json",
+        lines=True,
+        chunksize=10_000,
+    ):
+        user_frames.append(
+            chunk[user_columns].rename(columns={"id": settings.USER_COL}).copy()
+        )
+
+        matching_enrollments = (
+            chunk["course_order"].map(len).eq(chunk["enroll_time"].map(len))
+        )
+        enrollments = chunk.loc[
+            matching_enrollments, ["id", "course_order", "enroll_time"]
+        ].explode(["course_order", "enroll_time"], ignore_index=True)
+        enrollments = enrollments.dropna(subset=["course_order", "enroll_time"])
+        enrollments.rename(
+            columns={
+                "id": settings.USER_COL,
+                "course_order": settings.ITEM_COL,
+                "enroll_time": settings.TIME_COL,
+            },
+            inplace=True,
+        )
+        interaction_frames.append(enrollments)
+
+    users = pd.concat(user_frames, ignore_index=True)
+    interactions = pd.concat(interaction_frames, ignore_index=True)
+
+    # course.json uses IDs such as ``C_584313`` whereas course_order contains
+    # the numeric portion only.
+    interactions[settings.ITEM_COL] = "C_" + interactions[settings.ITEM_COL].astype(
+        "string"
+    )
+    timestamps = pd.to_datetime(
+        interactions[settings.TIME_COL], errors="coerce", utc=True
+    )
+    interactions = interactions.loc[timestamps.notna()].copy()
+    interactions[settings.TIME_COL] = (
+        timestamps.loc[timestamps.notna()].astype("int64") // 10**9
+    )
+    interactions = interactions.loc[
+        interactions[settings.ITEM_COL].isin(items[settings.ITEM_COL])
+    ].reset_index(drop=True)
+
+    schema = {
+        "users": {
+            "bin": [],
+            "num": ["year_of_birth"],
+            "cat": ["gender", "school"],
+            "text": [],
+            "list": [],
+        },
+        "items": {
+            "bin": [],
+            "num": ["resource_count"],
+            "cat": [],
+            "text": ["name", "prerequisites", "about"],
+            "list": ["field"],
+        },
+        "inter": {
+            "bin": [],
+            "num": [],
+            "cat": [],
+            "text": [],
+            "list": [],
+        },
+    }
+
+    return RawData(
+        interactions=interactions,
+        item_features=items,
+        user_features=users,
         schema=schema,
     )
 

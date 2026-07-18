@@ -27,7 +27,7 @@ data/processed/
 data/atomicfiles/
 
 # Other exetensions
-*.json
+# *.json
 *.db
 
 # Models files
@@ -37,5 +37,9 @@ saved/
 *.pt
 results/
 
-# Codex files
+# Agents files/folders
 .codex
+.antigravitycli/
+
+# IDE Folders
+.vscode
