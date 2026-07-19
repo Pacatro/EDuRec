@@ -11,6 +11,7 @@ from .graph_encoder import GraphEncoder, GraphEncoderConfig
 from .mlp_encoder import MLPEncoder, MLPEncoderConfig
 from .seq_encoder import SeqEncoderConfig, SeqEncoder
 from .scorer import Scorer, ScorerConfig
+from .fusion import CrossAttention, FusionConfig
 
 
 @dataclass
@@ -104,6 +105,14 @@ class EDuRecConfig:
         )
 
     @property
+    def fusion(self) -> FusionConfig:
+        return FusionConfig(
+            emb_dim=self.emb_dim,
+            n_heads=self.n_heads,
+            dropout=self.dropout,
+        )
+
+    @property
     def scorer(self) -> ScorerConfig:
         return ScorerConfig(
             emb_dim=self.emb_dim,
@@ -140,8 +149,8 @@ class EDuRec(nn.Module):
         self.item_encoder = (
             MLPEncoder(cfg.item_encoder) if cfg.use_item_features else None
         )
-        self.user_norm = nn.LayerNorm(cfg.emb_dim)
-        self.item_norm = nn.LayerNorm(cfg.emb_dim)
+        self.item_fusion = CrossAttention(cfg.fusion)
+        self.user_fusion = CrossAttention(cfg.fusion)
         self.item_bias = (
             nn.Parameter(torch.zeros(cfg.num_items)) if cfg.use_item_bias else None
         )
@@ -149,6 +158,11 @@ class EDuRec(nn.Module):
             SeqEncoder(cfg.seq_encoder) if cfg.use_seq_encoder else None
         )
         self.scorer = Scorer(cfg.scorer)
+
+    def _init_weights(self) -> None:
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
 
     def forward(
         self,
@@ -177,7 +191,7 @@ class EDuRec(nn.Module):
             else i_static_feats.new_zeros(self.cfg.num_items, self.cfg.emb_dim)
         )
 
-        item_emb = self.item_norm(item_graph + item_feat)
+        item_emb = self.item_fusion([item_graph, item_feat])
 
         padded = torch.cat([item_emb.new_zeros(1, item_emb.size(1)), item_emb])
         hist = padded[h_ids.clamp(min=0)]
@@ -187,7 +201,7 @@ class EDuRec(nn.Module):
             else hist.new_zeros(hist.size(0), self.cfg.emb_dim)
         )
 
-        user_emb = self.user_norm(user_graph[u_ids] + user_feat[u_ids] + seq_user)
+        user_emb = self.user_fusion([user_graph[u_ids], user_feat[u_ids], seq_user])
 
         scores = self.scorer(user_emb, item_emb)
         if self.item_bias is not None:
