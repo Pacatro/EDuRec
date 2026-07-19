@@ -52,24 +52,93 @@ class SeqEncoder(nn.Module):
         history_mask: torch.Tensor,
         history_ctx: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        batch_size, history_len, _ = history_emb.shape
-        safe_mask = history_mask.clone()
-        empty_rows = ~safe_mask.any(dim=1)
-        safe_mask[empty_rows, 0] = True
+        """Encode a user interaction history.
 
-        positions = torch.arange(history_len, device=history_emb.device).unsqueeze(0)
-        tokens = history_emb + self.pos_emb(positions)
+        Args:
+            history_emb: Item representations with shape
+                ``[batch_size, history_len, emb_dim]``.
+            history_mask: Boolean mask with shape
+                ``[batch_size, history_len]``. True values indicate valid
+                interactions.
+            history_ctx: Optional interaction context with shape
+                ``[batch_size, history_len, num_ctx_feats]``.
+
+        Returns:
+            Sequential user state with shape ``[batch_size, emb_dim]``.
+            Users without history receive a zero vector.
+        """
+        if history_emb.ndim != 3:
+            raise ValueError(
+                "history_emb must have shape [batch_size, history_len, emb_dim]."
+            )
+
+        batch_size, history_len, emb_dim = history_emb.shape
+
+        if emb_dim != self.cfg.emb_dim:
+            raise ValueError(
+                f"Expected embedding dimension {self.cfg.emb_dim}, got {emb_dim}."
+            )
+
+        if history_len > self.cfg.max_history_len:
+            raise ValueError(
+                f"History length {history_len} exceeds "
+                f"max_history_len={self.cfg.max_history_len}."
+            )
+
+        if history_mask.shape != (batch_size, history_len):
+            raise ValueError(
+                f"history_mask must have shape [{batch_size}, {history_len}]."
+            )
+
+        history_mask = history_mask.bool()
+        has_history = history_mask.any(dim=1)
+
+        if self.ctx_proj is not None:
+            if history_ctx is None:
+                raise ValueError(
+                    "history_ctx is required when num_ctx_feats is greater than zero."
+                )
+
+            expected_ctx_shape = (
+                batch_size,
+                history_len,
+                self.cfg.num_ctx_feats,
+            )
+            if history_ctx.shape != expected_ctx_shape:
+                raise ValueError(
+                    f"history_ctx must have shape {expected_ctx_shape}, "
+                    f"got {tuple(history_ctx.shape)}."
+                )
+
+        # PyTorch attention cannot process a row where every token is masked.
+        safe_mask = history_mask.clone()
+        safe_mask[~has_history, 0] = True
+
+        # Positions 0, 1, ..., L - 1 for valid interactions, independent
+        # of whether padding is placed on the left or right.
+        position_ids = history_mask.long().cumsum(dim=1) - 1
+        position_ids = position_ids.clamp(
+            min=0,
+            max=self.cfg.max_history_len - 1,
+        )
+
+        tokens = history_emb + self.pos_emb(position_ids)
 
         if self.ctx_proj is not None and history_ctx is not None:
-            tokens = tokens + self.ctx_proj(history_ctx)
+            tokens = tokens + self.ctx_proj(history_ctx.float())
 
         tokens = self.input_norm(tokens)
-        tokens = tokens * safe_mask.unsqueeze(-1).float()
+        tokens = tokens.masked_fill(~safe_mask.unsqueeze(-1), 0.0)
 
         causal_mask = torch.triu(
-            torch.ones(history_len, history_len, device=history_emb.device),
+            torch.ones(
+                history_len,
+                history_len,
+                dtype=torch.bool,
+                device=history_emb.device,
+            ),
             diagonal=1,
-        ).bool()
+        )
 
         encoded = self.transformer(
             tokens,
@@ -77,12 +146,27 @@ class SeqEncoder(nn.Module):
             src_key_padding_mask=~safe_mask,
         )
 
-        valid_counts = history_mask.long().sum(dim=1)
-        last_indices = (valid_counts - 1).clamp(min=0)
-        gather_index = last_indices.view(batch_size, 1, 1).expand(
-            -1, 1, self.cfg.emb_dim
+        # Find the actual final valid position instead of assuming right padding.
+        sequence_positions = torch.arange(
+            history_len,
+            device=history_emb.device,
         )
-        seq_user_emb = encoded.gather(dim=1, index=gather_index).squeeze(1)
+        sequence_positions = sequence_positions.unsqueeze(0).expand(
+            batch_size,
+            -1,
+        )
 
-        has_history = valid_counts > 0
+        last_indices = sequence_positions.masked_fill(
+            ~history_mask,
+            -1,
+        ).amax(dim=1)
+        last_indices = last_indices.clamp_min(0)
+
+        seq_user_emb = encoded[
+            torch.arange(batch_size, device=encoded.device),
+            last_indices,
+        ]
+
+        # Zero is appropriate here as long as the fusion layer also receives
+        # an explicit availability mask for the sequence source.
         return seq_user_emb * has_history.unsqueeze(-1)

@@ -23,7 +23,8 @@ class UserHistory:
 
 
 def build_histories(
-    splits: dict[str, pd.DataFrame | None], excluded_cols: set[str]
+    splits: dict[str, pd.DataFrame | None],
+    excluded_cols: set[str],
 ) -> dict[str, UserHistory]:
     histories = {}
     user_state: dict[int, list[tuple[int, list[float]]]] = {}
@@ -34,14 +35,15 @@ def build_histories(
             raise RuntimeError(f"Processed split {split} is not available.")
 
         context_cols = [col for col in df.columns if col not in excluded_cols]
+        split_len = len(df)
         history = UserHistory(
-            items=torch.zeros((len(df), settings.MAX_HISTORY_LEN), dtype=torch.long),
+            items=torch.zeros((split_len, settings.MAX_HISTORY_LEN), dtype=torch.long),
             ctx=torch.zeros(
-                (len(df), settings.MAX_HISTORY_LEN, len(context_cols)),
+                (split_len, settings.MAX_HISTORY_LEN, len(context_cols)),
                 dtype=torch.float32,
             ),
             valid_mask=torch.zeros(
-                (len(df), settings.MAX_HISTORY_LEN),
+                (split_len, settings.MAX_HISTORY_LEN),
                 dtype=torch.bool,
             ),
         )
@@ -50,7 +52,7 @@ def build_histories(
         context = (
             df[context_cols].to_numpy(dtype=np.float32)
             if context_cols
-            else np.empty((len(df), 0), dtype=np.float32)
+            else np.empty((split_len, 0), dtype=np.float32)
         )
 
         for row_idx, user_id in enumerate(users):
