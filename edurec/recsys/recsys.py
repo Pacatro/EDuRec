@@ -141,9 +141,7 @@ class RecSys(L.LightningModule):
         rank_loss = self._compute_rec_loss(
             scores=scores,
             target_item_ids=target_item_ids,
-            negative_item_ids=(
-                batch.negative_item_ids if prefix == "train" else None
-            ),
+            negative_item_ids=(batch.negative_item_ids if prefix == "train" else None),
         )
         use_gcl = (
             prefix == "train" and self.cfg.use_gcl and self.cfg.graph_mode == "lightgcn"

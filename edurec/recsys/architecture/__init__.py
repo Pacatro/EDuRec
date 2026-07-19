@@ -1,7 +1,7 @@
 from .model import EDuRec, EDuRecConfig
 from .graph_encoder import GraphEncoder
 from .mlp_encoder import MLPEncoder, MLPEncoderConfig
-from .sasrec import SASRecConfig, SASRecEncoder
+from .seq_encoder import SeqEncoderConfig, SeqEncoder
 from .scorer import Scorer, ScorerConfig
 
 __all__ = [
@@ -10,8 +10,8 @@ __all__ = [
     "GraphEncoder",
     "MLPEncoder",
     "MLPEncoderConfig",
-    "SASRecConfig",
-    "SASRecEncoder",
+    "SeqEncoderConfig",
+    "SeqEncoder",
     "Scorer",
     "ScorerConfig",
 ]

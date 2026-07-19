@@ -7,8 +7,8 @@ ff_dim: 512
 gnn_layers: 2
 graph_mode: lightgcn
 hidden_dims:
-- 128
-- 64
+  - 128
+  - 64
 item_cat_cardinalities: []
 loss_reduction: mean
 lr: 0.0005
@@ -24,19 +24,19 @@ num_users: 454
 scorer_type: mlp
 temperature: 0.05
 topks:
-- 5
-- 10
-- 20
+  - 5
+  - 10
+  - 20
 use_context: true
 use_routers: true
 use_gcl: true
 use_item_bias: true
 use_item_features: true
-use_sasrec: true
+use_seq_encoder: true
 use_text_features: true
 use_user_features: true
 user_cat_cardinalities:
-- 3
-- 3
-- 6
+  - 3
+  - 3
+  - 6
 weight_decay: 0.0001

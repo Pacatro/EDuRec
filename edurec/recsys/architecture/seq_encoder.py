@@ -7,7 +7,7 @@ from ... import settings
 
 
 @dataclass
-class SASRecConfig:
+class SeqEncoderConfig:
     emb_dim: int
     n_heads: int
     n_blocks: int
@@ -18,8 +18,8 @@ class SASRecConfig:
     num_ctx_feats: int = 0
 
 
-class SASRecEncoder(nn.Module):
-    def __init__(self, cfg: SASRecConfig):
+class SeqEncoder(nn.Module):
+    def __init__(self, cfg: SeqEncoderConfig):
         super().__init__()
         self.cfg = cfg
         self.pos_emb = nn.Embedding(cfg.max_history_len, cfg.emb_dim)

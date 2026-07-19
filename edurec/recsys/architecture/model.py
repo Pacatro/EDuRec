@@ -10,7 +10,7 @@ from ... import settings
 from .graph_encoder import GraphEncoder, GraphEncoderConfig
 from .mlp_encoder import MLPEncoder, MLPEncoderConfig
 from .router import Router, RouterConfig
-from .sasrec import SASRecConfig, SASRecEncoder
+from .seq_encoder import SeqEncoderConfig, SeqEncoder
 from .scorer import Scorer, ScorerConfig
 
 ROUTER_CTX_DIM = 3
@@ -37,7 +37,7 @@ class EDuRecConfig:
     use_user_features: bool = True
     use_item_features: bool = True
     use_text_features: bool = True
-    use_sasrec: bool = True
+    use_seq_encoder: bool = True
     use_context: bool = True
     use_routers: bool = True
     use_gcl: bool = True
@@ -101,8 +101,8 @@ class EDuRecConfig:
         )
 
     @property
-    def sasrec(self) -> SASRecConfig:
-        return SASRecConfig(
+    def seq_encoder(self) -> SeqEncoderConfig:
+        return SeqEncoderConfig(
             emb_dim=self.emb_dim,
             n_heads=self.n_heads,
             n_blocks=self.n_blocks,
@@ -166,7 +166,9 @@ class EDuRec(nn.Module):
         self.item_bias = (
             nn.Parameter(torch.zeros(cfg.num_items)) if cfg.use_item_bias else None
         )
-        self.sequence_encoder = SASRecEncoder(cfg.sasrec) if cfg.use_sasrec else None
+        self.sequence_encoder = (
+            SeqEncoder(cfg.seq_encoder) if cfg.use_seq_encoder else None
+        )
         self.user_router = Router(cfg.router) if cfg.use_routers else None
         self.item_router = Router(cfg.router) if cfg.use_routers else None
         self.scorer = Scorer(cfg.scorer)
