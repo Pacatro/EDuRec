@@ -31,7 +31,6 @@ topks:
   - 10
   - 20
 use_context: true
-use_routers: true
 use_gcl: true
 use_item_bias: false
 use_item_features: true

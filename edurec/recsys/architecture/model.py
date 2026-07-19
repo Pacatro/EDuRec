@@ -9,12 +9,8 @@ from torch import nn
 from ... import settings
 from .graph_encoder import GraphEncoder, GraphEncoderConfig
 from .mlp_encoder import MLPEncoder, MLPEncoderConfig
-from .router import Router, RouterConfig
 from .seq_encoder import SeqEncoderConfig, SeqEncoder
 from .scorer import Scorer, ScorerConfig
-
-ROUTER_CTX_DIM = 3
-ROUTER_NUM_MODULES = 3
 
 
 @dataclass
@@ -39,7 +35,6 @@ class EDuRecConfig:
     use_text_features: bool = True
     use_seq_encoder: bool = True
     use_context: bool = True
-    use_routers: bool = True
     use_gcl: bool = True
     scorer_type: Literal["mlp", "dot"] = "mlp"
 
@@ -120,14 +115,6 @@ class EDuRecConfig:
             scorer_type=self.scorer_type,
         )
 
-    @property
-    def router(self) -> RouterConfig:
-        return RouterConfig(
-            ctx_dim=ROUTER_CTX_DIM,
-            num_modules=ROUTER_NUM_MODULES,
-            dropout=self.dropout,
-        )
-
     def save(self, path: Path | str) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -169,8 +156,6 @@ class EDuRec(nn.Module):
         self.sequence_encoder = (
             SeqEncoder(cfg.seq_encoder) if cfg.use_seq_encoder else None
         )
-        self.user_router = Router(cfg.router) if cfg.use_routers else None
-        self.item_router = Router(cfg.router) if cfg.use_routers else None
         self.scorer = Scorer(cfg.scorer)
 
     def forward(
@@ -182,12 +167,7 @@ class EDuRec(nn.Module):
         edge_index: torch.Tensor,
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
-        user_stats: torch.Tensor,
-        item_stats: torch.Tensor,
     ) -> torch.Tensor:
-        if self.cfg.use_routers:
-            self._validate_router_stats(user_stats, item_stats)
-
         if self.gnn is None:
             user_graph_embs = u_static_feats.new_zeros(
                 self.cfg.num_users, self.cfg.emb_dim
@@ -213,11 +193,7 @@ class EDuRec(nn.Module):
             [item_graph_embs, item_feature_embs, text_embs],
             dim=1,
         )
-        item_feats_emb = self._combine_modules(
-            item_modules,
-            self.item_router,
-            item_stats[:, :ROUTER_CTX_DIM],
-        )
+        item_feats_emb = item_modules.sum(dim=1)
 
         item_emb = self.item_norm(item_feats_emb)
         padded_item_embs = torch.cat(
@@ -236,18 +212,11 @@ class EDuRec(nn.Module):
 
         user_graph_emb = user_graph_embs[u_ids]
         user_feature_emb = user_feature_embs[u_ids]
-        batch_user_stats = user_stats[u_ids]
         user_modules = torch.stack(
             [user_graph_emb, user_feature_emb, seq_user_emb],
             dim=1,
         )
-        user_emb = self.user_norm(
-            self._combine_modules(
-                user_modules,
-                self.user_router,
-                batch_user_stats[:, :ROUTER_CTX_DIM],
-            )
-        )
+        user_emb = self.user_norm(user_modules.sum(dim=1))
 
         scores = self.scorer(user_emb, item_emb)
 
@@ -291,31 +260,4 @@ class EDuRec(nn.Module):
         text_emb = self.text_projection(item_static_feats[..., text_start:text_end])
         return item_feature_emb, text_emb
 
-    def _combine_modules(
-        self,
-        modules: torch.Tensor,
-        router: Router | None,
-        router_ctx: torch.Tensor,
-    ) -> torch.Tensor:
-        if router is None:
-            return modules.sum(dim=1)
 
-        weights = router(router_ctx)
-        return (modules * weights.unsqueeze(-1)).sum(dim=1)
-
-    def _validate_router_stats(
-        self,
-        user_stats: torch.Tensor,
-        item_stats: torch.Tensor,
-    ) -> None:
-        expected_width = ROUTER_CTX_DIM + ROUTER_NUM_MODULES
-        expected_shapes = (
-            ("user_stats", user_stats, self.cfg.num_users),
-            ("item_stats", item_stats, self.cfg.num_items),
-        )
-        for name, stats, expected_rows in expected_shapes:
-            if stats.ndim != 2 or stats.shape != (expected_rows, expected_width):
-                raise ValueError(
-                    f"{name} must have shape "
-                    f"[{expected_rows}, {expected_width}], got {tuple(stats.shape)}."
-                )

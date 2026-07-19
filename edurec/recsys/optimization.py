@@ -91,8 +91,6 @@ def objective(
         inter_graph=inter_graph,
         u_static_feats=datamodule.u_static_feats,
         i_static_feats=datamodule.i_static_feats,
-        user_stats=datamodule.user_stats,
-        item_stats=datamodule.item_stats,
         val_topk=val_topk,
     )
 

@@ -30,7 +30,6 @@ use_context: true
 use_gcl: true
 use_item_bias: false
 use_item_features: true
-use_routers: true
 use_seq_encoder: true
 use_text_features: true
 use_user_features: true
