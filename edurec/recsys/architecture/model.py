@@ -134,105 +134,35 @@ class EDuRec(nn.Module):
         self.cfg = cfg
 
         self.gnn = GraphEncoder(cfg.gnn) if cfg.graph_mode != "none" else None
-        self.user_encoder = (
-            MLPEncoder(cfg.user_encoder) if cfg.use_user_features else None
-        )
-        self.item_encoder = (
-            MLPEncoder(cfg.item_encoder) if cfg.use_item_features else None
-        )
-        self.item_norm = nn.LayerNorm(cfg.emb_dim)
+        self.user_encoder = MLPEncoder(cfg.user_encoder) if cfg.use_user_features else None
+        self.item_encoder = MLPEncoder(cfg.item_encoder) if cfg.use_item_features else None
         self.user_norm = nn.LayerNorm(cfg.emb_dim)
-        self.item_bias = (
-            nn.Parameter(torch.zeros(cfg.num_items)) if cfg.use_item_bias else None
-        )
-        self.sequence_encoder = (
-            SeqEncoder(cfg.seq_encoder) if cfg.use_seq_encoder else None
-        )
+        self.item_norm = nn.LayerNorm(cfg.emb_dim)
+        self.item_bias = nn.Parameter(torch.zeros(cfg.num_items)) if cfg.use_item_bias else None
+        self.sequence_encoder = SeqEncoder(cfg.seq_encoder) if cfg.use_seq_encoder else None
         self.scorer = Scorer(cfg.scorer)
 
-    def forward(
-        self,
-        u_ids: torch.Tensor,
-        h_ids: torch.Tensor,
-        h_ctx: torch.Tensor,
-        h_mask: torch.Tensor,
-        edge_index: torch.Tensor,
-        u_static_feats: torch.Tensor,
-        i_static_feats: torch.Tensor,
-    ) -> torch.Tensor:
+    def forward(self, u_ids, h_ids, h_ctx, h_mask, edge_index, u_static_feats, i_static_feats):
         if self.gnn is None:
-            user_graph_embs = u_static_feats.new_zeros(
-                self.cfg.num_users, self.cfg.emb_dim
-            )
-            item_graph_embs = i_static_feats.new_zeros(
-                self.cfg.num_items, self.cfg.emb_dim
-            )
+            user_graph = u_static_feats.new_zeros(self.cfg.num_users, self.cfg.emb_dim)
+            item_graph = i_static_feats.new_zeros(self.cfg.num_items, self.cfg.emb_dim)
         else:
-            user_graph_embs, item_graph_embs = self.gnn(edge_index)
+            user_graph, item_graph = self.gnn(edge_index)
 
-        if self.user_encoder is None:
-            user_feature_embs = u_static_feats.new_zeros(
-                self.cfg.num_users, self.cfg.emb_dim
-            )
-        else:
-            user_feature_embs = self.user_encoder(u_static_feats)
-        item_feature_embs = self._encode_item_features(i_static_feats)
+        user_feat = self.user_encoder(u_static_feats) if self.user_encoder else u_static_feats.new_zeros(self.cfg.num_users, self.cfg.emb_dim)
+        item_feat = self.item_encoder(i_static_feats) if self.item_encoder else i_static_feats.new_zeros(self.cfg.num_items, self.cfg.emb_dim)
 
-        item_modules = torch.stack(
-            [item_graph_embs, item_feature_embs],
-            dim=1,
-        )
-        item_feats_emb = item_modules.sum(dim=1)
+        item_emb = self.item_norm(torch.stack([item_graph, item_feat], dim=1).sum(dim=1))
 
-        item_emb = self.item_norm(item_feats_emb)
-        padded_item_embs = torch.cat(
-            [item_emb.new_zeros(1, item_emb.size(1)), item_emb], dim=0
-        )
+        padded = torch.cat([item_emb.new_zeros(1, item_emb.size(1)), item_emb])
+        hist = padded[h_ids.clamp(min=0)]
+        seq_user = self.sequence_encoder(hist, h_mask, h_ctx if self.cfg.use_context else None) if self.sequence_encoder else hist.new_zeros(hist.size(0), self.cfg.emb_dim)
 
-        hist_emb = padded_item_embs[h_ids.clamp(min=0)]
-        if self.sequence_encoder is None:
-            seq_user_emb = hist_emb.new_zeros(hist_emb.size(0), self.cfg.emb_dim)
-        else:
-            seq_user_emb = self.sequence_encoder(
-                hist_emb,
-                h_mask,
-                h_ctx if self.cfg.use_context else None,
-            )
-
-        user_graph_emb = user_graph_embs[u_ids]
-        user_feature_emb = user_feature_embs[u_ids]
-        user_modules = torch.stack(
-            [user_graph_emb, user_feature_emb, seq_user_emb],
-            dim=1,
-        )
-        user_emb = self.user_norm(user_modules.sum(dim=1))
+        user_emb = self.user_norm(torch.stack([user_graph[u_ids], user_feat[u_ids], seq_user], dim=1).sum(dim=1))
 
         scores = self.scorer(user_emb, item_emb)
-
         if self.item_bias is not None:
             scores = scores + self.item_bias
-
         return scores
-
-    def _encode_item_features(
-        self, item_static_feats: torch.Tensor
-    ) -> torch.Tensor:
-        if self.item_encoder is None:
-            return item_static_feats.new_zeros(
-                item_static_feats.size(0), self.cfg.emb_dim
-            )
-
-        cat_start = self.cfg.num_item_dense_feats
-        parts = []
-        if self.cfg.num_item_dense_feats > 0:
-            parts.append(item_static_feats[..., :self.cfg.num_item_dense_feats])
-        if self.cfg.item_cat_cardinalities:
-            parts.append(item_static_feats[..., cat_start:])
-
-        if parts:
-            return self.item_encoder(torch.cat(parts, dim=-1))
-        return item_static_feats.new_zeros(
-            item_static_feats.size(0), self.cfg.emb_dim
-        )
 
 
