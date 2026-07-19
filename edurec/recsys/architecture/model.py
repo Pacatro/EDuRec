@@ -85,11 +85,8 @@ class EDuRecConfig:
 
     @property
     def item_encoder(self) -> MLPEncoderConfig:
-        struct_dense_feats = max(
-            self.num_item_dense_feats - self.num_item_text_feats, 0
-        )
         return MLPEncoderConfig(
-            num_dense_features=struct_dense_feats,
+            num_dense_features=self.num_item_dense_feats,
             categorical_cardinalities=self.item_cat_cardinalities,
             output_dim=self.emb_dim,
             dropout=self.dropout,
@@ -143,11 +140,6 @@ class EDuRec(nn.Module):
         self.item_encoder = (
             MLPEncoder(cfg.item_encoder) if cfg.use_item_features else None
         )
-        self.text_projection = (
-            nn.Linear(cfg.num_item_text_feats, cfg.emb_dim, bias=False)
-            if cfg.use_text_features and cfg.num_item_text_feats > 0
-            else None
-        )
         self.item_norm = nn.LayerNorm(cfg.emb_dim)
         self.user_norm = nn.LayerNorm(cfg.emb_dim)
         self.item_bias = (
@@ -184,13 +176,10 @@ class EDuRec(nn.Module):
             )
         else:
             user_feature_embs = self.user_encoder(u_static_feats)
-        item_feature_embs, text_embs = self._encode_item_features(i_static_feats)
-
-        if text_embs is None:
-            text_embs = item_graph_embs.new_zeros(item_graph_embs.shape)
+        item_feature_embs = self._encode_item_features(i_static_feats)
 
         item_modules = torch.stack(
-            [item_graph_embs, item_feature_embs, text_embs],
+            [item_graph_embs, item_feature_embs],
             dim=1,
         )
         item_feats_emb = item_modules.sum(dim=1)
@@ -227,37 +216,23 @@ class EDuRec(nn.Module):
 
     def _encode_item_features(
         self, item_static_feats: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor | None]:
-        struct_dim = max(
-            self.cfg.num_item_dense_feats - self.cfg.num_item_text_feats, 0
-        )
-        cat_start = self.cfg.num_item_dense_feats
-
+    ) -> torch.Tensor:
         if self.item_encoder is None:
-            item_feature_emb = item_static_feats.new_zeros(
+            return item_static_feats.new_zeros(
                 item_static_feats.size(0), self.cfg.emb_dim
             )
-        else:
-            parts = []
-            if struct_dim > 0:
-                parts.append(item_static_feats[..., :struct_dim])
-            if self.cfg.item_cat_cardinalities:
-                parts.append(item_static_feats[..., cat_start:])
 
-            if parts:
-                structured_inputs = torch.cat(parts, dim=-1)
-                item_feature_emb = self.item_encoder(structured_inputs)
-            else:
-                item_feature_emb = item_static_feats.new_zeros(
-                    item_static_feats.size(0), self.cfg.emb_dim
-                )
+        cat_start = self.cfg.num_item_dense_feats
+        parts = []
+        if self.cfg.num_item_dense_feats > 0:
+            parts.append(item_static_feats[..., :self.cfg.num_item_dense_feats])
+        if self.cfg.item_cat_cardinalities:
+            parts.append(item_static_feats[..., cat_start:])
 
-        if self.text_projection is None:
-            return item_feature_emb, None
-
-        text_start = struct_dim
-        text_end = text_start + self.cfg.num_item_text_feats
-        text_emb = self.text_projection(item_static_feats[..., text_start:text_end])
-        return item_feature_emb, text_emb
+        if parts:
+            return self.item_encoder(torch.cat(parts, dim=-1))
+        return item_static_feats.new_zeros(
+            item_static_feats.size(0), self.cfg.emb_dim
+        )
 
 
