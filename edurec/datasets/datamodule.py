@@ -369,6 +369,16 @@ class ElearningDataModule(L.LightningDataModule):
         return 0
 
     @property
+    def has_history(self) -> bool:
+        """Return whether training provides at least one usable history event."""
+        train_ds = getattr(self, "train_ds", None)
+        return bool(
+            train_ds is not None
+            and train_ds.history_valid_mask.numel() > 0
+            and train_ds.history_valid_mask.any().item()
+        )
+
+    @property
     def sparsity(self) -> float:
         return (
             0.0

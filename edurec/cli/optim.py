@@ -7,7 +7,13 @@ import typer
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
 from ..recsys import EDuRecConfig, optimize_model
-from .utils import build_config, dataset_run_name, datasets_to_run, print_data_summary
+from .utils import (
+    build_config,
+    dataset_run_name,
+    datasets_to_run,
+    print_data_summary,
+    print_model_modules,
+)
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -114,8 +120,11 @@ def optimize(
 
         dataset_results_path = results_root / run_name
 
+        base_cfg = build_config(dm)
+        print_model_modules("OPTIM", base_cfg)
+
         study = optimize_model(
-            base_config=build_config(dm),
+            base_config=base_cfg,
             dm=dm,
             n_trials=n_trials,
             epochs=epochs,

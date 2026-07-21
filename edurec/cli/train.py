@@ -15,6 +15,7 @@ from .utils import (
     dataset_run_name,
     datasets_to_run,
     print_data_summary,
+    print_model_modules,
 )
 
 app = typer.Typer(no_args_is_help=True)
@@ -197,6 +198,7 @@ def train(
                 num_item_text_feats=dm.num_item_text_feats,
                 user_cat_cardinalities=dm.user_cat_cardinalities,
                 item_cat_cardinalities=dm.item_cat_cardinalities,
+                has_history=dm.has_history,
                 adaptive_k=adaptive_k,
                 topks=settings.TOP_KS,
             )
@@ -204,6 +206,8 @@ def train(
         else:
             cfg = base_cfg
             print("[TRAIN] No saved configuration found; using the full model.")
+
+        print_model_modules("TRAIN", cfg)
 
         recsys = RecSys(
             cfg=cfg,

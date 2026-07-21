@@ -23,6 +23,7 @@ from .utils import (
     datasets_to_run,
     parse_seeds,
     print_data_summary,
+    print_model_modules,
 )
 
 app = typer.Typer(no_args_is_help=True)
@@ -148,6 +149,7 @@ def run_ablation(
                 cfg.save(variant_root / "config.yaml")
 
                 print(f"[ABLATION] {run_name} | {variant} | seed={seed}")
+                print_model_modules("ABLATION", cfg)
 
                 model = RecSys(
                     cfg=cfg,

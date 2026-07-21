@@ -52,8 +52,18 @@ def build_config(dm: ElearningDataModule, **kwargs: Any) -> EDuRecConfig:
         num_item_text_feats=dm.num_item_text_feats,
         user_cat_cardinalities=dm.user_cat_cardinalities,
         item_cat_cardinalities=dm.item_cat_cardinalities,
+        has_history=dm.has_history,
         **kwargs,
     )
+
+
+def print_model_modules(prefix: str, cfg: EDuRecConfig) -> None:
+    """Print the effective model modules in a compact form."""
+    status = ", ".join(
+        f"{name}={'ON' if enabled else 'OFF'}"
+        for name, enabled in cfg.available_modules.items()
+    )
+    print(f"[{prefix}] Model modules: {status}")
 
 
 def print_data_summary(prefix: str, dm: ElearningDataModule) -> None:

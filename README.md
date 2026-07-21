@@ -220,6 +220,12 @@ modules:
 - **Scorer**: the final user and item embeddings are scored with either an MLP
   scorer or a dot-product scorer. An optional item bias can be added.
 
+Module availability is inferred from each processed dataset when the model
+configuration is built. Feature encoders, the sequential encoder, contextual
+inputs, and their fusion slots are omitted when their required data is absent.
+Single-source representations also bypass the fusion layer, avoiding unused
+parameters and computation.
+
 Training uses cross-entropy over all candidate items. When enabled, graph
 contrastive learning applies edge dropout to create two graph views and adds an
 InfoNCE loss for user and item embeddings.

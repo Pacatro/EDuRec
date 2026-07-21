@@ -25,6 +25,7 @@ class EDuRecConfig:
     num_item_text_feats: int
     user_cat_cardinalities: list[int]
     item_cat_cardinalities: list[int]
+    has_history: bool = True
     emb_dim: int = settings.EMB_DIM
     use_item_bias: bool = True
     dropout: float = settings.DROPOUT
@@ -63,7 +64,30 @@ class EDuRecConfig:
     adaptive_k: bool = settings.ADAPTIVE_K
 
     @property
-    def gnn(self) -> GraphEncoderConfig:
+    def has_user_features(self) -> bool:
+        """Whether the dataset can feed the user feature encoder."""
+        return self.num_user_dense_feats > 0 or bool(self.user_cat_cardinalities)
+
+    @property
+    def has_item_features(self) -> bool:
+        """Whether the dataset can feed the item feature encoder."""
+        return self.num_item_dense_feats > 0 or bool(self.item_cat_cardinalities)
+
+    @property
+    def available_modules(self) -> dict[str, bool]:
+        """Effective modules after combining dataset availability and ablations."""
+        graph = self.graph_mode != "none"
+        sequence = self.use_seq_encoder and self.has_history
+        return {
+            "graph": graph,
+            "user_features": self.use_user_features and self.has_user_features,
+            "item_features": self.use_item_features and self.has_item_features,
+            "sequence": sequence,
+            "context": sequence and self.use_context and self.num_ctx_feats > 0,
+        }
+
+    @property
+    def graph_encoder(self) -> GraphEncoderConfig:
         return GraphEncoderConfig(
             num_users=self.num_users,
             num_items=self.num_items,
@@ -142,27 +166,54 @@ class EDuRec(nn.Module):
         super().__init__()
         self.cfg = cfg
 
-        self.gnn = GraphEncoder(cfg.gnn) if cfg.graph_mode != "none" else None
+        available = cfg.available_modules
+        self.available_modules = available
+
+        self.gnn = GraphEncoder(cfg.graph_encoder) if available["graph"] else None
         self.user_encoder = (
-            MLPEncoder(cfg.user_encoder) if cfg.use_user_features else None
+            MLPEncoder(cfg.user_encoder) if available["user_features"] else None
         )
         self.item_encoder = (
-            MLPEncoder(cfg.item_encoder) if cfg.use_item_features else None
+            MLPEncoder(cfg.item_encoder) if available["item_features"] else None
         )
-        item_fusion_cfg = FusionConfig(
-            emb_dim=cfg.emb_dim,
-            num_sources=2,
-            dropout=cfg.dropout,
+        item_sources = int(available["graph"]) + int(available["item_features"])
+        user_sources = (
+            int(available["graph"])
+            + int(available["user_features"])
+            + int(available["sequence"])
         )
-        self.item_fusion = MaskedGatedFusion(item_fusion_cfg)
-        self.user_fusion = MaskedGatedFusion(cfg.fusion)
+        if item_sources == 0 or user_sources == 0:
+            raise ValueError(
+                "The effective configuration must provide at least one user and "
+                "one item representation module."
+            )
+        self.item_fusion = self._make_fusion(item_sources)
+        self.user_fusion = self._make_fusion(user_sources)
         self.item_bias = (
             nn.Parameter(torch.zeros(cfg.num_items)) if cfg.use_item_bias else None
         )
         self.sequence_encoder = (
-            SeqEncoder(cfg.seq_encoder) if cfg.use_seq_encoder else None
+            SeqEncoder(cfg.seq_encoder) if available["sequence"] else None
         )
         self.scorer = Scorer(cfg.scorer)
+
+    def _make_fusion(self, num_sources: int) -> MaskedGatedFusion | None:
+        # A single source needs neither gates nor normalization parameters.
+        if num_sources == 1:
+            return None
+        return MaskedGatedFusion(
+            FusionConfig(
+                emb_dim=self.cfg.emb_dim,
+                num_sources=num_sources,
+                dropout=self.cfg.dropout,
+            )
+        )
+
+    @staticmethod
+    def _fuse(
+        sources: list[torch.Tensor], fusion: MaskedGatedFusion | None
+    ) -> torch.Tensor:
+        return sources[0] if fusion is None else fusion(sources)
 
     def forward(
         self,
@@ -174,34 +225,32 @@ class EDuRec(nn.Module):
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
     ) -> torch.Tensor:
-        if self.gnn is None:
-            user_graph = u_static_feats.new_zeros(self.cfg.num_users, self.cfg.emb_dim)
-            item_graph = i_static_feats.new_zeros(self.cfg.num_items, self.cfg.emb_dim)
-        else:
+        user_sources: list[torch.Tensor] = []
+        item_sources: list[torch.Tensor] = []
+
+        if self.gnn is not None:
             user_graph, item_graph = self.gnn(edge_index)
+            user_sources.append(user_graph[u_ids])
+            item_sources.append(item_graph)
 
-        user_feat = (
-            self.user_encoder(u_static_feats)
-            if self.user_encoder
-            else u_static_feats.new_zeros(self.cfg.num_users, self.cfg.emb_dim)
-        )
-        item_feat = (
-            self.item_encoder(i_static_feats)
-            if self.item_encoder
-            else i_static_feats.new_zeros(self.cfg.num_items, self.cfg.emb_dim)
-        )
+        if self.user_encoder is not None:
+            user_sources.append(self.user_encoder(u_static_feats)[u_ids])
+        if self.item_encoder is not None:
+            item_sources.append(self.item_encoder(i_static_feats))
 
-        item_emb = self.item_fusion([item_graph, item_feat])
+        item_emb = self._fuse(item_sources, self.item_fusion)
 
-        padded = torch.cat([item_emb.new_zeros(1, item_emb.size(1)), item_emb])
-        hist = padded[h_ids.clamp(min=0)]
-        seq_user = (
-            self.sequence_encoder(hist, h_mask, h_ctx if self.cfg.use_context else None)
-            if self.sequence_encoder
-            else hist.new_zeros(hist.size(0), self.cfg.emb_dim)
-        )
+        if self.sequence_encoder is not None:
+            padded = torch.cat([item_emb.new_zeros(1, item_emb.size(1)), item_emb])
+            hist = padded[h_ids.clamp(min=0)]
+            seq_user = self.sequence_encoder(
+                hist,
+                h_mask,
+                h_ctx if self.available_modules["context"] else None,
+            )
+            user_sources.append(seq_user)
 
-        user_emb = self.user_fusion([user_graph[u_ids], user_feat[u_ids], seq_user])
+        user_emb = self._fuse(user_sources, self.user_fusion)
 
         scores = self.scorer(user_emb, item_emb)
 
