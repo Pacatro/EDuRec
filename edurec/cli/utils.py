@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import Any
 
 import typer
@@ -14,24 +13,6 @@ def datasets_to_run(dataset: DatasetName | None) -> list[DatasetName]:
 
 def dataset_run_name(dataset: DatasetName, limit: int | None = None) -> str:
     return dataset.value if limit is None else f"{dataset.value}_limit_{limit}"
-
-
-def dataset_config_path(
-    folder: str | Path,
-    dataset: DatasetName,
-    limit: int | None = None,
-) -> Path:
-    """Resolve a dataset config, retaining the former explicit MARS config."""
-    preferred = Path(folder) / f"config-{dataset_run_name(dataset, limit)}.yaml"
-    legacy = Path(folder) / "config-mars.yaml"
-    if (
-        dataset is DatasetName.EXPLICIT_MARS
-        and limit is None
-        and not preferred.exists()
-        and legacy.exists()
-    ):
-        return legacy
-    return preferred
 
 
 def parse_seeds(seeds: str) -> list[int]:

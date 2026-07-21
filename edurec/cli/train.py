@@ -11,7 +11,6 @@ from ..recsys import EDuRecConfig, RecSys, optimize_model, train_model
 from ..recsys.io import save_model
 from .utils import (
     build_config,
-    dataset_config_path,
     dataset_run_name,
     datasets_to_run,
     print_data_summary,
@@ -155,7 +154,7 @@ def train(
 
         print_data_summary("TRAIN", dm)
 
-        config_path = dataset_config_path(configs_folder, dataset, limit)
+        config_path = Path(configs_folder) / f"config-{dataset_run_name(dataset, limit)}.yaml"
 
         base_cfg = build_config(
             dm,

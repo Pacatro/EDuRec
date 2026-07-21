@@ -18,7 +18,6 @@ from ..evaluation.ablation import (
 )
 from .utils import (
     build_config,
-    dataset_config_path,
     dataset_run_name,
     datasets_to_run,
     parse_seeds,
@@ -96,11 +95,7 @@ def run_ablation(
         run_name = dataset_run_name(dataset_name, limit)
         dataset_root = output_dir / run_name
         dataset_root.mkdir(parents=True, exist_ok=True)
-        base_cfg_path = dataset_config_path(
-            settings.CONFIGS_FOLDER,
-            dataset_name,
-            limit,
-        )
+        base_cfg_path = Path(settings.CONFIGS_FOLDER) / f"config-{dataset_run_name(dataset_name, limit)}.yaml"
         rows = []
 
         for seed in parsed_seeds:
