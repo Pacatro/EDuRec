@@ -33,71 +33,37 @@ class MaskedGatedFusion(nn.Module):
         sources: list[torch.Tensor],
         available: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        self._validate_sources(sources)
-
         batch_size = sources[0].size(0)
+        device = sources[0].device
 
         if available is None:
             available = torch.ones(
                 batch_size,
                 self.cfg.num_sources,
                 dtype=torch.bool,
-                device=sources[0].device,
+                device=device,
             )
         else:
             expected_shape = (batch_size, self.cfg.num_sources)
-
             if available.shape != expected_shape:
                 raise ValueError(
                     f"available must have shape {expected_shape}, "
                     f"got {tuple(available.shape)}."
                 )
-
-            available = available.to(device=sources[0].device, dtype=torch.bool)
+            available = available.to(device=device, dtype=torch.bool)
 
         normalized_sources = torch.stack(
-            [self.source_norms[i](sources[i]) for i in range(self.cfg.num_sources)],
+            [norm(source) for norm, source in zip(self.source_norms, sources)],
             dim=1,
         )
 
-        gate_logits = self.gate_logits.unsqueeze(0).expand(batch_size, -1)
-        gate_logits = gate_logits.masked_fill(
+        gate_logits = self.gate_logits.expand(batch_size, -1).masked_fill(
             ~available,
-            torch.finfo(gate_logits.dtype).min,
+            torch.finfo(self.gate_logits.dtype).min,
         )
         has_available_source = available.any(dim=1)
-        weights = torch.softmax(gate_logits, dim=1)
-        weights = weights.masked_fill(~has_available_source.unsqueeze(1), 0.0)
+        weights = torch.softmax(gate_logits, dim=1).masked_fill(~available, 0.0)
 
-        fused = torch.sum(
-            normalized_sources * weights.unsqueeze(-1),
-            dim=1,
-        )
-
+        fused = (normalized_sources * weights.unsqueeze(-1)).sum(dim=1)
         fused = self.output_norm(self.dropout(fused))
-
-        fused = fused.masked_fill(
-            ~has_available_source.unsqueeze(-1),
-            0.0,
-        )
-
-        return fused
-
-    def _validate_sources(self, sources: list[torch.Tensor]) -> None:
-        if len(sources) != self.cfg.num_sources:
-            raise ValueError(
-                f"Expected {self.cfg.num_sources} sources, got {len(sources)}."
-            )
-
-        if not sources:
-            raise ValueError("At least one source is required.")
-
-        batch_size = sources[0].size(0)
-        expected_shape = (batch_size, self.cfg.emb_dim)
-
-        for i, source in enumerate(sources):
-            if source.shape != expected_shape:
-                raise ValueError(
-                    f"Source {i} must have shape {expected_shape}, "
-                    f"got {tuple(source.shape)}."
-                )
+        return fused.masked_fill(~has_available_source.unsqueeze(-1), 0.0)
