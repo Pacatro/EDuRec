@@ -108,10 +108,7 @@ class MaskedGatedFusion(nn.Module):
 
         return fused
 
-    def _validate_sources(
-        self,
-        sources: list[torch.Tensor],
-    ) -> None:
+    def _validate_sources(self, sources: list[torch.Tensor]) -> None:
         if len(sources) != self.cfg.num_sources:
             raise ValueError(
                 f"Expected {self.cfg.num_sources} sources, got {len(sources)}."
@@ -156,10 +153,7 @@ class SumFusion(nn.Module):
         else:
             available = available.bool()
             normalized = torch.stack(
-                [
-                    self.source_norms[i](sources[i])
-                    for i in range(self.cfg.num_sources)
-                ],
+                [self.source_norms[i](sources[i]) for i in range(self.cfg.num_sources)],
                 dim=1,
             )
             normalized = normalized * available.unsqueeze(-1).to(normalized.dtype)
@@ -214,10 +208,7 @@ class CrossAttentionFusion(nn.Module):
         self._validate_sources(sources)
 
         normalized = torch.stack(
-            [
-                self.source_norms[i](sources[i])
-                for i in range(self.cfg.num_sources)
-            ],
+            [self.source_norms[i](sources[i]) for i in range(self.cfg.num_sources)],
             dim=1,
         )
 
