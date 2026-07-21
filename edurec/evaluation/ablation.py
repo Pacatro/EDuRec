@@ -51,6 +51,8 @@ ABLATIONS: dict[str, dict[str, Any]] = {
     "no_context": {**FULL_ABLATION, "use_context": False},
     "no_gcl": {**FULL_ABLATION, "use_gcl": False},
     "dot_product": {**FULL_ABLATION, "scorer_type": "dot", "hidden_dims": []},
+    "sum_fusion": {**FULL_ABLATION, "fusion_type": "sum"},
+    "cross_attention_fusion": {**FULL_ABLATION, "fusion_type": "cross_attention"},
 }
 
 CONTENT_ABLATIONS: dict[str, dict[str, Any]] = {}

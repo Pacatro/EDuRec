@@ -3,7 +3,7 @@ from .graph_encoder import GraphEncoder
 from .mlp_encoder import MLPEncoder, MLPEncoderConfig
 from .seq_encoder import SeqEncoderConfig, SeqEncoder
 from .scorer import Scorer, ScorerConfig
-from .fusion import CrossAttention, FusionConfig
+from .fusion import MaskedGatedFusion, FusionConfig
 
 __all__ = [
     "EDuRec",
@@ -15,6 +15,6 @@ __all__ = [
     "SeqEncoder",
     "Scorer",
     "ScorerConfig",
-    "CrossAttention",
+    "MaskedGatedFusion",
     "FusionConfig",
 ]

@@ -11,7 +11,7 @@ from .graph_encoder import GraphEncoder, GraphEncoderConfig
 from .mlp_encoder import MLPEncoder, MLPEncoderConfig
 from .seq_encoder import SeqEncoderConfig, SeqEncoder
 from .scorer import Scorer, ScorerConfig
-from .fusion import CrossAttention, FusionConfig
+from .fusion import FusionConfig, build_fusion
 
 
 @dataclass
@@ -38,6 +38,7 @@ class EDuRecConfig:
     use_context: bool = True
     use_gcl: bool = True
     scorer_type: Literal["mlp", "dot"] = "mlp"
+    fusion_type: Literal["gated", "cross_attention", "sum"] = "gated"
 
     # GCL Defaults
     edge_dropout: float = settings.DROP_EDGES_P
@@ -49,6 +50,9 @@ class EDuRecConfig:
     n_heads: int = settings.NUM_HEADS
     n_blocks: int = settings.NUM_BLOCKS
     ff_dim: int = settings.FF_DIM
+
+    # Fusion defaults
+    fusion_n_heads: int = 4
 
     # Scorer defaults
     hidden_dims: list[int] = field(
@@ -108,8 +112,9 @@ class EDuRecConfig:
     def fusion(self) -> FusionConfig:
         return FusionConfig(
             emb_dim=self.emb_dim,
-            n_heads=self.n_heads,
+            num_sources=3,
             dropout=self.dropout,
+            n_heads=self.fusion_n_heads,
         )
 
     @property
@@ -149,8 +154,14 @@ class EDuRec(nn.Module):
         self.item_encoder = (
             MLPEncoder(cfg.item_encoder) if cfg.use_item_features else None
         )
-        self.item_fusion = CrossAttention(cfg.fusion)
-        self.user_fusion = CrossAttention(cfg.fusion)
+        item_fusion_cfg = FusionConfig(
+            emb_dim=cfg.emb_dim,
+            num_sources=2,
+            dropout=cfg.dropout,
+            n_heads=cfg.fusion_n_heads,
+        )
+        self.item_fusion = build_fusion(item_fusion_cfg, cfg.fusion_type)
+        self.user_fusion = build_fusion(cfg.fusion, cfg.fusion_type)
         self.item_bias = (
             nn.Parameter(torch.zeros(cfg.num_items)) if cfg.use_item_bias else None
         )
@@ -158,11 +169,6 @@ class EDuRec(nn.Module):
             SeqEncoder(cfg.seq_encoder) if cfg.use_seq_encoder else None
         )
         self.scorer = Scorer(cfg.scorer)
-
-    def _init_weights(self) -> None:
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
 
     def forward(
         self,
@@ -204,6 +210,8 @@ class EDuRec(nn.Module):
         user_emb = self.user_fusion([user_graph[u_ids], user_feat[u_ids], seq_user])
 
         scores = self.scorer(user_emb, item_emb)
+
         if self.item_bias is not None:
             scores = scores + self.item_bias
+
         return scores
