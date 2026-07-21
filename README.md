@@ -190,6 +190,8 @@ Implemented main variants:
 
 - `base`: ID-only dot-product baseline.
 - `full`: full EDuRec architecture.
+- `availability_aware`: enables only modules whose required inputs are present
+  in the dataset and records their effective status in the result table.
 - `no_graph`: removes LightGCN and graph contrastive learning.
 - `no_features`: removes user, item, and text feature encoders.
 - `no_sequence`: removes SASRec history encoding and context.

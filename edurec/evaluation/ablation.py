@@ -32,6 +32,9 @@ FULL_ABLATION: dict[str, Any] = {
 ABLATIONS: dict[str, dict[str, Any]] = {
     "base": dict(BASE_ABLATION),
     "full": dict(FULL_ABLATION),
+    # The effective flags for this variant are resolved from dataset metadata in
+    # get_ablation_config rather than assuming every optional input exists.
+    "availability_aware": dict(FULL_ABLATION),
     "no_graph": {
         **FULL_ABLATION,
         "graph_mode": "none",
@@ -57,7 +60,20 @@ CONTENT_ABLATIONS: dict[str, dict[str, Any]] = {}
 
 
 def get_ablation_config(base_cfg: EDuRecConfig, variant: str) -> EDuRecConfig:
-    return replace(base_cfg, **ABLATIONS[variant])
+    cfg = replace(base_cfg, **ABLATIONS[variant])
+    if variant != "availability_aware":
+        return cfg
+
+    return replace(
+        cfg,
+        use_user_features=base_cfg.has_user_features,
+        use_item_features=base_cfg.has_item_features,
+        use_text_features=(
+            base_cfg.num_user_text_feats > 0 or base_cfg.num_item_text_feats > 0
+        ),
+        use_seq_encoder=base_cfg.has_history,
+        use_context=base_cfg.has_history and base_cfg.num_ctx_feats > 0,
+    )
 
 
 def get_content_ablation_config(base_cfg: EDuRecConfig, variant: str) -> EDuRecConfig:

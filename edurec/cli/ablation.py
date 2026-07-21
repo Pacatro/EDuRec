@@ -1,4 +1,4 @@
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -124,7 +124,19 @@ def run_ablation(
 
             if base_cfg_path.exists():
                 print("[ABLATION] Using existing config file:", base_cfg_path)
-                base_cfg = EDuRecConfig.load(base_cfg_path)
+                base_cfg = replace(
+                    EDuRecConfig.load(base_cfg_path),
+                    num_users=dm.num_users,
+                    num_items=dm.num_items,
+                    num_ctx_feats=dm.train_ds.num_ctx_feats,
+                    num_user_dense_feats=dm.num_user_dense_feats,
+                    num_item_dense_feats=dm.num_item_dense_feats,
+                    num_user_text_feats=dm.num_user_text_feats,
+                    num_item_text_feats=dm.num_item_text_feats,
+                    user_cat_cardinalities=dm.user_cat_cardinalities,
+                    item_cat_cardinalities=dm.item_cat_cardinalities,
+                    has_history=dm.has_history,
+                )
             else:
                 print(
                     "[ABLATION] No config file found, creating new config for dataset:",
@@ -190,6 +202,10 @@ def run_ablation(
                 row: dict[str, float | int | str] = {
                     "variant": variant,
                     "seed": seed,
+                    **{
+                        f"module_{name}": int(enabled)
+                        for name, enabled in cfg.available_modules.items()
+                    },
                     **{
                         name.removeprefix("test/"): value
                         for name, value in metrics.items()
