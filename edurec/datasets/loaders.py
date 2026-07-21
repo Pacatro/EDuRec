@@ -33,6 +33,18 @@ type ExportFn = Callable[[], RawData]
 
 dataset_loaders: dict[DatasetName, ExportFn] = {}
 
+# A timestamp is useful only when it represents a real chronological order.
+# Keep this declaration explicit so synthetic row indexes cannot accidentally
+# enable sequential model components.
+TEMPORALLY_ORDERED_DATASETS = frozenset(
+    {
+        DatasetName.EXPLICIT_MARS,
+        DatasetName.IMPLICIT_MARS,
+        DatasetName.DORIS,
+        DatasetName.MOOCCUBEX,
+    }
+)
+
 
 def register_dataset(ds_name: DatasetName) -> Callable[[ExportFn], ExportFn]:
     """Decorator for registering a dataset loader.
@@ -170,8 +182,10 @@ def load_itm() -> RawData:
         },
         inplace=True,
     )
-    # We add a time column to ensure that the data works for sequential models
-    ratings_df[settings.TIME_COL] = np.arange(len(ratings_df), dtype=np.int64)
+    # App, Data and Ease are post-interaction multi-criteria ratings, not
+    # contextual variables available when producing a recommendation. Remove
+    # them at the data boundary to prevent target leakage downstream.
+    ratings_df = ratings_df.drop(columns=["App", "Data", "Ease"])
     items_df.rename(columns={"Item": settings.ITEM_COL}, inplace=True)
     users_df.rename(columns={"UserID": settings.USER_COL}, inplace=True)
 
@@ -194,7 +208,7 @@ def load_itm() -> RawData:
         },
         "inter": {
             "bin": [],
-            "num": ["app", "data", "ease"],
+            "num": [],
             "cat": ["class", "semester", "lockdown"],
             "text": [],
             "list": [],

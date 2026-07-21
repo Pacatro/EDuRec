@@ -72,7 +72,7 @@ def get_ablation_config(base_cfg: EDuRecConfig, variant: str) -> EDuRecConfig:
             base_cfg.num_user_text_feats > 0 or base_cfg.num_item_text_feats > 0
         ),
         use_seq_encoder=base_cfg.has_history,
-        use_context=base_cfg.has_history and base_cfg.num_ctx_feats > 0,
+        use_context=base_cfg.num_ctx_feats > 0,
     )
 
 

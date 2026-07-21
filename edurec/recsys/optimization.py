@@ -30,7 +30,9 @@ def objective(
     val_topk: int = settings.TOP_K,
     verbose: bool = False,
 ) -> float:
-    emb_dim = trial.suggest_categorical("emb_dim", sorted({64, settings.EMB_DIM, 256}))
+    emb_dim = trial.suggest_categorical(
+        "emb_dim", sorted({64, settings.EMB_DIM, 256, 512})
+    )
     scorer = trial.suggest_categorical("scorer", ["linear", "single", "funnel"])
 
     hidden_dims = {
@@ -44,41 +46,41 @@ def objective(
     config = replace(
         base_config,
         emb_dim=emb_dim,
-        # LightGCN
+        # Graph encoder
         gnn_layers=trial.suggest_categorical(
-            "gnn_layers", sorted({1, settings.GNN_LAYERS, 3})
+            "gnn_layers", sorted({1, settings.GNN_LAYERS, 3, 4})
         ),
-        # SASRec
+        # Sequence encoder
         n_heads=trial.suggest_categorical(
-            "n_heads", sorted({2, settings.NUM_HEADS, 8})
+            "n_heads", sorted({2, settings.NUM_HEADS, 8, 16})
         ),
         n_blocks=trial.suggest_categorical(
-            "n_blocks", sorted({1, settings.NUM_BLOCKS, 3})
+            "n_blocks", sorted({1, settings.NUM_BLOCKS, 3, 4})
         ),
         ff_dim=emb_dim
         * trial.suggest_categorical(
-            "ff_multiplier", sorted({2, default_ff_multiplier, 8})
+            "ff_multiplier", sorted({2, default_ff_multiplier, 8, 16})
         ),
         # Scorer
         hidden_dims=hidden_dims,
         # Regularization
         dropout=trial.suggest_categorical(
-            "dropout", sorted({0.0, 0.1, settings.DROPOUT, 0.3})
+            "dropout", sorted({0.0, 0.1, settings.DROPOUT, 0.3, 0.5})
         ),
         edge_dropout=trial.suggest_categorical(
-            "edge_dropout", sorted({0.0, 0.1, settings.DROP_EDGES_P, 0.3})
+            "edge_dropout", sorted({0.0, 0.1, settings.DROP_EDGES_P, 0.3, 0.5})
         ),
         # GCL Loss
         temperature=trial.suggest_categorical(
-            "temperature", sorted({0.05, 0.1, settings.TAU, 0.2})
+            "temperature", sorted({0.05, 0.1, settings.TAU, 0.2, 0.5})
         ),
         alpha=trial.suggest_categorical(
-            "alpha", sorted({0.01, settings.LOSS_ALPHA, 0.1, 0.2})
+            "alpha", sorted({0.01, settings.LOSS_ALPHA, 0.1, 0.2, 1.0})
         ),
         # Optimización
-        lr=trial.suggest_categorical("lr", sorted({1e-4, settings.LR, 5e-4})),
+        lr=trial.suggest_categorical("lr", sorted({1e-4, settings.LR, 5e-4, 1e-3})),
         weight_decay=trial.suggest_categorical(
-            "weight_decay", sorted({0.0, 1e-5, settings.WEIGHT_DECAY})
+            "weight_decay", sorted({0.0, 1e-5, settings.WEIGHT_DECAY, 1e-3})
         ),
         # Predicción
         use_item_bias=trial.suggest_categorical("use_item_bias", [True, False]),

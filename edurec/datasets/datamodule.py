@@ -2,6 +2,7 @@ from pathlib import Path
 
 import lightning as L
 import numpy as np
+import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 from torch_geometric.data import Data
@@ -10,7 +11,13 @@ from .. import settings
 from .atomic_files import save_atomic_files
 from .cache import ProcessedData, processed_cache_exists
 from .dataprocessor import DataProcessor
-from .loaders import DatasetName, RawData, Schema, load_raw_data
+from .loaders import (
+    TEMPORALLY_ORDERED_DATASETS,
+    DatasetName,
+    RawData,
+    Schema,
+    load_raw_data,
+)
 from .preprocessing import (
     add_relevance,
     clean_cols,
@@ -72,6 +79,9 @@ class ElearningDataModule(L.LightningDataModule):
 
         if self.use_processed_data and processed_cache_exists(self.processed_folder):
             self.artifacts = ProcessedData.load(self.processed_folder)
+            self._remove_legacy_itm_criteria()
+            if not self.has_temporal_order:
+                self._randomize_processed_splits()
         else:
             raw = load_raw_data(dataset)
             interactions = clean_cols(raw.interactions)
@@ -145,7 +155,7 @@ class ElearningDataModule(L.LightningDataModule):
 
         histories = build_histories(
             relevant_splits,
-            excluded_cols=self.excluded_cols,
+            enabled=self.has_temporal_order,
         )
 
         if stage in ("fit", None):
@@ -191,8 +201,43 @@ class ElearningDataModule(L.LightningDataModule):
             interactions=interactions,
             history=history,
             num_ctx_feats=self.num_ctx_feats,
+            context_cols=[
+                col for col in interactions.columns if col not in self.excluded_cols
+            ],
             negative_item_ids=negative_item_ids,
         )
+
+    def _randomize_processed_splits(self) -> None:
+        """Replace cached temporal splits when the dataset has no real ordering."""
+        splits = self.artifacts.splits()
+        interactions = pd.concat(splits.values(), ignore_index=True)
+        interactions = interactions.drop(columns=[settings.TIME_COL], errors="ignore")
+        train, val, test = split_data(
+            interactions,
+            test_ratio=self.test_ratio,
+            val_ratio=self.val_ratio,
+            min_interactions=self.min_interactions,
+            random_state=self.random_state,
+        )
+        thresholds = get_relevance_threshold(train)
+        self.artifacts.train = add_relevance(train, thresholds)
+        self.artifacts.val = add_relevance(val, thresholds)
+        self.artifacts.test = add_relevance(test, thresholds)
+
+    def _remove_legacy_itm_criteria(self) -> None:
+        """Keep old ITM caches consistent with the current raw-data loader."""
+        if self.dataset_name is not DatasetName.ITM:
+            return
+
+        legacy_cols = ["num__app", "num__data", "num__ease"]
+        for split in ("train", "val", "test"):
+            frame = getattr(self.artifacts, split)
+            if frame is not None:
+                setattr(
+                    self.artifacts,
+                    split,
+                    frame.drop(columns=legacy_cols, errors="ignore"),
+                )
 
     def build_inter_graph(self) -> Data:
         # We only build the graph based on the training interactions.
@@ -373,9 +418,24 @@ class ElearningDataModule(L.LightningDataModule):
         """Return whether training provides at least one usable history event."""
         train_ds = getattr(self, "train_ds", None)
         return bool(
-            train_ds is not None
+            self.has_temporal_order
+            and train_ds is not None
             and train_ds.history_valid_mask.numel() > 0
             and train_ds.history_valid_mask.any().item()
+        )
+
+    @property
+    def has_temporal_order(self) -> bool:
+        """Whether interactions have a meaningful chronological ordering."""
+        interactions = (
+            self.raw_dataset.interactions
+            if self.raw_dataset is not None
+            else self.artifacts.train
+        )
+        return bool(
+            self.dataset_name in TEMPORALLY_ORDERED_DATASETS
+            and interactions is not None
+            and settings.TIME_COL in interactions.columns
         )
 
     @property

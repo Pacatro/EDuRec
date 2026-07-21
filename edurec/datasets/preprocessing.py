@@ -6,6 +6,7 @@ from .. import settings
 from .cache import ProcessedData
 from .dataprocessor import DataProcessor
 
+
 def clean_cols(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df.columns = (

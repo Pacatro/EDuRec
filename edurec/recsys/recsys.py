@@ -76,11 +76,11 @@ class RecSys(L.LightningModule):
         scores = self.model(
             u_ids=batch.user_id,
             h_ids=batch.history_items,
-            h_ctx=batch.history_ctx,
             h_mask=batch.history_valid_mask,
             edge_index=self.edge_index,
             u_static_feats=self.u_static_feats,
             i_static_feats=self.i_static_feats,
+            context=batch.context,
         )
 
         if scores.ndim == 3:

@@ -194,8 +194,8 @@ Implemented main variants:
   in the dataset and records their effective status in the result table.
 - `no_graph`: removes LightGCN and graph contrastive learning.
 - `no_features`: removes user, item, and text feature encoders.
-- `no_sequence`: removes SASRec history encoding and context.
-- `no_context`: keeps sequence modeling but removes contextual history features.
+- `no_sequence`: removes SASRec history encoding.
+- `no_context`: removes the independent interaction-context representation.
 - `no_routers`: replaces routing networks with uniform module combination.
 - `no_gcl`: removes graph contrastive learning.
 - `dot_product`: replaces the MLP scorer with dot-product scoring.
@@ -227,6 +227,13 @@ configuration is built. Feature encoders, the sequential encoder, contextual
 inputs, and their fusion slots are omitted when their required data is absent.
 Single-source representations also bypass the fusion layer, avoiding unused
 parameters and computation.
+
+Sequential history modules additionally require a real chronological
+interaction field. Datasets without one are split randomly and do not allocate
+history tensors; a synthetic row index is not considered a valid timestamp.
+Interaction context has an independent encoder and remains available without a
+sequential history. It is kept separate from the user representation: the final
+scorer consumes user, item, and context representations explicitly.
 
 Training uses cross-entropy over all candidate items. When enabled, graph
 contrastive learning applies edge dropout to create two graph views and adds an

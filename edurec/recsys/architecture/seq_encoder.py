@@ -15,7 +15,6 @@ class SeqEncoderConfig:
     dropout: float = 0.1
     norm_first: bool = True
     max_history_len: int = settings.MAX_HISTORY_LEN
-    num_ctx_feats: int = 0
 
 
 class SeqEncoder(nn.Module):
@@ -23,11 +22,6 @@ class SeqEncoder(nn.Module):
         super().__init__()
         self.cfg = cfg
         self.pos_emb = nn.Embedding(cfg.max_history_len, cfg.emb_dim)
-        self.ctx_proj = (
-            nn.Linear(cfg.num_ctx_feats, cfg.emb_dim, bias=False)
-            if cfg.num_ctx_feats > 0
-            else None
-        )
         self.input_norm = nn.LayerNorm(cfg.emb_dim)
 
         encoder_layer = nn.TransformerEncoderLayer(
@@ -50,7 +44,6 @@ class SeqEncoder(nn.Module):
         self,
         history_emb: torch.Tensor,
         history_mask: torch.Tensor,
-        history_ctx: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Encode a user interaction history.
 
@@ -60,9 +53,6 @@ class SeqEncoder(nn.Module):
             history_mask: Boolean mask with shape
                 ``[batch_size, history_len]``. True values indicate valid
                 interactions.
-            history_ctx: Optional interaction context with shape
-                ``[batch_size, history_len, num_ctx_feats]``.
-
         Returns:
             Sequential user state with shape ``[batch_size, emb_dim]``.
             Users without history receive a zero vector.
@@ -93,23 +83,6 @@ class SeqEncoder(nn.Module):
         history_mask = history_mask.bool()
         has_history = history_mask.any(dim=1)
 
-        if self.ctx_proj is not None:
-            if history_ctx is None:
-                raise ValueError(
-                    "history_ctx is required when num_ctx_feats is greater than zero."
-                )
-
-            expected_ctx_shape = (
-                batch_size,
-                history_len,
-                self.cfg.num_ctx_feats,
-            )
-            if history_ctx.shape != expected_ctx_shape:
-                raise ValueError(
-                    f"history_ctx must have shape {expected_ctx_shape}, "
-                    f"got {tuple(history_ctx.shape)}."
-                )
-
         # PyTorch attention cannot process a row where every token is masked.
         safe_mask = history_mask.clone()
         safe_mask[~has_history, 0] = True
@@ -117,15 +90,9 @@ class SeqEncoder(nn.Module):
         # Positions 0, 1, ..., L - 1 for valid interactions, independent
         # of whether padding is placed on the left or right.
         position_ids = history_mask.long().cumsum(dim=1) - 1
-        position_ids = position_ids.clamp(
-            min=0,
-            max=self.cfg.max_history_len - 1,
-        )
+        position_ids = position_ids.clamp(min=0, max=self.cfg.max_history_len - 1)
 
         tokens = history_emb + self.pos_emb(position_ids)
-
-        if self.ctx_proj is not None and history_ctx is not None:
-            tokens = tokens + self.ctx_proj(history_ctx.float())
 
         tokens = self.input_norm(tokens)
         tokens = tokens.masked_fill(~safe_mask.unsqueeze(-1), 0.0)
@@ -147,19 +114,10 @@ class SeqEncoder(nn.Module):
         )
 
         # Find the actual final valid position instead of assuming right padding.
-        sequence_positions = torch.arange(
-            history_len,
-            device=history_emb.device,
-        )
-        sequence_positions = sequence_positions.unsqueeze(0).expand(
-            batch_size,
-            -1,
-        )
+        sequence_positions = torch.arange(history_len, device=history_emb.device)
+        sequence_positions = sequence_positions.unsqueeze(0).expand(batch_size, -1)
 
-        last_indices = sequence_positions.masked_fill(
-            ~history_mask,
-            -1,
-        ).amax(dim=1)
+        last_indices = sequence_positions.masked_fill(~history_mask, -1).amax(dim=1)
         last_indices = last_indices.clamp_min(0)
 
         seq_user_emb = encoded[

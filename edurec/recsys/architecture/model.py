@@ -83,7 +83,7 @@ class EDuRecConfig:
             "user_features": self.use_user_features and self.has_user_features,
             "item_features": self.use_item_features and self.has_item_features,
             "sequence": sequence,
-            "context": sequence and self.use_context and self.num_ctx_feats > 0,
+            "context": self.use_context and self.num_ctx_feats > 0,
         }
 
     @property
@@ -118,6 +118,14 @@ class EDuRecConfig:
         )
 
     @property
+    def context_encoder(self) -> MLPEncoderConfig:
+        return MLPEncoderConfig(
+            num_dense_features=self.num_ctx_feats,
+            output_dim=self.emb_dim,
+            dropout=self.dropout,
+        )
+
+    @property
     def seq_encoder(self) -> SeqEncoderConfig:
         return SeqEncoderConfig(
             emb_dim=self.emb_dim,
@@ -125,7 +133,6 @@ class EDuRecConfig:
             n_blocks=self.n_blocks,
             ff_dim=self.ff_dim,
             dropout=self.dropout,
-            num_ctx_feats=self.num_ctx_feats if self.use_context else 0,
         )
 
     @property
@@ -143,6 +150,7 @@ class EDuRecConfig:
             hidden_dims=self.hidden_dims,
             dropout=self.dropout,
             scorer_type=self.scorer_type,
+            use_context=self.available_modules["context"],
         )
 
     def save(self, path: Path | str) -> None:
@@ -175,6 +183,9 @@ class EDuRec(nn.Module):
         )
         self.item_encoder = (
             MLPEncoder(cfg.item_encoder) if available["item_features"] else None
+        )
+        self.context_encoder = (
+            MLPEncoder(cfg.context_encoder) if available["context"] else None
         )
         item_sources = int(available["graph"]) + int(available["item_features"])
         user_sources = (
@@ -211,7 +222,8 @@ class EDuRec(nn.Module):
 
     @staticmethod
     def _fuse(
-        sources: list[torch.Tensor], fusion: MaskedGatedFusion | None
+        sources: list[torch.Tensor],
+        fusion: MaskedGatedFusion | None,
     ) -> torch.Tensor:
         return sources[0] if fusion is None else fusion(sources)
 
@@ -219,14 +231,14 @@ class EDuRec(nn.Module):
         self,
         u_ids: torch.Tensor,
         h_ids: torch.Tensor,
-        h_ctx: torch.Tensor,
         h_mask: torch.Tensor,
         edge_index: torch.Tensor,
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
+        context: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        user_sources: list[torch.Tensor] = []
-        item_sources: list[torch.Tensor] = []
+        user_sources = []
+        item_sources = []
 
         if self.gnn is not None:
             user_graph, item_graph = self.gnn(edge_index)
@@ -237,6 +249,13 @@ class EDuRec(nn.Module):
             user_sources.append(self.user_encoder(u_static_feats)[u_ids])
         if self.item_encoder is not None:
             item_sources.append(self.item_encoder(i_static_feats))
+        context_emb = None
+        if self.context_encoder is not None:
+            if context is None:
+                raise ValueError(
+                    "context is required when the context module is active."
+                )
+            context_emb = self.context_encoder(context)
 
         item_emb = self._fuse(item_sources, self.item_fusion)
 
@@ -246,13 +265,12 @@ class EDuRec(nn.Module):
             seq_user = self.sequence_encoder(
                 hist,
                 h_mask,
-                h_ctx if self.available_modules["context"] else None,
             )
             user_sources.append(seq_user)
 
         user_emb = self._fuse(user_sources, self.user_fusion)
 
-        scores = self.scorer(user_emb, item_emb)
+        scores = self.scorer(user_emb, item_emb, context_emb)
 
         if self.item_bias is not None:
             scores = scores + self.item_bias

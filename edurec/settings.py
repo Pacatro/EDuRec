@@ -16,6 +16,7 @@ def seed_everything(seed: int | None) -> int | None:
 
     return seed
 
+
 # W&B
 EXPERIMENT_NAME: str = "TFM"
 
@@ -83,7 +84,7 @@ EPOCHS: int = 150
 DELTA: float = 0.001
 NUM_WORKERS: int = 4
 VAL_RATIO: float = 0.1
-TEST_RATIO: float = 0.2
+TEST_RATIO: float = 0.1
 SAVE_DATA: bool = False
 ADAPTIVE_K: bool = False
 LOSS_ALPHA: float = 0.05

@@ -13,65 +13,50 @@ class UserHistory:
     Represents the prefix history of a user for next-item prediction.
 
     items: padded item ids (0 = padding)
-    ctx: contextual features aligned with items
     valid_mask: mask indicating valid history positions
     """
 
     items: torch.Tensor
-    ctx: torch.Tensor
     valid_mask: torch.Tensor
 
 
 def build_histories(
     splits: dict[str, pd.DataFrame | None],
-    excluded_cols: set[str],
+    enabled: bool = True,
 ) -> dict[str, UserHistory]:
     histories = {}
-    user_state: dict[int, list[tuple[int, list[float]]]] = {}
+    user_state: dict[int, list[int]] = {}
 
     for split in ("train", "val", "test"):
         df = splits.get(split)
         if df is None:
             raise RuntimeError(f"Processed split {split} is not available.")
 
-        context_cols = [col for col in df.columns if col not in excluded_cols]
         split_len = len(df)
+        history_len = settings.MAX_HISTORY_LEN if enabled else 0
         history = UserHistory(
-            items=torch.zeros((split_len, settings.MAX_HISTORY_LEN), dtype=torch.long),
-            ctx=torch.zeros(
-                (split_len, settings.MAX_HISTORY_LEN, len(context_cols)),
-                dtype=torch.float32,
-            ),
+            items=torch.zeros((split_len, history_len), dtype=torch.long),
             valid_mask=torch.zeros(
-                (split_len, settings.MAX_HISTORY_LEN),
+                (split_len, history_len),
                 dtype=torch.bool,
             ),
         )
+        if not enabled:
+            histories[split] = history
+            continue
         users = df[settings.USER_COL].to_numpy(dtype=np.int64)
         items = df[settings.ITEM_COL].to_numpy(dtype=np.int64)
-        context = (
-            df[context_cols].to_numpy(dtype=np.float32)
-            if context_cols
-            else np.empty((split_len, 0), dtype=np.float32)
-        )
 
         for row_idx, user_id in enumerate(users):
             past = user_state.get(int(user_id), [])[-settings.MAX_HISTORY_LEN :]
             if past:
                 history.items[row_idx, : len(past)] = torch.tensor(
-                    [item_id + 1 for item_id, _ in past],
+                    [item_id + 1 for item_id in past],
                     dtype=torch.long,
                 )
                 history.valid_mask[row_idx, : len(past)] = True
-                if context_cols:
-                    history.ctx[row_idx, : len(past)] = torch.tensor(
-                        [values for _, values in past],
-                        dtype=torch.float32,
-                    )
 
-            user_state.setdefault(int(user_id), []).append(
-                (int(items[row_idx]), context[row_idx].tolist())
-            )
+            user_state.setdefault(int(user_id), []).append(int(items[row_idx]))
 
         histories[split] = history
 
