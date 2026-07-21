@@ -11,7 +11,7 @@ from .graph_encoder import GraphEncoder, GraphEncoderConfig
 from .mlp_encoder import MLPEncoder, MLPEncoderConfig
 from .seq_encoder import SeqEncoderConfig, SeqEncoder
 from .scorer import Scorer, ScorerConfig
-from .fusion import FusionConfig, build_fusion
+from .fusion import FusionConfig, MaskedGatedFusion
 
 
 @dataclass
@@ -38,7 +38,6 @@ class EDuRecConfig:
     use_context: bool = True
     use_gcl: bool = True
     scorer_type: Literal["mlp", "dot"] = "mlp"
-    fusion_type: Literal["gated", "cross_attention", "sum"] = "gated"
 
     # GCL Defaults
     edge_dropout: float = settings.DROP_EDGES_P
@@ -50,9 +49,6 @@ class EDuRecConfig:
     n_heads: int = settings.NUM_HEADS
     n_blocks: int = settings.NUM_BLOCKS
     ff_dim: int = settings.FF_DIM
-
-    # Fusion defaults
-    fusion_n_heads: int = 4
 
     # Scorer defaults
     hidden_dims: list[int] = field(
@@ -114,7 +110,6 @@ class EDuRecConfig:
             emb_dim=self.emb_dim,
             num_sources=3,
             dropout=self.dropout,
-            n_heads=self.fusion_n_heads,
         )
 
     @property
@@ -158,10 +153,9 @@ class EDuRec(nn.Module):
             emb_dim=cfg.emb_dim,
             num_sources=2,
             dropout=cfg.dropout,
-            n_heads=cfg.fusion_n_heads,
         )
-        self.item_fusion = build_fusion(item_fusion_cfg, cfg.fusion_type)
-        self.user_fusion = build_fusion(cfg.fusion, cfg.fusion_type)
+        self.item_fusion = MaskedGatedFusion(item_fusion_cfg)
+        self.user_fusion = MaskedGatedFusion(cfg.fusion)
         self.item_bias = (
             nn.Parameter(torch.zeros(cfg.num_items)) if cfg.use_item_bias else None
         )

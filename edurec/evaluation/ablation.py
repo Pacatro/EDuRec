@@ -30,30 +30,27 @@ FULL_ABLATION: dict[str, Any] = {
 
 
 ABLATIONS: dict[str, dict[str, Any]] = {
-    # "base": dict(BASE_ABLATION),
-    # "full": dict(FULL_ABLATION),
-    # "no_graph": {
-    #     **FULL_ABLATION,
-    #     "graph_mode": "none",
-    #     "use_gcl": False,
-    # },
-    # "no_features": {
-    #     **FULL_ABLATION,
-    #     "use_user_features": False,
-    #     "use_item_features": False,
-    #     "use_text_features": False,
-    # },
-    # "no_sequence": {
-    #     **FULL_ABLATION,
-    #     "use_seq_encoder": False,
-    #     "use_context": False,
-    # },
-    # "no_context": {**FULL_ABLATION, "use_context": False},
-    # "no_gcl": {**FULL_ABLATION, "use_gcl": False},
-    # "dot_product": {**FULL_ABLATION, "scorer_type": "dot", "hidden_dims": []},
-    "gated_fusion": {**FULL_ABLATION, "fusion_type": "gated"},
-    "sum_fusion": {**FULL_ABLATION, "fusion_type": "sum"},
-    "cross_attention_fusion": {**FULL_ABLATION, "fusion_type": "cross_attention"},
+    "base": dict(BASE_ABLATION),
+    "full": dict(FULL_ABLATION),
+    "no_graph": {
+        **FULL_ABLATION,
+        "graph_mode": "none",
+        "use_gcl": False,
+    },
+    "no_features": {
+        **FULL_ABLATION,
+        "use_user_features": False,
+        "use_item_features": False,
+        "use_text_features": False,
+    },
+    "no_sequence": {
+        **FULL_ABLATION,
+        "use_seq_encoder": False,
+        "use_context": False,
+    },
+    "no_context": {**FULL_ABLATION, "use_context": False},
+    "no_gcl": {**FULL_ABLATION, "use_gcl": False},
+    "dot_product": {**FULL_ABLATION, "scorer_type": "dot", "hidden_dims": []},
 }
 
 CONTENT_ABLATIONS: dict[str, dict[str, Any]] = {}
