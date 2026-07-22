@@ -102,10 +102,6 @@ def _collect_seed_results(
     return rows
 
 
-def _last_seed_label(seeds: set[int]) -> str:
-    return str(max(seeds)) if seeds else "none"
-
-
 @app.command(
     name="eval",
     help="Evaluate EDuRec against UPGPR and RecBole SOTA models.",
@@ -294,7 +290,9 @@ def eval_models(
         print(f"[EVAL] Models: EDuRec, UPGPR, {sota_label}")
         print("[EVAL] Last evaluated seed by model:")
         for model in models:
-            print(f"[EVAL]   {model}: {_last_seed_label(evaluated_seeds[model])}")
+            print(
+                f"[EVAL]   {model}: {str(max(evaluated_seeds[model])) if evaluated_seeds[model] else 'none'}"
+            )
         if not pending_by_seed:
             print("[EVAL] All requested seeds are already evaluated. Skipping runs.")
         if optimized_cfg is not None:
