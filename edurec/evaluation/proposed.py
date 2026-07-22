@@ -26,7 +26,7 @@ def eval_model(
         val_topk=val_topk,
     )
 
-    trainer, _ = train_model(
+    trainer, _, timer = train_model(
         model=recsys,
         dm=dm,
         debug=False,
@@ -39,7 +39,16 @@ def eval_model(
 
     metrics = trainer.test(ckpt_path="best", datamodule=dm, weights_only=False)[0]
     metrics = {name.removeprefix("test/"): value for name, value in metrics.items()}
-    results = pd.DataFrame([{"model": "EDuRec", **metrics}])
+    results = pd.DataFrame(
+        [
+            {
+                "model": "EDuRec",
+                **metrics,
+                "training_time_s": timer.time_elapsed("train"),
+                "inference_time_s": timer.time_elapsed("test"),
+            }
+        ]
+    )
 
     if results_path is not None:
         results.to_csv(results_path / "EDuRec.csv", index=True)

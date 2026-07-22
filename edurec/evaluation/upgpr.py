@@ -176,7 +176,7 @@ def eval_upgpr(
         build_knowledge_graph(dm),
         val_topk,
     )
-    trainer, _ = train_model(
+    trainer, _, timer = train_model(
         model=model,
         dm=dm,
         debug=False,
@@ -192,6 +192,8 @@ def eval_upgpr(
             {
                 "model": "UPGPR",
                 **{k.removeprefix("test/"): v for k, v in metrics.items()},
+                "training_time_s": timer.time_elapsed("train"),
+                "inference_time_s": timer.time_elapsed("test"),
             }
         ]
     )

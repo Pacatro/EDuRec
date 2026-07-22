@@ -97,7 +97,7 @@ def objective(
     )
 
     with TemporaryDirectory(prefix=f"edurec-optuna-{trial.number}-") as root_dir:
-        trainer, _ = train_model(
+        trainer, _, _ = train_model(
             model=model,
             dm=datamodule,
             debug=False,

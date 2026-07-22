@@ -262,10 +262,7 @@ class EDuRec(nn.Module):
         if self.sequence_encoder is not None:
             padded = torch.cat([item_emb.new_zeros(1, item_emb.size(1)), item_emb])
             hist = padded[h_ids.clamp(min=0)]
-            seq_user = self.sequence_encoder(
-                hist,
-                h_mask,
-            )
+            seq_user = self.sequence_encoder(hist, h_mask)
             user_sources.append(seq_user)
 
         user_emb = self._fuse(user_sources, self.user_fusion)

@@ -7,8 +7,13 @@ import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
-from ..recsys import EDuRecConfig, RecSys, optimize_model, train_model
-from ..recsys.io import save_model
+from ..recsys import (
+    EDuRecConfig,
+    RecSys,
+    optimize_model,
+    train_model,
+)
+from ..recsys.io import save_metrics, save_model
 from .utils import (
     build_config,
     dataset_run_name,
@@ -91,6 +96,11 @@ def train(
         / "optimization"
         / started_at.strftime("%Y%m%d_%H%M%S")
     )
+    training_root = (
+        Path(settings.RESULTS_FOLDER)
+        / "training"
+        / started_at.strftime("%Y%m%d_%H%M%S")
+    )
 
     datasets = datasets_to_run(dataset)
 
@@ -154,14 +164,11 @@ def train(
 
         print_data_summary("TRAIN", dm)
 
-        config_path = Path(configs_folder) / f"config-{dataset_run_name(dataset, limit)}.yaml"
-
-        base_cfg = build_config(
-            dm,
-            lr=lr,
-            adaptive_k=adaptive_k,
-            topks=settings.TOP_KS,
+        config_path = (
+            Path(configs_folder) / f"config-{dataset_run_name(dataset, limit)}.yaml"
         )
+
+        base_cfg = build_config(dm, lr=lr, adaptive_k=adaptive_k, topks=settings.TOP_KS)
 
         if optimize:
             dataset_results_path = optimization_root / run_name
@@ -217,7 +224,7 @@ def train(
 
         print("[TRAIN] Training EDuRec...")
 
-        trainer, best_model_path = train_model(
+        trainer, best_model_path, timer = train_model(
             model=recsys,
             dm=dm,
             debug=debug,
@@ -234,21 +241,30 @@ def train(
             print(f"[TRAIN] Finished {dataset.value} in {elapsed}\n")
             return
 
-        metrics = trainer.test(ckpt_path="best", datamodule=dm, weights_only=False)[0]
+        metrics = dict(
+            trainer.test(ckpt_path="best", datamodule=dm, weights_only=False)[0]
+        )
+        metrics["training_time_s"] = timer.time_elapsed("train")
+        metrics["inference_time_s"] = timer.time_elapsed("test")
+
+        print(f"[TRAIN] Training time: {metrics['training_time_s']}")
+        print(f"[TRAIN] Inference time: {metrics['inference_time_s']}")
+
         print(f"[TRAIN] Best checkpoint: {best_model_path}")
 
+        metrics_path = save_metrics(metrics, training_root)
+        print(f"[TRAIN] Metrics saved: {metrics_path}")
+
         if save and trainer.is_global_zero:
-            model_file_path, model_config_path, metrics_path = save_model(
+            model_file_path, model_config_path = save_model(
                 model_config=cfg,
                 dataset_name=run_name,
                 best_model_path=best_model_path,
                 models_folder=models_folder,
-                metrics=metrics,
             )
 
             print(f"[TRAIN] Model weights saved: {model_file_path}")
             print(f"[TRAIN] Model config saved: {model_config_path}")
-            print(f"[TRAIN] Metrics saved: {metrics_path}")
 
         elapsed = str(datetime.now() - started_at).split(".", maxsplit=1)[0]
         print(f"[TRAIN] Finished {dataset.value} in {elapsed}\n")

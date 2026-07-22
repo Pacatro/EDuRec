@@ -16,8 +16,7 @@ def save_model(
     dataset_name: str,
     best_model_path: str | Path,
     models_folder: str | Path,
-    metrics: Mapping[str, float],
-) -> tuple[Path, Path, Path | None]:
+) -> tuple[Path, Path]:
     """Save the best model and its config to the expected folder structure."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     models_root = Path(models_folder)
@@ -34,9 +33,7 @@ def save_model(
         json.dumps(asdict(model_config), indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
-
-    metrics_path = save_metrics(metrics, model_folder)
-    return model_file_path, model_config_path, metrics_path
+    return model_file_path, model_config_path
 
 
 def save_metrics(
@@ -44,6 +41,7 @@ def save_metrics(
     saving_models_folder: str | Path,
 ) -> Path:
     file_path = Path(saving_models_folder) / settings.METRICS_FILENAME
+    file_path.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame.from_dict(dict(metrics), orient="index").to_csv(file_path, index=True)
     return file_path
 

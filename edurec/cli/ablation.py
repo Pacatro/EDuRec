@@ -172,7 +172,7 @@ def run_ablation(
                 with TemporaryDirectory(
                     prefix=f"edurec-ablation-{variant}-{seed}-"
                 ) as tmp:
-                    trainer, best_model_path = train_model(
+                    trainer, best_model_path, timer = train_model(
                         model=model,
                         dm=dm,
                         debug=debug,
@@ -184,6 +184,7 @@ def run_ablation(
                         default_root_dir=tmp,
                     )
 
+                    training_time = timer.time_elapsed("train")
                     metrics = (
                         {}
                         if debug
@@ -193,6 +194,7 @@ def run_ablation(
                             weights_only=False,
                         )[0]
                     )
+                    inference_time = 0.0 if debug else timer.time_elapsed("test")
 
                 row: dict[str, float | int | str] = {
                     "variant": variant,
@@ -207,6 +209,8 @@ def run_ablation(
                         if isinstance(value, int | float)
                     },
                     "num_parameters": num_parameters,
+                    "training_time_s": training_time,
+                    "inference_time_s": inference_time,
                 }
                 rows.append(row)
 
