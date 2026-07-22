@@ -150,8 +150,11 @@ def train(
             limit=limit,
         )
 
+        dm.prepare_data()
+        dm.setup()
+
         if verbose:
-            if use_processed_data and dm.is_processed:
+            if use_processed_data:
                 print(
                     f"[TRAIN] Using saved processed data from {settings.PROCESSED_FOLDER}"
                 )
@@ -159,8 +162,6 @@ def train(
                 print(
                     f"[TRAIN] Processing raw data from {settings.DATA_FOLDER}/raw/{dataset.value}"
                 )
-
-        dm.setup()
 
         print_data_summary("TRAIN", dm)
 

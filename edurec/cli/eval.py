@@ -333,6 +333,7 @@ def eval_models(
                 limit=limit,
             )
 
+            dm.prepare_data()
             dm.setup()
 
             print_data_summary("EVAL", dm)

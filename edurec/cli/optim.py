@@ -114,6 +114,7 @@ def optimize(
             limit=limit,
         )
 
+        dm.prepare_data()
         dm.setup()
 
         print_data_summary("OPTIM", dm)

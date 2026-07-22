@@ -77,6 +77,7 @@ def test_recsys(
         remove_sparse=remove_sparse,
         limit=limit,
     )
+    dm.prepare_data()
     dm.setup()
     test_graph = dm.build_inter_graph()
     print_model_modules("TEST", cfg)

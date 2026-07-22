@@ -29,6 +29,7 @@ from .preprocessing import (
 )
 from .recsys_dataset import RecSysDataset
 from .user_history import UserHistory, build_histories
+from .downloaders import download_raw_data
 
 
 class ElearningDataModule(L.LightningDataModule):
@@ -77,63 +78,64 @@ class ElearningDataModule(L.LightningDataModule):
             settings.TIME_COL,
         }
 
-        if self.use_processed_data and processed_cache_exists(self.processed_folder):
-            self.artifacts = ProcessedData.load(self.processed_folder)
-            self._remove_legacy_itm_criteria()
-            if not self.has_temporal_order:
-                self._randomize_processed_splits()
-        else:
-            raw = load_raw_data(dataset)
-            interactions = clean_cols(raw.interactions)
-            if limit is not None:
-                interactions = interactions.head(limit).reset_index(drop=True)
-            self.raw_dataset = RawData(
-                interactions=interactions,
-                user_features=clean_cols(raw.user_features),
-                item_features=clean_cols(raw.item_features),
-                schema=raw.schema,
-            )
-            self.artifacts.data_processor = DataProcessor(schema=raw.schema)
+    def prepare_data(self) -> None:
+        if processed_cache_exists(self.processed_folder):
+            return
+        download_raw_data(self.dataset_name)
 
     def setup(self, stage: str | None = None):
         if not self.is_processed:
-            if self.raw_dataset is None:
-                raise RuntimeError("Raw dataset is not available.")
-
-            users = self.raw_dataset.user_features
-            items = self.raw_dataset.item_features
-            interactions = self.raw_dataset.interactions
-
-            if self.remove_sparse:
-                users, items, interactions = filter_sparse(
-                    users,
-                    items,
-                    interactions,
-                    min_interactions=self.min_interactions,
+            if self.use_processed_data and processed_cache_exists(self.processed_folder):
+                self.artifacts = ProcessedData.load(self.processed_folder)
+                self._remove_legacy_itm_criteria()
+                if not self.has_temporal_order:
+                    self._randomize_processed_splits()
+            else:
+                raw = load_raw_data(self.dataset_name)
+                interactions = clean_cols(raw.interactions)
+                if self.limit is not None:
+                    interactions = interactions.head(self.limit).reset_index(drop=True)
+                self.raw_dataset = RawData(
+                    interactions=interactions,
+                    user_features=clean_cols(raw.user_features),
+                    item_features=clean_cols(raw.item_features),
+                    schema=raw.schema,
                 )
 
-            train, val, test = split_data(
-                interactions,
-                test_ratio=self.test_ratio,
-                val_ratio=self.val_ratio,
-                min_interactions=self.min_interactions,
-                random_state=self.random_state,
-            )
+                users = self.raw_dataset.user_features
+                items = self.raw_dataset.item_features
+                interactions = self.raw_dataset.interactions
 
-            thresholds = get_relevance_threshold(train)
-            train = add_relevance(train, thresholds)
-            val = add_relevance(val, thresholds)
-            test = add_relevance(test, thresholds)
+                if self.remove_sparse:
+                    users, items, interactions = filter_sparse(
+                        users,
+                        items,
+                        interactions,
+                        min_interactions=self.min_interactions,
+                    )
 
-            self.artifacts = preprocess(
-                processor=self.data_processor,
-                users=users,
-                items=items,
-                train=train,
-                val=val,
-                test=test,
-            )
-            self.artifacts.save(self.processed_folder)
+                train, val, test = split_data(
+                    interactions,
+                    test_ratio=self.test_ratio,
+                    val_ratio=self.val_ratio,
+                    min_interactions=self.min_interactions,
+                    random_state=self.random_state,
+                )
+
+                thresholds = get_relevance_threshold(train)
+                train = add_relevance(train, thresholds)
+                val = add_relevance(val, thresholds)
+                test = add_relevance(test, thresholds)
+
+                self.artifacts = preprocess(
+                    processor=DataProcessor(schema=raw.schema),
+                    users=users,
+                    items=items,
+                    train=train,
+                    val=val,
+                    test=test,
+                )
+                self.artifacts.save(self.processed_folder)
 
         if self.save_atomic_files:
             self.atomic_files = save_atomic_files(

@@ -22,10 +22,7 @@ def processed_cache_exists(folder: Path) -> bool:
         return False
 
     tensors = load_file(folder / "static_feats.safetensors")
-    return {
-        "u_static_feats",
-        "i_static_feats",
-    }.issubset(tensors)
+    return {"u_static_feats", "i_static_feats"}.issubset(tensors)
 
 
 @dataclass

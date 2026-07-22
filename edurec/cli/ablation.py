@@ -113,6 +113,7 @@ def run_ablation(
                 save_atomic_files=False,
                 limit=limit,
             )
+            dm.prepare_data()
             dm.setup()
             print_data_summary("ABLATION", dm)
             inter_graph = dm.build_inter_graph()

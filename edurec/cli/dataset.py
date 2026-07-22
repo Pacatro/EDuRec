@@ -36,6 +36,9 @@ def dataset_command(
         limit=limit,
     )
 
+    dm.prepare_data()
+    dm.setup()
+
     print(f"Dataset name: {dataset.value}")
     print(f"Feedback type: {dm.feedback_type}")
     if dm.limit is not None:
