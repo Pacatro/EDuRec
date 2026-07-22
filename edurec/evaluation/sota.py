@@ -1,4 +1,3 @@
-from logging import getLogger
 from pathlib import Path
 from time import perf_counter
 from typing import Any, cast
@@ -121,8 +120,6 @@ def _run_model(
 
     init_seed(seed, reproducibility)
     init_logger(config)
-
-    logger = getLogger()
 
     dataset = create_dataset(config)
     train_data, valid_data, test_data = data_preparation(config, dataset)
