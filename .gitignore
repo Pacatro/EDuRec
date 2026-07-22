@@ -23,8 +23,7 @@ log*/
 sota_cv_data/
 
 # Data folders
-data/processed/
-data/atomicfiles/
+data/
 
 # Other exetensions
 # *.json

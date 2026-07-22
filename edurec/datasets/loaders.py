@@ -1,14 +1,11 @@
 from enum import StrEnum
 from functools import wraps
-from pathlib import Path
 from typing import Callable, NamedTuple, Literal
 
 import numpy as np
 import pandas as pd
 
 from .. import settings
-
-RAW_DATA_FOLDER = Path(settings.DATA_FOLDER) / "raw"
 
 
 class DatasetName(StrEnum):
@@ -87,7 +84,7 @@ def load_mars(data_type: Literal["explicit", "implicit"]) -> RawData:
     Returns:
         pd.DataFrame: The MARS dataset.
     """
-    mars_folder = RAW_DATA_FOLDER / "mars"
+    mars_folder = settings.RAW_DATA_FOLDER / "mars"
     items_en = pd.read_csv(mars_folder / "items_en.csv")
     items_fr = pd.read_csv(mars_folder / "items_fr.csv")
     users_en = pd.read_csv(mars_folder / "users_en.csv")
@@ -169,7 +166,7 @@ def load_itm() -> RawData:
     Returns:
         pd.DataFrame: The ITM dataset.
     """
-    itm_folder = RAW_DATA_FOLDER / DatasetName.ITM.value
+    itm_folder = settings.RAW_DATA_FOLDER / DatasetName.ITM.value
     ratings_df = pd.read_csv(itm_folder / "ratings.csv")
     items_df = pd.read_csv(itm_folder / "items.csv")
     users_df = pd.read_csv(itm_folder / "users.csv")
@@ -225,7 +222,7 @@ def load_itm() -> RawData:
 
 @register_dataset(DatasetName.DORIS)
 def load_doris() -> RawData:
-    doris_folder = RAW_DATA_FOLDER / DatasetName.DORIS.value
+    doris_folder = settings.RAW_DATA_FOLDER / DatasetName.DORIS.value
     ratings_df = pd.read_excel(doris_folder / "CourseSelectionTable.xlsx")
     items_df = pd.read_excel(doris_folder / "CourseInformationTable.xlsx")
     users_df = pd.read_excel(doris_folder / "StudentInformationTable.xlsx")
@@ -300,7 +297,9 @@ def load_mooccubex() -> RawData:
     in chunks so that the nested enrollment arrays can be expanded without
     first loading the complete JSON document into memory.
     """
-    entities_folder = RAW_DATA_FOLDER / DatasetName.MOOCCUBEX.value / "entities"
+    entities_folder = (
+        settings.RAW_DATA_FOLDER / DatasetName.MOOCCUBEX.value / "entities"
+    )
 
     items = pd.read_json(entities_folder / "course.json", lines=True)
     items.rename(columns={"id": settings.ITEM_COL}, inplace=True)

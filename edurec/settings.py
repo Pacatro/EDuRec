@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import lightning as L
 
 # Global state
@@ -38,6 +40,42 @@ RATING_COL: str = "rating"
 RELEVANT_COL: str = "relevant"
 MIN_INTERACTIONS: int = 3
 TRAIN_NEGATIVES_PER_POSITIVE: int = 4
+RAW_DATA_FOLDER = Path(DATA_FOLDER) / "raw"
+
+MARS_REQUIRED_FILES = (
+    "items_en.csv",
+    "items_fr.csv",
+    "users_en.csv",
+    "users_fr.csv",
+    "explicit_ratings_en.csv",
+    "explicit_ratings_fr.csv",
+    "implicit_ratings_en.csv",
+    "implicit_ratings_fr.csv",
+)
+
+MARS_ZIP_URL = (
+    "https://dataverse.harvard.edu/api/access/dataset/:persistentId/"
+    "?persistentId=doi:10.7910/DVN/BMY3UD"
+)
+
+DORIS_REQUIRED_FILES = (
+    "CourseInformationTable.xlsx",
+    "CourseSelectionTable.xlsx",
+    "StudentInformationTable.xlsx",
+)
+
+DORIS_ZIP_URL = "https://ndownloader.figstatic.com/files/41041415"
+
+MOOCCUBEX_BASE_URL = "https://lfs.aminer.cn/misc/moocdata/data/mooccube2"
+
+MOOCCUBEX_REQUIRED_FILES = (
+    "entities/user.json",
+    "entities/course.json",
+)
+
+ITM_REQUIRED_FILES = ("ratings.csv", "items.csv", "users.csv")
+
+KAGGLE_ITM_DATASET = "irecsys/itmrec"
 
 # Preprocessing
 PROCESSED_FOLDER: str = f"{DATA_FOLDER}/processed"
