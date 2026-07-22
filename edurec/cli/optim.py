@@ -73,6 +73,14 @@ def optimize(
     use_processed_data: Annotated[
         bool, typer.Option("--use_processed", "-P")
     ] = settings.SAVE_DATA,
+    configs_folder: Annotated[
+        Path,
+        typer.Option(
+            "--configs-folder",
+            "-C",
+            help="Folder where the best configuration for each dataset is saved.",
+        ),
+    ] = Path(settings.CONFIGS_FOLDER),
 ) -> None:
     datasets = datasets_to_run(dataset)
     verbose = settings.state["verbose"]
@@ -87,6 +95,7 @@ def optimize(
     print("\n[OPTIM] Hyperparameter optimization run")
     print(f"[OPTIM] Datasets: {', '.join(ds.value for ds in datasets)}")
     print(f"[OPTIM] Results folder: {results_root}")
+    print(f"[OPTIM] Configs folder: {configs_folder}")
 
     for dataset in datasets:
         run_name = dataset_run_name(dataset, limit)
@@ -140,8 +149,11 @@ def optimize(
         )
         print("[OPTIM] Params:", study.best_params)
 
-        cfg_path = results_root / f"config-{run_name}.yaml"
-        best_cfg.save(cfg_path)
-        print("[OPTIM] Saved config:", cfg_path)
+        result_cfg_path = results_root / f"config-{run_name}.yaml"
+        config_path = configs_folder / f"config-{run_name}.yaml"
+        best_cfg.save(result_cfg_path)
+        best_cfg.save(config_path)
+        print("[OPTIM] Saved result config:", result_cfg_path)
+        print("[OPTIM] Saved reusable config:", config_path)
         print("[OPTIM] Trials log:", dataset_results_path / "trials.csv")
         print("[OPTIM] Study storage:", dataset_results_path / "study.db")

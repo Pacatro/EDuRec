@@ -176,7 +176,9 @@ uv run edurec optim --dataset explicit_mars --trials 30 --use_processed
 ```
 
 The command saves the best configuration, trial log, and study database under
-`results/optimization/<timestamp>/`.
+`results/optimization/<timestamp>/`. It also writes the best configuration for
+each dataset to `configs/config-<dataset>.yaml`, so it can be reused by
+training and evaluation. Use `--configs-folder` to choose a different folder.
 
 ### Run Ablations
 
