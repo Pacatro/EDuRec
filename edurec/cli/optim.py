@@ -85,11 +85,7 @@ def optimize(
     datasets = datasets_to_run(dataset)
     verbose = settings.state["verbose"]
 
-    results_root = (
-        Path(settings.RESULTS_FOLDER)
-        / "optimization"
-        / datetime.now().strftime("%Y%m%d_%H%M%S")
-    )
+    results_root = Path(settings.RESULTS_FOLDER) / "optimization"
     results_root.mkdir(parents=True, exist_ok=True)
 
     print("\n[OPTIM] Hyperparameter optimization run")

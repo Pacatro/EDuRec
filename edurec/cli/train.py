@@ -91,16 +91,8 @@ def train(
     started_at = datetime.now()
     verbose = settings.state["verbose"]
     monitor_metric = f"val/ndcg@{top_k}"
-    optimization_root = (
-        Path(settings.RESULTS_FOLDER)
-        / "optimization"
-        / started_at.strftime("%Y%m%d_%H%M%S")
-    )
-    training_root = (
-        Path(settings.RESULTS_FOLDER)
-        / "training"
-        / started_at.strftime("%Y%m%d_%H%M%S")
-    )
+    optimization_root = Path(settings.RESULTS_FOLDER) / "optimization"
+    training_root = Path(settings.RESULTS_FOLDER) / "training"
 
     datasets = datasets_to_run(dataset)
 
