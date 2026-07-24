@@ -47,6 +47,7 @@ class RecSysDataset(Dataset):
 
         self.user_ids = interactions[settings.USER_COL].to_numpy(copy=True)
         self.target_item_ids = interactions[settings.ITEM_COL].to_numpy(copy=True)
+        self.n_interactions = len(interactions)
         self.negative_item_ids = (
             torch.empty((len(interactions), 0), dtype=torch.long)
             if negative_item_ids is None
@@ -64,7 +65,7 @@ class RecSysDataset(Dataset):
         self.history_valid_mask = history_valid_mask
 
     def __len__(self) -> int:
-        return len(self.user_ids)
+        return self.n_interactions
 
     def __getitem__(self, idx: int) -> RecSysQuery:
         return RecSysQuery(
