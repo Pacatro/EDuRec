@@ -1,5 +1,4 @@
 from enum import StrEnum
-from functools import wraps
 from typing import Callable, NamedTuple, Literal
 
 import numpy as np
@@ -64,12 +63,8 @@ def register_dataset(ds_name: DatasetName) -> Callable[[ExportFn], ExportFn]:
     """
 
     def decorator(fn: ExportFn) -> ExportFn:
-        @wraps(fn)
-        def wrapper() -> RawData:
-            return fn()
-
-        dataset_loaders[ds_name] = wrapper
-        return wrapper
+        dataset_loaders[ds_name] = fn
+        return fn
 
     return decorator
 

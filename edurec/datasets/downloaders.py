@@ -2,7 +2,6 @@ import io
 import shutil
 import zipfile
 from collections.abc import Callable
-from functools import wraps
 from pathlib import Path
 
 import kagglehub
@@ -19,12 +18,8 @@ dataset_downloaders: dict[DatasetName, DownloadFn] = {}
 
 def register_dataset(ds_name: DatasetName) -> Callable[[DownloadFn], DownloadFn]:
     def decorator(fn: DownloadFn) -> DownloadFn:
-        @wraps(fn)
-        def wrapper() -> Path:
-            return fn()
-
-        dataset_downloaders[ds_name] = wrapper
-        return wrapper
+        dataset_downloaders[ds_name] = fn
+        return fn
 
     return decorator
 

@@ -145,16 +145,11 @@ class ElearningDataModule(L.LightningDataModule):
                 output_dir=self.atomic_folder,
             )
 
-        # Build the sequential histories using only relevant (positive) interactions
-        relevant_splits = {}
-        for split in ("train", "val", "test"):
-            df = getattr(self.artifacts, split)
-            if df is not None:
-                relevant_splits[split] = df[df[settings.RELEVANT_COL] > 0].reset_index(
-                    drop=True
-                )
-            else:
-                relevant_splits[split] = None
+        # Build sequential histories using only relevant (positive) interactions.
+        relevant_splits = {
+            split: df.loc[df[settings.RELEVANT_COL] > 0].reset_index(drop=True)
+            for split, df in self.artifacts.splits().items()
+        }
 
         histories = build_histories(relevant_splits, enabled=self.has_temporal_order)
 
@@ -162,8 +157,6 @@ class ElearningDataModule(L.LightningDataModule):
             train_negatives = None
             if not self.is_explicit:
                 train_interactions = relevant_splits["train"]
-                if train_interactions is None:
-                    raise RuntimeError("Processed train split is not available.")
                 train_negatives = generate_negative_samples(
                     interactions=train_interactions,
                     item_ids=np.arange(self.num_items),
@@ -172,30 +165,24 @@ class ElearningDataModule(L.LightningDataModule):
                 )
 
             self.train_ds = self._make_dataset(
-                "train",
-                histories,
+                relevant_splits["train"],
+                histories["train"],
                 negative_item_ids=train_negatives,
             )
-            self.val_ds = self._make_dataset("val", histories)
+            self.val_ds = self._make_dataset(relevant_splits["val"], histories["val"])
         elif stage == "test":
-            self.test_ds = self._make_dataset("test", histories)
+            self.test_ds = self._make_dataset(
+                relevant_splits["test"], histories["test"]
+            )
 
     def _make_dataset(
         self,
-        split: str,
-        histories: dict[str, tuple[torch.Tensor, torch.Tensor]],
+        interactions: pd.DataFrame,
+        history: tuple[torch.Tensor, torch.Tensor],
         negative_item_ids: np.ndarray | None = None,
     ) -> RecSysDataset:
-        df = getattr(self.artifacts, split)
-        if df is None:
-            raise RuntimeError(f"Processed split {split} is not available.")
-
-        # Filter dataset to positive interactions
-        positive_mask = (df[settings.RELEVANT_COL] > 0).to_numpy(copy=True)
-        interactions = df.loc[positive_mask].reset_index(drop=True)
-
         # The precomputed tensors align row-by-row with positive interactions.
-        history_items, history_valid_mask = histories[split]
+        history_items, history_valid_mask = history
 
         return RecSysDataset(
             interactions=interactions,
@@ -274,33 +261,24 @@ class ElearningDataModule(L.LightningDataModule):
         generator.manual_seed(int(self.random_state))
         return generator
 
-    def train_dataloader(self) -> DataLoader:
+    def _dataloader(self, dataset: RecSysDataset, shuffle: bool) -> DataLoader:
         return DataLoader(
-            self.train_ds,
+            dataset,
             batch_size=self.batch_size,
             num_workers=settings.NUM_WORKERS,
-            shuffle=True,
+            shuffle=shuffle,
             persistent_workers=settings.NUM_WORKERS > 0,
-            generator=self._data_generator(),
+            generator=self._data_generator() if shuffle else None,
         )
+
+    def train_dataloader(self) -> DataLoader:
+        return self._dataloader(self.train_ds, shuffle=True)
 
     def val_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self.val_ds,
-            batch_size=self.batch_size,
-            num_workers=settings.NUM_WORKERS,
-            shuffle=False,
-            persistent_workers=settings.NUM_WORKERS > 0,
-        )
+        return self._dataloader(self.val_ds, shuffle=False)
 
     def test_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self.test_ds,
-            batch_size=self.batch_size,
-            num_workers=settings.NUM_WORKERS,
-            shuffle=False,
-            persistent_workers=settings.NUM_WORKERS > 0,
-        )
+        return self._dataloader(self.test_ds, shuffle=False)
 
     @property
     def is_processed(self) -> bool:

@@ -28,9 +28,6 @@ class ProcessedFeatures:
     items: pd.DataFrame | None
     interactions: pd.DataFrame | None
     text_embeddings: dict[str, pd.DataFrame | None]
-    preprocessors: dict[str, ColumnTransformer | None]
-    feature_columns: dict[str, list[str]]
-    text_embedding_columns: dict[str, list[str]]
 
 
 @dataclass
@@ -334,9 +331,6 @@ class DataProcessor:
                 "items": self._text_embeddings("items", items),
                 "inter": self._text_embeddings("inter", interactions),
             },
-            preprocessors=self.preprocessors,
-            feature_columns=self.feature_columns,
-            text_embedding_columns=self.text_embedding_columns,
         )
 
     def _transform(

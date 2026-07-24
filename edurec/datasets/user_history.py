@@ -7,7 +7,7 @@ from .. import settings
 
 
 def build_histories(
-    splits: dict[str, pd.DataFrame | None],
+    splits: dict[str, pd.DataFrame],
     enabled: bool = True,
 ) -> dict[str, tuple[torch.Tensor, torch.Tensor]]:
     """Build fixed-size, chronological item histories for every split.
