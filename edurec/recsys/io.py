@@ -38,9 +38,12 @@ def save_model(
 
 def save_metrics(
     metrics: Mapping[str, float],
+    dataset_name: str,
     saving_models_folder: str | Path,
 ) -> Path:
-    file_path = Path(saving_models_folder) / settings.METRICS_FILENAME
+    file_path = (
+        Path(saving_models_folder) / f"{settings.METRICS_FILENAME}_{dataset_name}.csv"
+    )
     file_path.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame.from_dict(dict(metrics), orient="index").to_csv(file_path, index=True)
     return file_path

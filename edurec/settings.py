@@ -28,7 +28,7 @@ RESULTS_FOLDER: str = "results"
 MODELS_FOLDER: str = "models"
 MODEL_FILENAME = "model.pt"
 MODEL_METADATA_FILENAME = "metadata.json"
-METRICS_FILENAME = "metrics.csv"
+METRICS_FILENAME = "metrics"
 CONFIGS_FOLDER: str = "configs"
 
 # Datasets

@@ -35,14 +35,10 @@ class ProcessedFeatures:
 
 @dataclass
 class FeatureMetadata:
-    binary_cols: list[str] = field(default_factory=list)
-    numeric_cols: list[str] = field(default_factory=list)
     dense_cols: list[str] = field(default_factory=list)
     categorical_cols: list[str] = field(default_factory=list)
     categorical_cardinalities: dict[str, int] = field(default_factory=dict)
-    text_cols: list[str] = field(default_factory=list)
     text_embedding_cols: list[str] = field(default_factory=list)
-    list_cols: list[str] = field(default_factory=list)
 
 
 class DataProcessor:
@@ -112,6 +108,40 @@ class DataProcessor:
         self.column_groups[prefix] = groups
         self.list_binarizers[prefix] = {}
 
+        preprocessor, preprocessor_cols, dense_cols, categorical_cols = (
+            self._fit_preprocessor(groups, df)
+        )
+        self.preprocessors[prefix] = preprocessor
+
+        list_cols = self._fit_list_binarizers(prefix, groups, df)
+
+        text_cols = (
+            [f"text__embedding_{idx:03d}" for idx in range(self.text_embedding_dim)]
+            if groups["text"]
+            else []
+        )
+
+        self.feature_columns[prefix] = [
+            *groups["passthrough"],
+            *preprocessor_cols,
+            *list_cols,
+        ]
+        self.text_embedding_columns[prefix] = text_cols
+
+        self.feature_metadata[prefix] = self._build_metadata(
+            groups,
+            preprocessor,
+            dense_cols,
+            categorical_cols,
+            list_cols,
+            text_cols,
+        )
+
+    def _fit_preprocessor(
+        self,
+        groups: dict[str, list[str]],
+        df: pd.DataFrame,
+    ) -> tuple[ColumnTransformer | None, list[str], list[str], list[str]]:
         transformers = []
         if groups["numeric"]:
             transformers.append(
@@ -171,45 +201,34 @@ class DataProcessor:
                 indices = preprocessor.output_indices_.get(name)
                 if isinstance(indices, slice):
                     target.extend(preprocessor_cols[indices])
-        self.preprocessors[prefix] = preprocessor
+        return preprocessor, preprocessor_cols, dense_cols, categorical_cols
 
+    def _fit_list_binarizers(
+        self,
+        prefix: str,
+        groups: dict[str, list[str]],
+        df: pd.DataFrame,
+    ) -> list[str]:
         list_cols: list[str] = []
         for col in groups["list"]:
             binarizer = MultiLabelBinarizer().fit(df[col].map(_coerce_list_tokens))
             self.list_binarizers[prefix][col] = binarizer
             list_cols.extend(f"list__{col}__{value}" for value in binarizer.classes_)
+        return list_cols
 
-        text_cols = (
-            [f"text__embedding_{idx:03d}" for idx in range(self.text_embedding_dim)]
-            if groups["text"]
-            else []
-        )
-        if text_cols:
-            model = _get_sentence_embedding_model(self.text_embedding_model)
-            if hasattr(model, "max_seq_length"):
-                model.max_seq_length = self.text_max_tokens
-            if hasattr(model, "get_sentence_embedding_dimension"):
-                dim = model.get_embedding_dimension()
-                if dim != self.text_embedding_dim:
-                    raise RuntimeError(
-                        f"Expected text embedding dim {self.text_embedding_dim}, got {dim}"
-                    )
-
-        self.feature_columns[prefix] = [
-            *groups["passthrough"],
-            *preprocessor_cols,
-            *list_cols,
-        ]
-        self.text_embedding_columns[prefix] = text_cols
-
+    def _build_metadata(
+        self,
+        groups: dict[str, list[str]],
+        preprocessor: ColumnTransformer | None,
+        dense_cols: list[str],
+        categorical_cols: list[str],
+        list_cols: list[str],
+        text_cols: list[str],
+    ) -> FeatureMetadata:
         metadata = FeatureMetadata(
-            binary_cols=groups["binary"],
-            numeric_cols=groups["numeric"],
             dense_cols=[*dense_cols, *list_cols],
             categorical_cols=categorical_cols,
-            text_cols=groups["text"],
             text_embedding_cols=text_cols,
-            list_cols=groups["list"],
         )
         if preprocessor is not None and groups["categorical"]:
             encoder = preprocessor.named_transformers_["cat"].named_steps["encoder"]
@@ -221,7 +240,7 @@ class DataProcessor:
                     strict=True,
                 )
             }
-        self.feature_metadata[prefix] = metadata
+        return metadata
 
     def _resolve_columns(
         self,
@@ -241,7 +260,6 @@ class DataProcessor:
         def present(cols: list[str]) -> list[str]:
             return [col for col in cols if col in available and col not in reserved]
 
-        binary_cols = present(list(schema_group.get("bin", [])))
         numeric_cols = (
             present(list(schema_group.get("num", [])))
             if "numeric" in self.active_feature_types
@@ -254,7 +272,6 @@ class DataProcessor:
         )
 
         return {
-            "binary": binary_cols,
             "numeric": numeric_cols,
             "categorical": categorical_cols,
             "text": (

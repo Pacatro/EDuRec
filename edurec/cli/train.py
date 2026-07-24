@@ -245,7 +245,7 @@ def train(
 
         print(f"[TRAIN] Best checkpoint: {best_model_path}")
 
-        metrics_path = save_metrics(metrics, training_root)
+        metrics_path = save_metrics(metrics, dataset.value, training_root)
         print(f"[TRAIN] Metrics saved: {metrics_path}")
 
         if save and trainer.is_global_zero:
