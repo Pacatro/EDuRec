@@ -1,2 +1,0 @@
-,model,recall@5,recall@10,recall@20,mrr@5,mrr@10,mrr@20,ndcg@5,ndcg@10,ndcg@20,hit@5,hit@10,hit@20,precision@5,precision@10,precision@20,map@5,map@10,map@20
-0,ItemKNN,0.1667,0.3333,0.5,0.0556,0.0764,0.0868,0.0833,0.1359,0.1767,0.1667,0.3333,0.5,0.0333,0.0333,0.025,0.0556,0.0764,0.0868

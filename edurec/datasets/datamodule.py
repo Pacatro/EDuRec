@@ -85,9 +85,10 @@ class ElearningDataModule(L.LightningDataModule):
 
     def setup(self, stage: str | None = None):
         if not self.is_processed:
-            if self.use_processed_data and processed_cache_exists(self.processed_folder):
+            if self.use_processed_data and processed_cache_exists(
+                self.processed_folder
+            ):
                 self.artifacts = ProcessedData.load(self.processed_folder)
-                self._remove_legacy_itm_criteria()
                 if not self.has_temporal_order:
                     self._randomize_processed_splits()
             else:
@@ -155,10 +156,7 @@ class ElearningDataModule(L.LightningDataModule):
             else:
                 relevant_splits[split] = None
 
-        histories = build_histories(
-            relevant_splits,
-            enabled=self.has_temporal_order,
-        )
+        histories = build_histories(relevant_splits, enabled=self.has_temporal_order)
 
         if stage in ("fit", None):
             train_negatives = None
@@ -225,21 +223,6 @@ class ElearningDataModule(L.LightningDataModule):
         self.artifacts.train = add_relevance(train, thresholds)
         self.artifacts.val = add_relevance(val, thresholds)
         self.artifacts.test = add_relevance(test, thresholds)
-
-    def _remove_legacy_itm_criteria(self) -> None:
-        """Keep old ITM caches consistent with the current raw-data loader."""
-        if self.dataset_name is not DatasetName.ITM:
-            return
-
-        legacy_cols = ["num__app", "num__data", "num__ease"]
-        for split in ("train", "val", "test"):
-            frame = getattr(self.artifacts, split)
-            if frame is not None:
-                setattr(
-                    self.artifacts,
-                    split,
-                    frame.drop(columns=legacy_cols, errors="ignore"),
-                )
 
     def build_inter_graph(self) -> Data:
         # We only build the graph based on the training interactions.

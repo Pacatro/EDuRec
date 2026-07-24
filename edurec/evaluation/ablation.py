@@ -56,9 +56,6 @@ ABLATIONS: dict[str, dict[str, Any]] = {
     "dot_product": {**FULL_ABLATION, "scorer_type": "dot", "hidden_dims": []},
 }
 
-CONTENT_ABLATIONS: dict[str, dict[str, Any]] = {}
-
-
 def get_ablation_config(base_cfg: EDuRecConfig, variant: str) -> EDuRecConfig:
     cfg = replace(base_cfg, **ABLATIONS[variant])
     if variant != "availability_aware":
@@ -74,15 +71,3 @@ def get_ablation_config(base_cfg: EDuRecConfig, variant: str) -> EDuRecConfig:
         use_seq_encoder=base_cfg.has_history,
         use_context=base_cfg.num_ctx_feats > 0,
     )
-
-
-def get_content_ablation_config(base_cfg: EDuRecConfig, variant: str) -> EDuRecConfig:
-    full_cfg = get_ablation_config(base_cfg, "full")
-    return replace(full_cfg, **CONTENT_ABLATIONS[variant])
-
-
-def ablation_variants(include_content: bool = True) -> dict[str, dict[str, Any]]:
-    variants = dict(ABLATIONS)
-    if include_content:
-        variants.update(CONTENT_ABLATIONS)
-    return variants

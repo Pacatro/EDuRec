@@ -12,9 +12,7 @@ from ..datasets import DatasetName, ElearningDataModule
 from ..recsys import EDuRecConfig, RecSys, train_model
 from ..evaluation.ablation import (
     ABLATIONS,
-    CONTENT_ABLATIONS,
     get_ablation_config,
-    get_content_ablation_config,
 )
 from .utils import (
     build_config,
@@ -35,10 +33,6 @@ def run_ablation(
         str,
         typer.Option("--seeds", "-s", help="Comma-separated seeds to run."),
     ] = "13,42,77,101,2026",
-    include_content: Annotated[
-        bool,
-        typer.Option("--include-content/--main-only", help="Run content ablations."),
-    ] = True,
     epochs: Annotated[int, typer.Option("--epochs", "-e", min=1)] = settings.EPOCHS,
     lr: Annotated[float, typer.Option("--lr", "-l")] = settings.LR,
     limit: Annotated[
@@ -83,7 +77,7 @@ def run_ablation(
     started_at = datetime.now()
     verbose = settings.state["verbose"]
 
-    variants = list(ABLATIONS) + (list(CONTENT_ABLATIONS) if include_content else [])
+    variants = list(ABLATIONS)
 
     print("\n[ABLATION] EDuRec ablation run")
     print(f"[ABLATION] Datasets: {', '.join(ds.value for ds in datasets)}")
@@ -147,11 +141,7 @@ def run_ablation(
 
             for variant in variants:
                 settings.seed_everything(seed)
-                cfg = (
-                    get_ablation_config(base_cfg, variant)
-                    if variant in ABLATIONS
-                    else get_content_ablation_config(base_cfg, variant)
-                )
+                cfg = get_ablation_config(base_cfg, variant)
                 variant_root = dataset_root / variant / f"seed_{seed}"
                 variant_root.mkdir(parents=True, exist_ok=True)
                 cfg.save(variant_root / "config.yaml")

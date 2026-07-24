@@ -1,2 +1,0 @@
-,model,recall@5,recall@10,recall@20,mrr@5,mrr@10,mrr@20,ndcg@5,ndcg@10,ndcg@20,hit@5,hit@10,hit@20,precision@5,precision@10,precision@20,map@5,map@10,map@20
-0,MultiVAE,0.0349,0.0591,0.083,0.0901,0.1021,0.1075,0.0417,0.0526,0.0624,0.1403,0.2338,0.3117,0.0296,0.0258,0.0186,0.0249,0.0274,0.0295

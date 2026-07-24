@@ -27,7 +27,6 @@ DATA_FOLDER: str = "data"
 RESULTS_FOLDER: str = "results"
 MODELS_FOLDER: str = "models"
 MODEL_FILENAME = "model.pt"
-RECBOLE_INTER_FILES_FOLDER: str = f"{DATA_FOLDER}/inter"
 MODEL_METADATA_FILENAME = "metadata.json"
 METRICS_FILENAME = "metrics.csv"
 CONFIGS_FOLDER: str = "configs"
@@ -52,29 +51,19 @@ MARS_REQUIRED_FILES = (
     "implicit_ratings_en.csv",
     "implicit_ratings_fr.csv",
 )
-
 MARS_ZIP_URL = (
     "https://dataverse.harvard.edu/api/access/dataset/:persistentId/"
     "?persistentId=doi:10.7910/DVN/BMY3UD"
 )
-
 DORIS_REQUIRED_FILES = (
     "CourseInformationTable.xlsx",
     "CourseSelectionTable.xlsx",
     "StudentInformationTable.xlsx",
 )
-
 DORIS_ZIP_URL = "https://ndownloader.figstatic.com/files/41041415"
-
 MOOCCUBEX_BASE_URL = "https://lfs.aminer.cn/misc/moocdata/data/mooccube2"
-
-MOOCCUBEX_REQUIRED_FILES = (
-    "entities/user.json",
-    "entities/course.json",
-)
-
+MOOCCUBEX_REQUIRED_FILES = ("entities/user.json", "entities/course.json")
 ITM_REQUIRED_FILES = ("ratings.csv", "items.csv", "users.csv")
-
 KAGGLE_ITM_DATASET = "irecsys/itmrec"
 
 # Preprocessing
@@ -88,12 +77,10 @@ PREPROCESS_FEATURE_TYPES: tuple[str, ...] = (
     "list",
     "time",
 )
-PREPROCESS_CACHE_VERSION: int = 4
 TEXT_EMBEDDING_MODEL: str = "paraphrase-MiniLM-L3-v2"
 TEXT_EMBEDDING_DIM: int = 384
 TEXT_EMBEDDING_BATCH_SIZE: int = 32
 TEXT_MAX_TOKENS: int = 256
-TEXT_PREPROCESS_STRATEGY: str = "sentence-transformer"
 
 # GCL
 DROP_EDGES_P: float = 0.2
@@ -117,7 +104,6 @@ WEIGHT_DECAY: float = 1e-4
 BATCH_SIZE: int = 128
 PATIENCE: int = 5
 TOP_K: int = 20
-MONITOR_METRIC: str = f"val/ndcg@{TOP_K}"
 EPOCHS: int = 150
 DELTA: float = 0.001
 NUM_WORKERS: int = 4
