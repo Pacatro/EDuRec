@@ -6,7 +6,6 @@ import torch
 from torch.utils.data import Dataset
 
 from .. import settings
-from .user_history import UserHistory
 
 
 class RecSysQuery(NamedTuple):
@@ -23,12 +22,13 @@ class RecSysDataset(Dataset):
     def __init__(
         self,
         interactions: pd.DataFrame,
-        history: UserHistory,
+        history_items: torch.Tensor,
+        history_valid_mask: torch.Tensor,
         num_ctx_feats: int,
         context_cols: list[str] | None = None,
         negative_item_ids: np.ndarray | torch.Tensor | None = None,
     ):
-        if len(history.items) != len(interactions):
+        if len(history_items) != len(interactions):
             raise RuntimeError("Precomputed history must align with interactions.")
 
         interactions = interactions.reset_index(drop=True)
@@ -60,8 +60,8 @@ class RecSysDataset(Dataset):
                 "Precomputed negatives must have shape [interactions, negatives]."
             )
 
-        self.history_items = history.items
-        self.history_valid_mask = history.valid_mask
+        self.history_items = history_items
+        self.history_valid_mask = history_valid_mask
 
     def __len__(self) -> int:
         return len(self.user_ids)

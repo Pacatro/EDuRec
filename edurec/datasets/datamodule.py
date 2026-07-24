@@ -28,7 +28,7 @@ from .preprocessing import (
     split_data,
 )
 from .recsys_dataset import RecSysDataset
-from .user_history import UserHistory, build_histories
+from .user_history import build_histories
 from .downloaders import download_raw_data
 
 
@@ -183,7 +183,7 @@ class ElearningDataModule(L.LightningDataModule):
     def _make_dataset(
         self,
         split: str,
-        histories: dict[str, UserHistory],
+        histories: dict[str, tuple[torch.Tensor, torch.Tensor]],
         negative_item_ids: np.ndarray | None = None,
     ) -> RecSysDataset:
         df = getattr(self.artifacts, split)
@@ -194,12 +194,13 @@ class ElearningDataModule(L.LightningDataModule):
         positive_mask = (df[settings.RELEVANT_COL] > 0).to_numpy(copy=True)
         interactions = df.loc[positive_mask].reset_index(drop=True)
 
-        # histories[split] already aligns perfectly row-by-row with interactions
-        history = histories[split]
+        # The precomputed tensors align row-by-row with positive interactions.
+        history_items, history_valid_mask = histories[split]
 
         return RecSysDataset(
             interactions=interactions,
-            history=history,
+            history_items=history_items,
+            history_valid_mask=history_valid_mask,
             num_ctx_feats=self.num_ctx_feats,
             context_cols=[
                 col for col in interactions.columns if col not in self.excluded_cols
