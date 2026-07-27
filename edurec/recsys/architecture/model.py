@@ -1,17 +1,17 @@
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal, Self
-import yaml
 
 import torch
+import yaml
 from torch import nn
 
 from ... import settings
+from .fusion import FusionConfig, MaskedGatedFusion
 from .graph_encoder import GraphEncoder, GraphEncoderConfig
 from .mlp_encoder import MLPEncoder, MLPEncoderConfig
-from .seq_encoder import SeqEncoderConfig, SeqEncoder
 from .scorer import Scorer, ScorerConfig
-from .fusion import FusionConfig, MaskedGatedFusion
+from .seq_encoder import SeqEncoder, SeqEncoderConfig
 
 
 @dataclass

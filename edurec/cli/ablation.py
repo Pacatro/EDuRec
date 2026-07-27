@@ -1,5 +1,5 @@
+import datetime
 from dataclasses import asdict, replace
-from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Annotated
@@ -9,11 +9,8 @@ import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
+from ..evaluation.ablation import ABLATIONS, get_ablation_config
 from ..recsys import EDuRecConfig, RecSys, train_model
-from ..evaluation.ablation import (
-    ABLATIONS,
-    get_ablation_config,
-)
 from .utils import (
     build_config,
     dataset_run_name,
@@ -74,7 +71,7 @@ def run_ablation(
 ) -> None:
     parsed_seeds = parse_seeds(seeds)
     datasets = datasets_to_run(dataset)
-    started_at = datetime.now()
+    started_at = datetime.datetime.now(datetime.UTC)
     verbose = settings.state["verbose"]
 
     variants = list(ABLATIONS)
@@ -89,7 +86,10 @@ def run_ablation(
         run_name = dataset_run_name(dataset_name, limit)
         dataset_root = output_dir / run_name
         dataset_root.mkdir(parents=True, exist_ok=True)
-        base_cfg_path = Path(settings.CONFIGS_FOLDER) / f"config-{dataset_run_name(dataset_name, limit)}.yaml"
+        base_cfg_path = (
+            Path(settings.CONFIGS_FOLDER)
+            / f"config-{dataset_run_name(dataset_name, limit)}.yaml"
+        )
         rows = []
 
         for seed in parsed_seeds:
@@ -222,5 +222,6 @@ def run_ablation(
         aggregate.to_csv(aggregate_path, index=False)
         print(f"[ABLATION] Saved aggregate table: {aggregate_path}")
 
-    elapsed = str(datetime.now() - started_at).split(".", maxsplit=1)[0]
+    finish = datetime.datetime.now(datetime.UTC)
+    elapsed = str(finish - started_at).split(".", maxsplit=1)[0]
     print(f"[ABLATION] Finished in {elapsed}")
