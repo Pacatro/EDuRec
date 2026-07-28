@@ -1,5 +1,5 @@
+import datetime
 from dataclasses import replace
-from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -88,7 +88,7 @@ def train(
         str | None, typer.Option("--experiment-name", "-E")
     ] = None,
 ) -> None:
-    started_at = datetime.now()
+    started_at = datetime.datetime.now(datetime.UTC)
     verbose = settings.state["verbose"]
     monitor_metric = f"val/ndcg@{top_k}"
     optimization_root = Path(settings.RESULTS_FOLDER) / "optimization"
@@ -96,8 +96,8 @@ def train(
 
     datasets = datasets_to_run(dataset)
 
-    for dataset_idx, dataset in enumerate(datasets, start=1):
-        run_name = dataset_run_name(dataset, limit)
+    for dataset_idx, dataset_name in enumerate(datasets, start=1):
+        run_name = dataset_run_name(dataset_name, limit)
         dataset_experiment_name = (
             f"{experiment_name}_{run_name}" if experiment_name else None
         )
@@ -130,7 +130,7 @@ def train(
             )
 
         dm = ElearningDataModule(
-            dataset=dataset,
+            dataset=dataset_name,
             batch_size=batch_size,
             test_ratio=test_size,
             val_ratio=val_size,
@@ -152,13 +152,13 @@ def train(
                 )
             else:
                 print(
-                    f"[TRAIN] Processing raw data from {settings.DATA_FOLDER}/raw/{dataset.value}"
+                    f"[TRAIN] Processing raw data from {settings.DATA_FOLDER}/raw/{dataset_name.value}"
                 )
 
         print_data_summary("TRAIN", dm)
 
         config_path = (
-            Path(configs_folder) / f"config-{dataset_run_name(dataset, limit)}.yaml"
+            Path(configs_folder) / f"config-{dataset_run_name(dataset_name, limit)}.yaml"
         )
 
         base_cfg = build_config(dm, lr=lr, adaptive_k=adaptive_k, topks=settings.TOP_KS)
@@ -229,9 +229,10 @@ def train(
         )
 
         if debug:
-            elapsed = str(datetime.now() - started_at).split(".", maxsplit=1)[0]
+            now = datetime.datetime.now(datetime.UTC)
+            elapsed = str(now - started_at).split(".", maxsplit=1)[0]
             print("[TRAIN] Debug mode: skipping evaluation")
-            print(f"[TRAIN] Finished {dataset.value} in {elapsed}\n")
+            print(f"[TRAIN] Finished {dataset_name.value} in {elapsed}\n")
             return
 
         metrics = dict(
@@ -245,7 +246,7 @@ def train(
 
         print(f"[TRAIN] Best checkpoint: {best_model_path}")
 
-        metrics_path = save_metrics(metrics, dataset.value, training_root)
+        metrics_path = save_metrics(metrics, dataset_name.value, training_root)
         print(f"[TRAIN] Metrics saved: {metrics_path}")
 
         if save and trainer.is_global_zero:
@@ -259,5 +260,6 @@ def train(
             print(f"[TRAIN] Model weights saved: {model_file_path}")
             print(f"[TRAIN] Model config saved: {model_config_path}")
 
-        elapsed = str(datetime.now() - started_at).split(".", maxsplit=1)[0]
-        print(f"[TRAIN] Finished {dataset.value} in {elapsed}\n")
+        now = datetime.datetime.now(datetime.UTC)
+        elapsed = str(now - started_at).split(".", maxsplit=1)[0]
+        print(f"[TRAIN] Finished {dataset_name.value} in {elapsed}\n")

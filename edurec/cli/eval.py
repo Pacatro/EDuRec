@@ -1,5 +1,5 @@
+import datetime
 from dataclasses import replace
-from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -263,13 +263,15 @@ def eval_models(
     print(f"[EVAL] Configs folder: {configs_folder}")
     print(f"[EVAL] Top-k: {eval_topks} | val@{val_topk}\n")
 
-    for dataset_idx, dataset in enumerate(datasets, start=1):
-        run_name = dataset_run_name(dataset, limit)
-        batch_size = settings.BATCH_SIZE if dataset != DatasetName.ITM else 32
+    for dataset_idx, dataset_name in enumerate(datasets, start=1):
+        run_name = dataset_run_name(dataset_name, limit)
+        batch_size = settings.BATCH_SIZE if dataset_name != DatasetName.ITM else 32
         dataset_root = output_dir / run_name
         dataset_root.mkdir(parents=True, exist_ok=True)
-        dataset_started_at = datetime.now()
-        config_path = configs_folder / f"config-{dataset_run_name(dataset, limit)}.yaml"
+        dataset_started_at = datetime.datetime.now(datetime.UTC)
+        config_path = (
+            configs_folder / f"config-{dataset_run_name(dataset_name, limit)}.yaml"
+        )
         optimized_cfg = EDuRecConfig.load(config_path) if config_path.exists() else None
         evaluated_seeds = _evaluated_seeds_by_model(dataset_root, models)
         pending_by_seed = {
@@ -321,7 +323,7 @@ def eval_models(
             )
 
             dm = ElearningDataModule(
-                dataset=dataset,
+                dataset=dataset_name,
                 batch_size=batch_size,
                 test_ratio=test_ratio,
                 val_ratio=val_ratio,
@@ -442,5 +444,6 @@ def eval_models(
         print("[EVAL] Results:")
         print(results[preferred_cols].round(4).to_string(index=False))
         print(f"[EVAL] Saved: {csv_path}")
-        elapsed = str(datetime.now() - dataset_started_at).split(".", maxsplit=1)[0]
+        now = datetime.datetime.now(datetime.UTC)
+        elapsed = str(now - dataset_started_at).split(".", maxsplit=1)[0]
         print(f"[EVAL] Finished {run_name} in {elapsed}\n")
