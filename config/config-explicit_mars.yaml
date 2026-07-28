@@ -1,0 +1,43 @@
+adaptive_k: false
+alpha: 0.01
+dropout: 0.15
+edge_dropout: 0.3
+emb_dim: 128
+ff_dim: 2048
+gnn_layers: 1
+graph_mode: lightgcn
+has_history: true
+hidden_dims:
+- 256
+- 128
+item_cat_cardinalities:
+- 3
+- 5
+- 4
+loss_reduction: mean
+lr: 0.0002
+n_blocks: 2
+n_heads: 2
+num_ctx_feats: 1
+num_item_dense_feats: 486
+num_item_text_feats: 384
+num_items: 1609
+num_user_dense_feats: 0
+num_user_text_feats: 0
+num_users: 4741
+scorer_type: mlp
+temperature: 0.15
+topks:
+- 5
+- 10
+- 20
+use_context: true
+use_gcl: true
+use_item_bias: false
+use_item_features: true
+use_seq_encoder: true
+use_text_features: true
+use_user_features: true
+user_cat_cardinalities:
+- 25
+weight_decay: 0.0001

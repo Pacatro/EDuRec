@@ -1,29 +1,32 @@
 adaptive_k: false
 alpha: 1.0
-dropout: 0.1
-edge_dropout: 0.1
-emb_dim: 64
-ff_dim: 1024
-gnn_layers: 4
+dropout: 0.15
+edge_dropout: 0.0
+emb_dim: 256
+ff_dim: 512
+gnn_layers: 1
 graph_mode: lightgcn
-has_history: false
+has_history: true
 hidden_dims:
-- 128
-- 64
-item_cat_cardinalities: []
+- 512
+- 256
+item_cat_cardinalities:
+- 3
+- 5
+- 4
 loss_reduction: mean
 lr: 0.0001
-n_blocks: 2
-n_heads: 4
-num_ctx_feats: 3
-num_item_dense_feats: 384
+n_blocks: 1
+n_heads: 16
+num_ctx_feats: 0
+num_item_dense_feats: 490
 num_item_text_feats: 384
-num_items: 70
+num_items: 2076
 num_user_dense_feats: 0
 num_user_text_feats: 0
-num_users: 454
+num_users: 12465
 scorer_type: mlp
-temperature: 0.1
+temperature: 0.05
 topks:
 - 5
 - 10
@@ -36,7 +39,5 @@ use_seq_encoder: true
 use_text_features: true
 use_user_features: true
 user_cat_cardinalities:
-- 3
-- 3
-- 6
-weight_decay: 0.001
+- 26
+weight_decay: 1.0e-05
