@@ -41,6 +41,7 @@ def dataset_command(
 
     print(f"Dataset name: {dataset.value}")
     print(f"Feedback type: {dm.feedback_type}")
+    print(f"Split strategy: {dm.split_strategy}")
     if dm.limit is not None:
         print(f"Interaction limit: {dm.limit}")
     if not dm.is_explicit:

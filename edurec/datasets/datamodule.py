@@ -12,7 +12,6 @@ from .atomic_files import save_atomic_files
 from .cache import ProcessedData, processed_cache_exists
 from .dataprocessor import DataProcessor
 from .loaders import (
-    TEMPORALLY_ORDERED_DATASETS,
     DatasetName,
     RawData,
     Schema,
@@ -30,6 +29,15 @@ from .preprocessing import (
 from .recsys_dataset import RecSysDataset
 from .user_history import build_histories
 from .downloaders import download_raw_data
+
+
+EXCLUDED_CONTEXT_COLS = (
+    settings.USER_COL,
+    settings.ITEM_COL,
+    settings.RELEVANT_COL,
+    settings.RATING_COL,
+    settings.TIME_COL,
+)
 
 
 class ElearningDataModule(L.LightningDataModule):
@@ -70,14 +78,6 @@ class ElearningDataModule(L.LightningDataModule):
         self.raw_dataset: RawData | None = None
         self.artifacts = ProcessedData()
 
-        self.excluded_cols = {
-            settings.USER_COL,
-            settings.ITEM_COL,
-            settings.RELEVANT_COL,
-            settings.RATING_COL,
-            settings.TIME_COL,
-        }
-
     def prepare_data(self) -> None:
         if processed_cache_exists(self.processed_folder):
             return
@@ -92,51 +92,7 @@ class ElearningDataModule(L.LightningDataModule):
                 if not self.has_temporal_order:
                     self._randomize_processed_splits()
             else:
-                raw = load_raw_data(self.dataset_name)
-                interactions = clean_cols(raw.interactions)
-                if self.limit is not None:
-                    interactions = interactions.head(self.limit).reset_index(drop=True)
-                self.raw_dataset = RawData(
-                    interactions=interactions,
-                    user_features=clean_cols(raw.user_features),
-                    item_features=clean_cols(raw.item_features),
-                    schema=raw.schema,
-                )
-
-                users = self.raw_dataset.user_features
-                items = self.raw_dataset.item_features
-                interactions = self.raw_dataset.interactions
-
-                if self.remove_sparse:
-                    users, items, interactions = filter_sparse(
-                        users,
-                        items,
-                        interactions,
-                        min_interactions=self.min_interactions,
-                    )
-
-                train, val, test = split_data(
-                    interactions,
-                    test_ratio=self.test_ratio,
-                    val_ratio=self.val_ratio,
-                    min_interactions=self.min_interactions,
-                    random_state=self.random_state,
-                )
-
-                thresholds = get_relevance_threshold(train)
-                train = add_relevance(train, thresholds)
-                val = add_relevance(val, thresholds)
-                test = add_relevance(test, thresholds)
-
-                self.artifacts = preprocess(
-                    processor=DataProcessor(schema=raw.schema),
-                    users=users,
-                    items=items,
-                    train=train,
-                    val=val,
-                    test=test,
-                )
-                self.artifacts.save(self.processed_folder)
+                self._process_raw_data()
 
         if self.save_atomic_files:
             self.atomic_files = save_atomic_files(
@@ -189,11 +145,54 @@ class ElearningDataModule(L.LightningDataModule):
             history_items=history_items,
             history_valid_mask=history_valid_mask,
             num_ctx_feats=self.num_ctx_feats,
-            context_cols=[
-                col for col in interactions.columns if col not in self.excluded_cols
-            ],
+            context_cols=self._context_cols(interactions),
             negative_item_ids=negative_item_ids,
         )
+
+    def _process_raw_data(self) -> None:
+        raw = load_raw_data(self.dataset_name)
+        interactions = clean_cols(raw.interactions)
+        if self.limit is not None:
+            interactions = interactions.head(self.limit).reset_index(drop=True)
+        self.raw_dataset = RawData(
+            interactions=interactions,
+            user_features=clean_cols(raw.user_features),
+            item_features=clean_cols(raw.item_features),
+            schema=raw.schema,
+        )
+
+        users = self.raw_dataset.user_features
+        items = self.raw_dataset.item_features
+        interactions = self.raw_dataset.interactions
+        if self.remove_sparse:
+            users, items, interactions = filter_sparse(
+                users, items, interactions, min_interactions=self.min_interactions
+            )
+
+        train, val, test = split_data(
+            interactions,
+            test_ratio=self.test_ratio,
+            val_ratio=self.val_ratio,
+            min_interactions=self.min_interactions,
+            random_state=self.random_state,
+        )
+        thresholds = get_relevance_threshold(train)
+        train, val, test = (
+            add_relevance(split, thresholds) for split in (train, val, test)
+        )
+        self.artifacts = preprocess(
+            processor=DataProcessor(schema=raw.schema),
+            users=users,
+            items=items,
+            train=train,
+            val=val,
+            test=test,
+        )
+        self.artifacts.save(self.processed_folder)
+
+    @staticmethod
+    def _context_cols(interactions: pd.DataFrame) -> list[str]:
+        return [col for col in interactions.columns if col not in EXCLUDED_CONTEXT_COLS]
 
     def _randomize_processed_splits(self) -> None:
         """Replace cached temporal splits when the dataset has no real ordering."""
@@ -364,17 +363,9 @@ class ElearningDataModule(L.LightningDataModule):
     @property
     def num_ctx_feats(self) -> int:
         if self.artifacts.train is not None:
-            return len(
-                [c for c in self.artifacts.train.columns if c not in self.excluded_cols]
-            )
+            return len(self._context_cols(self.artifacts.train))
         if self.raw_dataset is not None:
-            return len(
-                [
-                    c
-                    for c in self.raw_dataset.interactions.columns
-                    if c not in self.excluded_cols
-                ]
-            )
+            return len(self._context_cols(self.raw_dataset.interactions))
         return 0
 
     @property
@@ -396,11 +387,11 @@ class ElearningDataModule(L.LightningDataModule):
             if self.raw_dataset is not None
             else self.artifacts.train
         )
-        return bool(
-            self.dataset_name in TEMPORALLY_ORDERED_DATASETS
-            and interactions is not None
-            and settings.TIME_COL in interactions.columns
-        )
+        return interactions is not None and settings.TIME_COL in interactions.columns
+
+    @property
+    def split_strategy(self) -> str:
+        return "temporal" if self.has_temporal_order else "random"
 
     @property
     def sparsity(self) -> float:

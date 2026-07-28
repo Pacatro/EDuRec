@@ -29,18 +29,6 @@ type ExportFn = Callable[[], RawData]
 
 dataset_loaders: dict[DatasetName, ExportFn] = {}
 
-# A timestamp is useful only when it represents a real chronological order.
-# Keep this declaration explicit so synthetic row indexes cannot accidentally
-# enable sequential model components.
-TEMPORALLY_ORDERED_DATASETS = frozenset(
-    {
-        DatasetName.EXPLICIT_MARS,
-        DatasetName.IMPLICIT_MARS,
-        DatasetName.DORIS,
-        DatasetName.MOOCCUBEX,
-    }
-)
-
 
 def register_dataset(ds_name: DatasetName) -> Callable[[ExportFn], ExportFn]:
     """Decorator for registering a dataset loader.

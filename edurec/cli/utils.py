@@ -56,7 +56,7 @@ def print_data_summary(prefix: str, dm: ElearningDataModule) -> None:
     print(
         f"[{prefix}] Data ready: users={dm.num_users:,}, items={dm.num_items:,}, "
         f"interactions={dm.num_interactions:,}, sparsity={dm.sparsity:.4f}, "
-        f"feedback={dm.feedback_type}, temporal_order={dm.has_temporal_order}"
+        f"feedback={dm.feedback_type}, split={dm.split_strategy}"
     )
     print(
         f"[{prefix}] Splits: "

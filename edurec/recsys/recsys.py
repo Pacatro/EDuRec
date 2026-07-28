@@ -193,8 +193,6 @@ class RecSys(L.LightningModule):
                 max_k=max(metric_topks),
             )
 
-            # All retrieval metrics in the collection return scalar tensors.
-            # Lightning asks TorchMetrics to compute and reset them at epoch end.
             self.log_dict(
                 ranking_metrics,
                 on_step=False,
