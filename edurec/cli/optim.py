@@ -92,8 +92,8 @@ def optimize(
     print(f"[OPTIM] Results folder: {results_root}")
     print(f"[OPTIM] Configs folder: {configs_folder}")
 
-    for dataset in datasets:
-        run_name = dataset_run_name(dataset, limit)
+    for dataset_name in datasets:
+        run_name = dataset_run_name(dataset_name, limit)
         if verbose:
             print(
                 f"[OPTIM] Config: epochs={epochs}, batch_size={batch_size}, trials={n_trials}, patience={patience}"
@@ -106,7 +106,7 @@ def optimize(
             )
 
         dm = ElearningDataModule(
-            dataset=dataset,
+            dataset=dataset_name,
             batch_size=batch_size,
             test_ratio=test_ratio,
             val_ratio=val_ratio,
