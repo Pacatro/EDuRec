@@ -1,5 +1,4 @@
 import datetime
-from dataclasses import replace
 from pathlib import Path
 from typing import Annotated
 
@@ -9,7 +8,7 @@ import typer
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
 from ..evaluation import eval_model, eval_sota_models, eval_upgpr
-from ..recsys import EDuRecConfig, optimize_model
+from ..recsys import EDuRecConfig
 from .utils import (
     build_config,
     dataset_run_name,
@@ -26,9 +25,7 @@ def _save_seed_results(
     results: pd.DataFrame,
     dataset_root: Path,
     seed: int,
-) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
-
+) -> None:
     for result in results.to_dict(orient="records"):
         model = str(result.pop("model"))
         row = {"model": model, "seed": seed, **result}
@@ -38,9 +35,6 @@ def _save_seed_results(
             model_root / settings.METRICS_FILENAME,
             index=False,
         )
-        rows.append(row)
-
-    return rows
 
 
 def _target_models(sota_models: list[str]) -> list[str]:
@@ -71,7 +65,7 @@ def _evaluated_seeds_by_model(
     dataset_root: Path,
     models: list[str],
 ) -> dict[str, set[int]]:
-    evaluated: dict[str, set[int]] = {model: set() for model in models}
+    evaluated = {model: set() for model in models}
     for model in models:
         model_root = dataset_root / model
         if not model_root.exists():
@@ -93,13 +87,33 @@ def _collect_seed_results(
     models: list[str],
     seeds: list[int],
 ) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
+    rows = []
     for seed in seeds:
         for model in models:
             row = _load_seed_result(dataset_root, model, seed)
             if row is not None:
                 rows.append(row)
     return rows
+
+
+def _summarize_seed_results(results: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate numeric evaluation metrics across seeds for each model."""
+    metric_cols = [col for col in results.columns if col not in {"model", "seed"}]
+    summary_rows: list[dict[str, str]] = []
+
+    for model, model_results in results.groupby("model", sort=False):
+        row = {"model": str(model)}
+        for metric in metric_cols:
+            values = pd.to_numeric(model_results[metric], errors="coerce").dropna()
+            if values.empty:
+                continue
+
+            mean = values.mean()
+            std = values.std(ddof=1) if len(values) > 1 else 0.0
+            row[metric] = f"{mean:.4f} ± {std:.4f}"
+        summary_rows.append(row)
+
+    return pd.DataFrame(summary_rows, columns=["model", *metric_cols])
 
 
 @app.command(
@@ -159,15 +173,6 @@ def eval_models(
             help="Early stopping patience used by all evaluated models.",
         ),
     ] = settings.PATIENCE,
-    n_trials: Annotated[
-        int,
-        typer.Option(
-            "--trials",
-            "-n",
-            min=1,
-            help="Number of trials when no optimized configuration exists.",
-        ),
-    ] = settings.OPTIM_N_TRIALS,
     topks: Annotated[
         list[int],
         typer.Option(
@@ -239,7 +244,7 @@ def eval_models(
         typer.Option(
             "--configs-folder",
             "-C",
-            help="Folder containing optimized EDuRec configurations.",
+            help="Folder containing saved EDuRec configurations.",
         ),
     ] = Path(settings.CONFIGS_FOLDER),
 ) -> None:
@@ -269,10 +274,8 @@ def eval_models(
         dataset_root = output_dir / run_name
         dataset_root.mkdir(parents=True, exist_ok=True)
         dataset_started_at = datetime.datetime.now(datetime.UTC)
-        config_path = (
-            configs_folder / f"config-{dataset_run_name(dataset_name, limit)}.yaml"
-        )
-        optimized_cfg = EDuRecConfig.load(config_path) if config_path.exists() else None
+        config_path = configs_folder / f"config-{run_name}.yaml"
+        saved_cfg = EDuRecConfig.load(config_path) if config_path.exists() else None
         evaluated_seeds = _evaluated_seeds_by_model(dataset_root, models)
         pending_by_seed = {
             seed: [
@@ -297,8 +300,8 @@ def eval_models(
             )
         if not pending_by_seed:
             print("[EVAL] All requested seeds are already evaluated. Skipping runs.")
-        if optimized_cfg is not None:
-            print(f"[EVAL] Using optimized config: {config_path}")
+        if saved_cfg is not None:
+            print(f"[EVAL] Using saved config: {config_path}")
 
         if verbose:
             if cfg_path is not None:
@@ -340,43 +343,20 @@ def eval_models(
 
             print_data_summary("EVAL", dm)
 
-            if optimized_cfg is None:
-                print(f"[EVAL] No optimized config found. Running {n_trials} trials...")
-                study = optimize_model(
-                    base_config=build_config(
-                        dm,
-                        lr=lr,
-                        adaptive_k=adaptive_k,
-                        topks=eval_topks,
-                    ),
-                    dm=dm,
-                    n_trials=n_trials,
-                    epochs=epochs,
-                    patience=patience,
-                    val_topk=val_topk,
-                    verbose=verbose,
-                    results_path=dataset_root / "optimization",
+            if saved_cfg is None:
+                cfg = build_config(
+                    dm,
+                    lr=lr,
+                    adaptive_k=adaptive_k,
+                    topks=eval_topks,
                 )
-                optimized_cfg = EDuRecConfig(**study.best_trial.user_attrs["config"])
-                config_path.parent.mkdir(parents=True, exist_ok=True)
-                optimized_cfg.save(config_path)
-                print(f"[EVAL] Optimized config saved: {config_path}")
-
-            cfg = replace(
-                optimized_cfg,
-                num_users=dm.num_users,
-                num_items=dm.num_items,
-                num_ctx_feats=dm.train_ds.num_ctx_feats,
-                num_user_dense_feats=dm.num_user_dense_feats,
-                num_item_dense_feats=dm.num_item_dense_feats,
-                num_user_text_feats=dm.num_user_text_feats,
-                num_item_text_feats=dm.num_item_text_feats,
-                user_cat_cardinalities=dm.user_cat_cardinalities,
-                item_cat_cardinalities=dm.item_cat_cardinalities,
-                has_history=dm.has_history,
-                adaptive_k=adaptive_k,
-                topks=eval_topks,
-            )
+            else:
+                cfg = build_config(
+                    dm,
+                    base=saved_cfg,
+                    adaptive_k=adaptive_k,
+                    topks=eval_topks,
+                )
             print_model_modules("EVAL", cfg)
 
             if "EDuRec" in pending_models:
@@ -433,6 +413,10 @@ def eval_models(
         csv_path = dataset_root / "evaluation_results.csv"
         results.to_csv(csv_path, index=False)
 
+        summary = _summarize_seed_results(results)
+        summary_path = dataset_root / "evaluation_summary.csv"
+        summary.to_csv(summary_path, index=False)
+
         metric_cols = [col for col in results.columns if col not in {"model", "seed"}]
         preferred_cols = ["model", "seed"] + sorted(
             metric_cols,
@@ -444,6 +428,7 @@ def eval_models(
         print("[EVAL] Results:")
         print(results[preferred_cols].round(4).to_string(index=False))
         print(f"[EVAL] Saved: {csv_path}")
+        print(f"[EVAL] Saved summary: {summary_path}")
         now = datetime.datetime.now(datetime.UTC)
         elapsed = str(now - dataset_started_at).split(".", maxsplit=1)[0]
         print(f"[EVAL] Finished {run_name} in {elapsed}\n")

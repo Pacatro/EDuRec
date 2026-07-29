@@ -102,18 +102,10 @@ Common options:
 -a, --adaptive_k                Use adaptive-k metrics where supported
 -D, --debug                     Fast debug run
 -S, --save_model                Save checkpoint, config, and metrics
--o, --optimize                  Run hyperparameter optimization first
--n, --trials INTEGER            Optimization trials, default: 30
 -P, --use_processed             Reuse cached processed data
 -M, --models-folder TEXT        Default: models
 -C, --configs-folder TEXT       Default: configs
 -E, --experiment-name TEXT      Optional logger experiment name
-```
-
-Example with optimization before the final training run:
-
-```bash
-uv run edurec train -d doris -P -S --optimize --trials 30
 ```
 
 ### Test a Saved Model
@@ -164,8 +156,9 @@ Useful options:
 -a, --adaptive-k / -A, --fixed-k
 ```
 
-Results are written to `results/evaluations/<timestamp>/<dataset>/`, with one
-artifact CSV per model and an aggregate `final_results.csv`.
+Results are written to `results/evaluations/<dataset>/`, with one CSV per model
+and seed, the detailed `evaluation_results.csv`, and the aggregated
+`evaluation_summary.csv`.
 
 ### Optimize Hyperparameters
 
@@ -176,9 +169,9 @@ uv run edurec optim --dataset explicit_mars --trials 30 --use_processed
 ```
 
 The command saves the best configuration, trial log, and study database under
-`results/optimization/<timestamp>/`. It also writes the best configuration for
-each dataset to `configs/config-<dataset>.yaml`, so it can be reused by
-training and evaluation. Use `--configs-folder` to choose a different folder.
+`results/optimization/<dataset>/`. It also writes the best configuration for
+each dataset to `configs/config-<dataset>.yaml`, so it can be reused by training
+and evaluation. Use `--configs-folder` to choose a different folder.
 
 ### Run Ablations
 
@@ -257,9 +250,8 @@ patience, batch size, and top-k settings.
 
 ### Hyperparameter Optimization
 
-`uv run edurec optim` and `uv run edurec train --optimize` run Optuna studies for
-EDuRec and save the best model configuration as YAML for later training or
-ablation experiments.
+`uv run edurec optim` runs Optuna studies for EDuRec and saves the best model
+configuration as YAML for later training, evaluation, or ablation experiments.
 
 ### Ablation Study
 

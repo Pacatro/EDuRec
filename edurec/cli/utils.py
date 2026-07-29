@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Any
 
 import typer
@@ -22,19 +23,29 @@ def parse_seeds(seeds: str) -> list[int]:
     return parsed
 
 
-def build_config(dm: ElearningDataModule, **kwargs: Any) -> EDuRecConfig:
+def build_config(
+    dm: ElearningDataModule,
+    base: EDuRecConfig | None = None,
+    **overrides: Any,
+) -> EDuRecConfig:
+    dataset_config = {
+        "num_users": dm.num_users,
+        "num_items": dm.num_items,
+        "num_ctx_feats": dm.train_ds.num_ctx_feats,
+        "num_user_dense_feats": dm.num_user_dense_feats,
+        "num_item_dense_feats": dm.num_item_dense_feats,
+        "num_user_text_feats": dm.num_user_text_feats,
+        "num_item_text_feats": dm.num_item_text_feats,
+        "user_cat_cardinalities": dm.user_cat_cardinalities,
+        "item_cat_cardinalities": dm.item_cat_cardinalities,
+        "has_history": dm.has_history,
+    }
+    if base is not None:
+        return replace(base, **dataset_config, **overrides)
+
     return EDuRecConfig(
-        num_users=dm.num_users,
-        num_items=dm.num_items,
-        num_ctx_feats=dm.train_ds.num_ctx_feats,
-        num_user_dense_feats=dm.num_user_dense_feats,
-        num_item_dense_feats=dm.num_item_dense_feats,
-        num_user_text_feats=dm.num_user_text_feats,
-        num_item_text_feats=dm.num_item_text_feats,
-        user_cat_cardinalities=dm.user_cat_cardinalities,
-        item_cat_cardinalities=dm.item_cat_cardinalities,
-        has_history=dm.has_history,
-        **kwargs,
+        **dataset_config,
+        **overrides,
     )
 
 

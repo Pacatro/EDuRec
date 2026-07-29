@@ -1,5 +1,4 @@
 import datetime
-from dataclasses import replace
 from pathlib import Path
 from typing import Annotated
 
@@ -7,12 +6,7 @@ import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
-from ..recsys import (
-    EDuRecConfig,
-    RecSys,
-    optimize_model,
-    train_model,
-)
+from ..recsys import EDuRecConfig, RecSys, train_model
 from ..recsys.io import save_metrics, save_model
 from .utils import (
     build_config,
@@ -58,23 +52,6 @@ def train(
     ] = settings.ADAPTIVE_K,
     debug: Annotated[bool, typer.Option("--debug", "-D")] = False,
     save: Annotated[bool, typer.Option("--save_model", "-S")] = False,
-    optimize: Annotated[
-        bool,
-        typer.Option(
-            "--optimize",
-            "-o",
-            help="Optimize hyperparameters before the final training run.",
-        ),
-    ] = False,
-    n_trials: Annotated[
-        int,
-        typer.Option(
-            "--trials",
-            "-n",
-            min=1,
-            help="Number of hyperparameter optimization trials.",
-        ),
-    ] = settings.OPTIM_N_TRIALS,
     use_processed_data: Annotated[
         bool, typer.Option("--use_processed", "-P")
     ] = settings.SAVE_DATA,
@@ -91,7 +68,6 @@ def train(
     started_at = datetime.datetime.now(datetime.UTC)
     verbose = settings.state["verbose"]
     monitor_metric = f"val/ndcg@{top_k}"
-    optimization_root = Path(settings.RESULTS_FOLDER) / "optimization"
     training_root = Path(settings.RESULTS_FOLDER) / "training"
 
     datasets = datasets_to_run(dataset)
@@ -106,15 +82,13 @@ def train(
         print("[TRAIN] Model: EDuRec")
         print(f"[TRAIN] Monitor: {monitor_metric}")
         print(f"[TRAIN] Save model: {save}")
-        print(f"[TRAIN] Optimize hyperparameters: {optimize}")
         print("[TRAIN] Preparing data...")
 
         if verbose:
             print(
                 "[TRAIN] Config: "
                 f"epochs={epochs}, lr={lr}, batch_size={batch_size}, "
-                f"patience={patience}, adaptive_k={adaptive_k}, debug={debug}, "
-                f"optimize={optimize}, trials={n_trials}"
+                f"patience={patience}, adaptive_k={adaptive_k}, debug={debug}"
             )
 
             if dataset_experiment_name:
@@ -157,53 +131,23 @@ def train(
 
         print_data_summary("TRAIN", dm)
 
-        config_path = (
-            Path(configs_folder) / f"config-{dataset_run_name(dataset_name, limit)}.yaml"
-        )
+        config_path = Path(configs_folder) / f"config-{run_name}.yaml"
 
-        base_cfg = build_config(dm, lr=lr, adaptive_k=adaptive_k, topks=settings.TOP_KS)
-
-        if optimize:
-            dataset_results_path = optimization_root / run_name
-            print(f"[TRAIN] Optimizing {n_trials} trials...")
-            study = optimize_model(
-                base_config=base_cfg,
-                dm=dm,
-                n_trials=n_trials,
-                epochs=epochs,
-                patience=patience,
-                val_topk=top_k,
-                verbose=verbose,
-                results_path=dataset_results_path,
-            )
-            cfg = EDuRecConfig(**study.best_trial.user_attrs["config"])
-            config_path.parent.mkdir(parents=True, exist_ok=True)
-            cfg.save(config_path)
-            print(
-                f"[TRAIN] Best optimization score: {study.best_value} "
-                f"(trial {study.best_trial.number})"
-            )
-            print(f"[TRAIN] Best parameters: {study.best_params}")
-            print(f"[TRAIN] Configuration saved: {config_path}")
-        elif config_path.exists():
-            cfg = replace(
-                EDuRecConfig.load(config_path),
-                num_users=dm.num_users,
-                num_items=dm.num_items,
-                num_ctx_feats=dm.train_ds.num_ctx_feats,
-                num_user_dense_feats=dm.num_user_dense_feats,
-                num_item_dense_feats=dm.num_item_dense_feats,
-                num_user_text_feats=dm.num_user_text_feats,
-                num_item_text_feats=dm.num_item_text_feats,
-                user_cat_cardinalities=dm.user_cat_cardinalities,
-                item_cat_cardinalities=dm.item_cat_cardinalities,
-                has_history=dm.has_history,
+        if config_path.exists():
+            cfg = build_config(
+                dm,
+                base=EDuRecConfig.load(config_path),
                 adaptive_k=adaptive_k,
                 topks=settings.TOP_KS,
             )
             print(f"[TRAIN] Using saved configuration: {config_path}")
         else:
-            cfg = base_cfg
+            cfg = build_config(
+                dm,
+                lr=lr,
+                adaptive_k=adaptive_k,
+                topks=settings.TOP_KS,
+            )
             print("[TRAIN] No saved configuration found; using the full model.")
 
         print_model_modules("TRAIN", cfg)
