@@ -56,11 +56,11 @@ def train(
         bool, typer.Option("--use_processed", "-P")
     ] = settings.SAVE_DATA,
     models_folder: Annotated[
-        str, typer.Option("--models-folder", "-M")
-    ] = settings.MODELS_FOLDER,
+        Path, typer.Option("--models-folder", "-M")
+    ] = Path(settings.MODELS_FOLDER),
     configs_folder: Annotated[
-        str, typer.Option("--configs-folder", "-C")
-    ] = settings.CONFIGS_FOLDER,
+        Path, typer.Option("--configs-folder", "-C")
+    ] = Path(settings.CONFIGS_FOLDER),
     experiment_name: Annotated[
         str | None, typer.Option("--experiment-name", "-E")
     ] = None,
@@ -119,19 +119,9 @@ def train(
         dm.prepare_data()
         dm.setup()
 
-        if verbose:
-            if use_processed_data:
-                print(
-                    f"[TRAIN] Using saved processed data from {settings.PROCESSED_FOLDER}"
-                )
-            else:
-                print(
-                    f"[TRAIN] Processing raw data from {settings.DATA_FOLDER}/raw/{dataset_name.value}"
-                )
-
         print_data_summary("TRAIN", dm)
 
-        config_path = Path(configs_folder) / f"config-{run_name}.yaml"
+        config_path = configs_folder / f"config-{run_name}.yaml"
 
         if config_path.exists():
             cfg = build_config(
@@ -173,8 +163,9 @@ def train(
         )
 
         if debug:
-            now = datetime.datetime.now(datetime.UTC)
-            elapsed = str(now - started_at).split(".", maxsplit=1)[0]
+            elapsed = str(
+                datetime.datetime.now(datetime.UTC) - started_at
+            ).split(".", maxsplit=1)[0]
             print("[TRAIN] Debug mode: skipping evaluation")
             print(f"[TRAIN] Finished {dataset_name.value} in {elapsed}\n")
             return
@@ -187,7 +178,6 @@ def train(
 
         print(f"[TRAIN] Training time: {metrics['training_time_s']}")
         print(f"[TRAIN] Inference time: {metrics['inference_time_s']}")
-
         print(f"[TRAIN] Best checkpoint: {best_model_path}")
 
         metrics_path = save_metrics(metrics, dataset_name.value, training_root)
@@ -200,7 +190,6 @@ def train(
                 best_model_path=best_model_path,
                 models_folder=models_folder,
             )
-
             print(f"[TRAIN] Model weights saved: {model_file_path}")
             print(f"[TRAIN] Model config saved: {model_config_path}")
 
