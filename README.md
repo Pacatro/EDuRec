@@ -185,14 +185,15 @@ Implemented main variants:
 
 - `base`: ID-only dot-product baseline.
 - `full`: full EDuRec architecture.
-- `availability_aware`: enables only modules whose required inputs are present
-  in the dataset and records their effective status in the result table.
 - `no_graph`: removes LightGCN and graph contrastive learning.
-- `no_features`: removes user, item, and text feature encoders.
+- `no_features`: removes both user and item feature encoders.
+- `no_user_features` / `no_item_features`: removes one side-feature encoder.
 - `no_sequence`: removes SASRec history encoding.
 - `no_context`: removes the independent interaction-context representation.
-- `no_routers`: replaces routing networks with uniform module combination.
+- `sum_fusion`: replaces `MaskedGatedFusion` with a direct sum of the module
+  representations.
 - `no_gcl`: removes graph contrastive learning.
+- `no_item_bias`: removes the learned item-popularity bias.
 - `dot_product`: replaces the MLP scorer with dot-product scoring.
 
 Aggregated outputs are saved to `results/ablations/<dataset>/`.
@@ -208,12 +209,12 @@ modules:
   graph produces collaborative user and item embeddings.
 - **Feature encoders**: MLP encoders transform dense and categorical user/item
   features into the shared embedding space.
-- **Text projection**: preprocessed item text embeddings are projected into the
-  same latent dimension as the other item modules.
+- **Text features**: preprocessed text embeddings are consumed by the user/item
+  feature encoders together with the other dense features.
 - **Sequential encoder**: a SASRec-style Transformer encodes each user's recent
-  item history, optionally enriched with interaction context features.
-- **Routers**: small routing networks weight and combine the available user
-  modules and item modules using user/item statistics.
+  item history.
+- **Gated fusion**: learned global gates weight and combine the available user
+  and item representations.
 - **Scorer**: the final user and item embeddings are scored with either an MLP
   scorer or a dot-product scorer. An optional item bias can be added.
 
@@ -258,8 +259,8 @@ configuration as YAML for later training, evaluation, or ablation experiments.
 `uv run edurec ablation` evaluates architecture variants across configurable
 seeds and records metrics, parameter counts, and per-run configuration files.
 This is intended to isolate the contribution of graph modeling, side features,
-text features, sequential history, context, routing networks, graph contrastive
-learning, and the scoring function.
+text features, sequential history, context, gated fusion, graph contrastive
+learning, item bias, and the scoring function.
 
 ## Author
 

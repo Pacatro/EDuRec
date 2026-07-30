@@ -7,7 +7,7 @@ import yaml
 from torch import nn
 
 from ... import settings
-from .fusion import FusionConfig, MaskedGatedFusion
+from .fusion import FusionConfig, MaskedGatedFusion, SumFusion
 from .graph_encoder import GraphEncoder, GraphEncoderConfig
 from .mlp_encoder import MLPEncoder, MLPEncoderConfig
 from .scorer import Scorer, ScorerConfig
@@ -39,6 +39,7 @@ class EDuRecConfig:
     use_context: bool = True
     use_gcl: bool = True
     scorer_type: Literal["mlp", "dot"] = "mlp"
+    fusion_type: Literal["masked_gated", "sum"] = "masked_gated"
 
     # GCL Defaults
     edge_dropout: float = settings.DROP_EDGES_P
@@ -208,22 +209,27 @@ class EDuRec(nn.Module):
         )
         self.scorer = Scorer(cfg.scorer)
 
-    def _make_fusion(self, num_sources: int) -> MaskedGatedFusion | None:
+    def _make_fusion(
+        self, num_sources: int
+    ) -> MaskedGatedFusion | SumFusion | None:
         # A single source needs neither gates nor normalization parameters.
         if num_sources == 1:
             return None
-        return MaskedGatedFusion(
-            FusionConfig(
-                emb_dim=self.cfg.emb_dim,
-                num_sources=num_sources,
-                dropout=self.cfg.dropout,
-            )
+        fusion_cfg = FusionConfig(
+            emb_dim=self.cfg.emb_dim,
+            num_sources=num_sources,
+            dropout=self.cfg.dropout,
         )
+        if self.cfg.fusion_type == "sum":
+            return SumFusion(fusion_cfg)
+        if self.cfg.fusion_type == "masked_gated":
+            return MaskedGatedFusion(fusion_cfg)
+        raise ValueError(f"Unknown fusion type: {self.cfg.fusion_type!r}.")
 
     @staticmethod
     def _fuse(
         sources: list[torch.Tensor],
-        fusion: MaskedGatedFusion | None,
+        fusion: MaskedGatedFusion | SumFusion | None,
     ) -> torch.Tensor:
         return sources[0] if fusion is None else fusion(sources)
 

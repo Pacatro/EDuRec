@@ -67,3 +67,18 @@ class MaskedGatedFusion(nn.Module):
         fused = (normalized_sources * weights.unsqueeze(-1)).sum(dim=1)
         fused = self.output_norm(self.dropout(fused))
         return fused.masked_fill(~has_available_source.unsqueeze(-1), 0.0)
+
+
+class SumFusion(nn.Module):
+    """Sum source representations without learnable fusion parameters."""
+
+    def __init__(self, cfg: FusionConfig) -> None:
+        super().__init__()
+        self.cfg = cfg
+
+    def forward(self, sources: list[torch.Tensor]) -> torch.Tensor:
+        if len(sources) != self.cfg.num_sources:
+            raise ValueError(
+                f"Expected {self.cfg.num_sources} sources, got {len(sources)}."
+            )
+        return torch.stack(sources, dim=0).sum(dim=0)
