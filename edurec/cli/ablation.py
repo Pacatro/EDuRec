@@ -29,7 +29,7 @@ def run_ablation(
     seeds: Annotated[
         str,
         typer.Option("--seeds", "-s", help="Comma-separated seeds to run."),
-    ] = "13,42,77,101,2026",
+    ] = "13,42,77",
     epochs: Annotated[int, typer.Option("--epochs", "-e", min=1)] = settings.EPOCHS,
     lr: Annotated[float, typer.Option("--lr", "-l")] = settings.LR,
     limit: Annotated[

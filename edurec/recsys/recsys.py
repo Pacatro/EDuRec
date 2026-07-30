@@ -134,11 +134,6 @@ class RecSys(L.LightningModule):
         use_gcl = (
             prefix == "train" and self.cfg.use_gcl and self.cfg.graph_mode == "lightgcn"
         )
-        if prefix == "train" and not use_gcl:
-            print(
-                f"[WARN] GCL disabled: use_gcl={self.cfg.use_gcl}, "
-                f"graph_mode={self.cfg.graph_mode!r}"
-            )
         gcl_loss = self._compute_gcl_loss(batch) if use_gcl else rank_loss.new_zeros(())
         loss = rank_loss + self.alpha * gcl_loss
 
