@@ -7,7 +7,7 @@ import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
-from ..evaluation import eval_model, eval_sota_models, eval_upgpr
+from ..evaluation import eval_model, eval_sota_models
 from ..recsys import ModelConfig
 from ..recsys.configs import monitor_topk, resolve_train_config
 from .utils import (
@@ -113,7 +113,7 @@ def _summarize_seed_results(results: pd.DataFrame) -> pd.DataFrame:
 
 @app.command(
     name="eval",
-    help="Evaluate EDuRec against UPGPR and RecBole SOTA models.",
+    help="Evaluate EDuRec against RecBole SOTA models.",
 )
 def eval_models(
     dataset: Annotated[
@@ -156,7 +156,7 @@ def eval_models(
             "--batch-size",
             "-b",
             min=1,
-            help="Batch size used by EDuRec, UPGPR and RecBole. "
+            help="Batch size used by EDuRec and RecBole. "
             "Uses the saved training config if omitted.",
         ),
     ] = None,
@@ -257,7 +257,7 @@ def eval_models(
 
     print("\n[EVAL] Evaluation run")
     print(f"[EVAL] Datasets: {', '.join(ds.value for ds in datasets)}")
-    print(f"[EVAL] Models: EDuRec, UPGPR + {len(sota_models)} SOTA")
+    print(f"[EVAL] Models: EDuRec + {len(sota_models)} SOTA")
     print(f"[EVAL] Seeds: {', '.join(str(seed) for seed in parsed_seeds)}")
     print(f"[EVAL] Results folder: {output_dir}")
     print(f"[EVAL] Configs folder: {configs_folder}\n")
@@ -294,7 +294,7 @@ def eval_models(
         print(f"[EVAL] [{dataset_idx}/{len(datasets)}] Dataset: {run_name}")
         print(f"[EVAL] Top-k: {train_cfg.topks} | val@{val_topk}")
         print(
-            f"[EVAL] Models: EDuRec, UPGPR, {', '.join(sota_models) if sota_models else 'none'}"
+            f"[EVAL] Models: EDuRec, {', '.join(sota_models) if sota_models else 'none'}"
         )
         if not pending_by_seed:
             print("[EVAL] All requested seeds are already evaluated. Skipping runs.")
@@ -357,21 +357,6 @@ def eval_models(
                     verbose=verbose,
                 )
                 _save_seed_results(proposed_results, dataset_root, seed)
-
-            if "UPGPR" in pending_models:
-                settings.seed_everything(seed)
-                print(f"[EVAL] Running UPGPR | seed={seed}")
-                upgpr_results = eval_upgpr(
-                    dm=dm,
-                    epochs=train_cfg.epochs,
-                    lr=train_cfg.lr,
-                    val_topk=val_topk,
-                    topks=train_cfg.topks,
-                    patience=train_cfg.patience,
-                    adaptive_k=train_cfg.adaptive_k,
-                    verbose=verbose,
-                )
-                _save_seed_results(upgpr_results, dataset_root, seed)
 
             pending_sota_models = [
                 model for model in sota_models if model in pending_models
