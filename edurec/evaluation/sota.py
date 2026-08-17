@@ -131,7 +131,9 @@ def _run_model(
     Returns:
         Test metrics, training time and inference time in seconds.
     """
-    with TemporaryDirectory(prefix=f"edurec-recbole-{model.lower()}-") as checkpoint_dir:
+    with TemporaryDirectory(
+        prefix=f"edurec-recbole-{model.lower()}-"
+    ) as checkpoint_dir:
         run_config = {**config_dict, "checkpoint_dir": checkpoint_dir}
         return _fit_and_evaluate_model(model, dataset_name, cfg_path, run_config)
 
