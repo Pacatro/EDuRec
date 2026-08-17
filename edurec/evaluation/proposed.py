@@ -6,14 +6,14 @@ import pandas as pd
 
 from ..datasets import ElearningDataModule
 from ..recsys import EDuRecConfig, RecSys, train_model
+from ..recsys.configs import TrainConfig
 
 
 def eval_model(
     dm: ElearningDataModule,
     cfg: EDuRecConfig,
-    epochs: int,
-    val_topk: int,
-    patience: int,
+    train_cfg: TrainConfig | None = None,
+    val_topk: int = settings.TOP_K,
     compile: bool = settings.COMPILE_MODEL,
     results_path: Path | None = None,
     verbose: bool = False,
@@ -23,6 +23,7 @@ def eval_model(
         inter_graph=dm.build_inter_graph(),
         u_static_feats=dm.u_static_feats,
         i_static_feats=dm.i_static_feats,
+        train_cfg=train_cfg,
         val_topk=val_topk,
     )
 
@@ -30,9 +31,9 @@ def eval_model(
         model=recsys,
         dm=dm,
         debug=False,
-        epochs=epochs,
-        patience=patience,
-        monitor=f"val/ndcg@{val_topk}",
+        epochs=train_cfg.epochs if train_cfg is not None else settings.EPOCHS,
+        patience=train_cfg.patience if train_cfg is not None else settings.PATIENCE,
+        monitor=recsys.monitor,
         compile=compile,
         verbose=verbose,
     )

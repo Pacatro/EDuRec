@@ -17,6 +17,7 @@ from torchmetrics.retrieval import (
 from .. import settings
 from ..datasets import RecSysQuery
 from .architecture import EDuRec, EDuRecConfig
+from .configs import TrainConfig
 from .losses import InfoNCELoss, LossReduction
 
 
@@ -27,6 +28,7 @@ class RecSys(L.LightningModule):
         inter_graph: Data,
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
+        train_cfg: TrainConfig | None = None,
         val_topk: int = settings.TOP_K,
     ) -> None:
         super().__init__()
@@ -39,11 +41,12 @@ class RecSys(L.LightningModule):
         )
 
         self.cfg = cfg
-        self.lr = cfg.lr
-        self.weight_decay = cfg.weight_decay
-        self.alpha = cfg.alpha
+        self.train_cfg = train_cfg or TrainConfig()
+        self.lr = self.train_cfg.lr
+        self.weight_decay = self.train_cfg.weight_decay
+        self.alpha = self.train_cfg.alpha
         self.val_topk = int(val_topk)
-        self.topks = sorted(set(cfg.topks or [settings.TOP_K]))
+        self.topks = sorted(set(self.train_cfg.topks or [settings.TOP_K]))
         self.monitor = f"val/ndcg@{self.val_topk}"
 
         self._validate_topks()
@@ -396,7 +399,7 @@ class RecSys(L.LightningModule):
 
             metrics[f"precision@{k}"] = RetrievalPrecision(
                 **common,
-                adaptive_k=self.cfg.adaptive_k,
+                adaptive_k=self.train_cfg.adaptive_k,
             )
             metrics[f"recall@{k}"] = RetrievalRecall(**common)
             metrics[f"ndcg@{k}"] = RetrievalNormalizedDCG(**common)

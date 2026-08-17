@@ -30,6 +30,8 @@ MODEL_FILENAME = "model.pt"
 MODEL_METADATA_FILENAME = "metadata.json"
 METRICS_FILENAME = "metrics"
 CONFIGS_FOLDER: str = "configs"
+MODEL_CONFIGS_FOLDER: str = f"{CONFIGS_FOLDER}/model"
+TRAIN_CONFIGS_FOLDER: str = f"{CONFIGS_FOLDER}/train"
 
 # Datasets
 ITEM_COL: str = "item_id"

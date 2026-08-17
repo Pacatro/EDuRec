@@ -83,5 +83,7 @@ def load_model(
 
     config_payload = json.loads(config_file.read_text(encoding="utf-8"))
     config_data = config_payload.get("config", config_payload)
+    fields = EDuRecConfig.__dataclass_fields__
+    config_data = {k: v for k, v in config_data.items() if k in fields}
 
     return model_file, EDuRecConfig(**config_data)

@@ -11,10 +11,13 @@ from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
 from ..evaluation.ablation import ABLATIONS, get_ablation_config
 from ..recsys import EDuRecConfig, RecSys, train_model
+from ..recsys.configs import resolve_train_config
 from .utils import (
     build_config,
+    config_paths,
     dataset_run_name,
     datasets_to_run,
+    dataset_train_defaults,
     parse_seeds,
     print_data_summary,
     print_model_modules,
@@ -30,8 +33,23 @@ def run_ablation(
         str,
         typer.Option("--seeds", "-s", help="Comma-separated seeds to run."),
     ] = "13,42,77",
-    epochs: Annotated[int, typer.Option("--epochs", "-e", min=1)] = settings.EPOCHS,
-    lr: Annotated[float, typer.Option("--lr", "-l")] = settings.LR,
+    epochs: Annotated[
+        int | None,
+        typer.Option(
+            "--epochs",
+            "-e",
+            min=1,
+            help="Number of training epochs. Uses the saved training config if omitted.",
+        ),
+    ] = None,
+    lr: Annotated[
+        float | None,
+        typer.Option(
+            "--lr",
+            "-l",
+            help="Learning rate. Uses the saved training config if omitted.",
+        ),
+    ] = None,
     limit: Annotated[
         int | None,
         typer.Option(
@@ -40,12 +58,8 @@ def run_ablation(
             help="Maximum number of interactions to use before splitting.",
         ),
     ] = None,
-    batch_size: Annotated[
-        int, typer.Option("--batch_size", "-b", min=1)
-    ] = settings.BATCH_SIZE,
-    patience: Annotated[
-        int, typer.Option("--patience", "-p", min=1)
-    ] = settings.PATIENCE,
+    batch_size: Annotated[int | None, typer.Option("--batch_size", "-b", min=1)] = None,
+    patience: Annotated[int | None, typer.Option("--patience", "-p", min=1)] = None,
     val_size: Annotated[float, typer.Option("--val_size", "-v")] = settings.VAL_RATIO,
     test_size: Annotated[
         float, typer.Option("--test_size", "-t")
@@ -57,9 +71,7 @@ def run_ablation(
     min_interactions: Annotated[
         int, typer.Option("--min_interactions", "-i")
     ] = settings.MIN_INTERACTIONS,
-    adaptive_k: Annotated[
-        bool, typer.Option("--adaptive_k", "-a")
-    ] = settings.ADAPTIVE_K,
+    adaptive_k: Annotated[bool | None, typer.Option("--adaptive_k", "-a")] = None,
     use_processed_data: Annotated[
         bool, typer.Option("--use_processed", "-P")
     ] = settings.SAVE_DATA,
@@ -86,9 +98,19 @@ def run_ablation(
         run_name = dataset_run_name(dataset_name, limit)
         dataset_root = output_dir / run_name
         dataset_root.mkdir(parents=True, exist_ok=True)
-        base_cfg_path = (
-            Path(settings.CONFIGS_FOLDER)
-            / f"config-{dataset_run_name(dataset_name, limit)}.yaml"
+        model_config_path, train_config_path = config_paths(
+            Path(settings.CONFIGS_FOLDER), run_name
+        )
+        train_cfg = resolve_train_config(
+            cli={
+                "epochs": epochs,
+                "lr": lr,
+                "batch_size": batch_size,
+                "patience": patience,
+                "adaptive_k": adaptive_k,
+            },
+            saved_path=train_config_path,
+            defaults=dataset_train_defaults(dataset_name),
         )
         rows = []
 
@@ -97,7 +119,7 @@ def run_ablation(
 
             dm = ElearningDataModule(
                 dataset=dataset_name,
-                batch_size=batch_size,
+                batch_size=train_cfg.batch_size,
                 test_ratio=test_size,
                 val_ratio=val_size,
                 use_processed_data=use_processed_data,
@@ -112,10 +134,10 @@ def run_ablation(
             print_data_summary("ABLATION", dm)
             inter_graph = dm.build_inter_graph()
 
-            if base_cfg_path.exists():
-                print("[ABLATION] Using existing config file:", base_cfg_path)
+            if model_config_path.exists():
+                print("[ABLATION] Using existing model config file:", model_config_path)
                 base_cfg = replace(
-                    EDuRecConfig.load(base_cfg_path),
+                    EDuRecConfig.load(model_config_path),
                     num_users=dm.num_users,
                     num_items=dm.num_items,
                     num_ctx_feats=dm.train_ds.num_ctx_feats,
@@ -129,15 +151,10 @@ def run_ablation(
                 )
             else:
                 print(
-                    "[ABLATION] No config file found, creating new config for dataset:",
+                    "[ABLATION] No model config file found, creating new config for dataset:",
                     run_name,
                 )
-                base_cfg = build_config(
-                    dm,
-                    lr=lr,
-                    adaptive_k=adaptive_k,
-                    topks=settings.TOP_KS,
-                )
+                base_cfg = build_config(dm)
 
             for variant in variants:
                 settings.seed_everything(seed)
@@ -154,6 +171,7 @@ def run_ablation(
                     inter_graph=inter_graph,
                     u_static_feats=dm.u_static_feats,
                     i_static_feats=dm.i_static_feats,
+                    train_cfg=train_cfg,
                     val_topk=top_k,
                 )
                 num_parameters = sum(
@@ -167,8 +185,8 @@ def run_ablation(
                         model=model,
                         dm=dm,
                         debug=debug,
-                        epochs=epochs,
-                        patience=patience,
+                        epochs=train_cfg.epochs,
+                        patience=train_cfg.patience,
                         monitor=model.monitor,
                         compile=False,
                         verbose=verbose,

@@ -7,11 +7,14 @@ import typer
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
 from ..recsys import EDuRecConfig, RecSys, train_model
+from ..recsys.configs import monitor_topk, resolve_train_config
 from ..recsys.io import save_metrics, save_model
 from .utils import (
     build_config,
+    config_paths,
     dataset_run_name,
     datasets_to_run,
+    dataset_train_defaults,
     print_data_summary,
     print_model_modules,
 )
@@ -22,8 +25,24 @@ app = typer.Typer(no_args_is_help=True)
 @app.command(name="train", help="Train the model.")
 def train(
     dataset: Annotated[DatasetName | None, typer.Option("--dataset", "-d")] = None,
-    epochs: Annotated[int, typer.Option("--epochs", "-e")] = settings.EPOCHS,
-    lr: Annotated[float, typer.Option("--lr", "-l")] = settings.LR,
+    epochs: Annotated[
+        int | None,
+        typer.Option(
+            "--epochs",
+            "-e",
+            min=1,
+            help="Number of training epochs. Uses the saved training config if omitted.",
+        ),
+    ] = None,
+    lr: Annotated[
+        float | None,
+        typer.Option(
+            "--lr",
+            "-l",
+            min=0.0,
+            help="Learning rate. Uses the saved training config if omitted.",
+        ),
+    ] = None,
     limit: Annotated[
         int | None,
         typer.Option(
@@ -33,14 +52,37 @@ def train(
         ),
     ] = None,
     batch_size: Annotated[
-        int, typer.Option("--batch_size", "-b")
-    ] = settings.BATCH_SIZE,
-    patience: Annotated[int, typer.Option("--patience", "-p")] = settings.PATIENCE,
+        int | None,
+        typer.Option(
+            "--batch_size",
+            "-b",
+            min=1,
+            help="Batch size. Uses the saved training config if omitted.",
+        ),
+    ] = None,
+    patience: Annotated[
+        int | None,
+        typer.Option(
+            "--patience",
+            "-p",
+            min=1,
+            help="Early stopping patience. Uses the saved training config if omitted.",
+        ),
+    ] = None,
     val_size: Annotated[float, typer.Option("--val_size", "-v")] = settings.VAL_RATIO,
     test_size: Annotated[
         float, typer.Option("--test_size", "-t")
     ] = settings.TEST_RATIO,
-    top_k: Annotated[int, typer.Option("--top_k", "-k")] = settings.TOP_K,
+    top_k: Annotated[
+        int | None,
+        typer.Option(
+            "--top_k",
+            "-k",
+            min=1,
+            help="Validation cutoff for early stopping. "
+            "Defaults to the maximum saved top-k.",
+        ),
+    ] = None,
     remove_sparse: Annotated[
         bool, typer.Option("--remove_sparse", "-R")
     ] = settings.REMOVE_SPARSE,
@@ -48,26 +90,30 @@ def train(
         int, typer.Option("--min_interactions", "-i")
     ] = settings.MIN_INTERACTIONS,
     adaptive_k: Annotated[
-        bool, typer.Option("--adaptive_k", "-a")
-    ] = settings.ADAPTIVE_K,
+        bool | None,
+        typer.Option(
+            "--adaptive_k",
+            "-a",
+            help="Use adaptive k. Uses the saved training config if omitted.",
+        ),
+    ] = None,
     debug: Annotated[bool, typer.Option("--debug", "-D")] = False,
     save: Annotated[bool, typer.Option("--save_model", "-S")] = False,
     use_processed_data: Annotated[
         bool, typer.Option("--use_processed", "-P")
     ] = settings.SAVE_DATA,
-    models_folder: Annotated[
-        Path, typer.Option("--models-folder", "-M")
-    ] = Path(settings.MODELS_FOLDER),
-    configs_folder: Annotated[
-        Path, typer.Option("--configs-folder", "-C")
-    ] = Path(settings.CONFIGS_FOLDER),
+    models_folder: Annotated[Path, typer.Option("--models-folder", "-M")] = Path(
+        settings.MODELS_FOLDER
+    ),
+    configs_folder: Annotated[Path, typer.Option("--configs-folder", "-C")] = Path(
+        settings.CONFIGS_FOLDER
+    ),
     experiment_name: Annotated[
         str | None, typer.Option("--experiment-name", "-E")
     ] = None,
 ) -> None:
     started_at = datetime.datetime.now(datetime.UTC)
     verbose = settings.state["verbose"]
-    monitor_metric = f"val/ndcg@{top_k}"
     training_root = Path(settings.RESULTS_FOLDER) / "training"
 
     datasets = datasets_to_run(dataset)
@@ -77,18 +123,33 @@ def train(
         dataset_experiment_name = (
             f"{experiment_name}_{run_name}" if experiment_name else None
         )
+        model_config_path, train_config_path = config_paths(configs_folder, run_name)
+        train_cfg = resolve_train_config(
+            cli={
+                "epochs": epochs,
+                "lr": lr,
+                "batch_size": batch_size,
+                "patience": patience,
+                "adaptive_k": adaptive_k,
+            },
+            saved_path=train_config_path,
+            defaults=dataset_train_defaults(dataset_name),
+        )
+        val_topk = monitor_topk(top_k, train_cfg)
+
         print("\n[TRAIN] Training run")
         print(f"[TRAIN] Dataset {dataset_idx}/{len(datasets)}: {run_name}")
         print("[TRAIN] Model: EDuRec")
-        print(f"[TRAIN] Monitor: {monitor_metric}")
+        print(f"[TRAIN] Monitor: val/ndcg@{val_topk}")
         print(f"[TRAIN] Save model: {save}")
         print("[TRAIN] Preparing data...")
 
         if verbose:
             print(
                 "[TRAIN] Config: "
-                f"epochs={epochs}, lr={lr}, batch_size={batch_size}, "
-                f"patience={patience}, adaptive_k={adaptive_k}, debug={debug}"
+                f"epochs={train_cfg.epochs}, lr={train_cfg.lr}, "
+                f"batch_size={train_cfg.batch_size}, patience={train_cfg.patience}, "
+                f"adaptive_k={train_cfg.adaptive_k}, debug={debug}"
             )
 
             if dataset_experiment_name:
@@ -105,7 +166,7 @@ def train(
 
         dm = ElearningDataModule(
             dataset=dataset_name,
-            batch_size=batch_size,
+            batch_size=train_cfg.batch_size,
             test_ratio=test_size,
             val_ratio=val_size,
             use_processed_data=use_processed_data,
@@ -121,24 +182,15 @@ def train(
 
         print_data_summary("TRAIN", dm)
 
-        config_path = configs_folder / f"config-{run_name}.yaml"
-
-        if config_path.exists():
-            cfg = build_config(
-                dm,
-                base=EDuRecConfig.load(config_path),
-                adaptive_k=adaptive_k,
-                topks=settings.TOP_KS,
-            )
-            print(f"[TRAIN] Using saved configuration: {config_path}")
+        if model_config_path.exists():
+            cfg = build_config(dm, base=EDuRecConfig.load(model_config_path))
+            print(f"[TRAIN] Using saved model config: {model_config_path}")
         else:
-            cfg = build_config(
-                dm,
-                lr=lr,
-                adaptive_k=adaptive_k,
-                topks=settings.TOP_KS,
-            )
-            print("[TRAIN] No saved configuration found; using the full model.")
+            cfg = build_config(dm)
+            print("[TRAIN] No saved model config found; using the full model.")
+
+        if train_config_path.exists():
+            print(f"[TRAIN] Using saved training config: {train_config_path}")
 
         print_model_modules("TRAIN", cfg)
 
@@ -147,6 +199,8 @@ def train(
             inter_graph=dm.build_inter_graph(),
             u_static_feats=dm.u_static_feats,
             i_static_feats=dm.i_static_feats,
+            train_cfg=train_cfg,
+            val_topk=val_topk,
         )
 
         print("[TRAIN] Training EDuRec...")
@@ -155,17 +209,17 @@ def train(
             model=recsys,
             dm=dm,
             debug=debug,
-            epochs=epochs,
-            patience=patience,
+            epochs=train_cfg.epochs,
+            patience=train_cfg.patience,
             experiment_name=dataset_experiment_name,
-            monitor=monitor_metric,
+            monitor=recsys.monitor,
             verbose=verbose,
         )
 
         if debug:
-            elapsed = str(
-                datetime.datetime.now(datetime.UTC) - started_at
-            ).split(".", maxsplit=1)[0]
+            elapsed = str(datetime.datetime.now(datetime.UTC) - started_at).split(
+                ".", maxsplit=1
+            )[0]
             print("[TRAIN] Debug mode: skipping evaluation")
             print(f"[TRAIN] Finished {dataset_name.value} in {elapsed}\n")
             return

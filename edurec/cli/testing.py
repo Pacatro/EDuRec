@@ -6,6 +6,7 @@ import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
+from ..recsys.configs import TrainConfig
 from ..recsys.io import load_model, save_metrics
 from ..recsys.recsys import RecSys
 from .utils import dataset_run_name, print_data_summary, print_model_modules
@@ -89,8 +90,12 @@ def test_recsys(
         inter_graph=test_graph,
         u_static_feats=dm.u_static_feats,
         i_static_feats=dm.i_static_feats,
+        train_cfg=TrainConfig(
+            batch_size=batch_size,
+            topks=[top_k],
+            adaptive_k=adaptive_k,
+        ),
         val_topk=top_k,
-        adaptive_k=adaptive_k,
         map_location=torch.device("cpu"),
         weights_only=False,
         strict=False,
@@ -103,4 +108,4 @@ def test_recsys(
     )
     test_results = trainer.test(model=model, datamodule=dm, weights_only=False)[0]
 
-    save_metrics(cast(dict[str, float], test_results), model_path.parent)
+    save_metrics(test_results, dataset.value, model_path.parent)

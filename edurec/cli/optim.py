@@ -6,8 +6,10 @@ import typer
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
 from ..recsys import EDuRecConfig, optimize_model
+from ..recsys.configs import TrainConfig
 from .utils import (
     build_config,
+    config_paths,
     dataset_run_name,
     datasets_to_run,
     print_data_summary,
@@ -126,10 +128,16 @@ def optimize(
         dataset_results_path = results_root / run_name
 
         base_cfg = build_config(dm)
+        base_train_cfg = TrainConfig(
+            epochs=epochs,
+            batch_size=batch_size,
+            patience=patience,
+        )
         print_model_modules("OPTIM", base_cfg)
 
         study = optimize_model(
             base_config=base_cfg,
+            base_train_config=base_train_cfg,
             dm=dm,
             n_trials=n_trials,
             epochs=epochs,
@@ -138,17 +146,23 @@ def optimize(
             results_path=dataset_results_path,
         )
         best_cfg = EDuRecConfig(**study.best_trial.user_attrs["config"])
+        best_train_cfg = TrainConfig(**study.best_trial.user_attrs["train_config"])
 
         print(
             f"[OPTIM] Best NDCG {study.best_value} in trial: {study.best_trial.number}"
         )
         print("[OPTIM] Params:", study.best_params)
 
+        model_cfg_path, train_cfg_path = config_paths(configs_folder, run_name)
         result_cfg_path = results_root / f"config-{run_name}.yaml"
-        config_path = configs_folder / f"config-{run_name}.yaml"
+        result_train_cfg_path = results_root / f"train-config-{run_name}.yaml"
         best_cfg.save(result_cfg_path)
-        best_cfg.save(config_path)
+        best_cfg.save(model_cfg_path)
+        best_train_cfg.save(result_train_cfg_path)
+        best_train_cfg.save(train_cfg_path)
         print("[OPTIM] Saved result config:", result_cfg_path)
-        print("[OPTIM] Saved reusable config:", config_path)
+        print("[OPTIM] Saved result training config:", result_train_cfg_path)
+        print("[OPTIM] Saved reusable model config:", model_cfg_path)
+        print("[OPTIM] Saved reusable training config:", train_cfg_path)
         print("[OPTIM] Trials log:", dataset_results_path / "trials.csv")
         print("[OPTIM] Study storage:", dataset_results_path / "study.db")

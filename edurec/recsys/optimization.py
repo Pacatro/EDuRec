@@ -9,6 +9,7 @@ from torch_geometric.data import Data
 from .. import settings
 from ..datasets import ElearningDataModule
 from .architecture import EDuRecConfig
+from .configs import TrainConfig
 from .recsys import RecSys
 from .training import train_model
 
@@ -23,6 +24,7 @@ def _save_trials_callback(output_path: Path):
 def objective(
     trial: optuna.Trial,
     base_config: EDuRecConfig,
+    base_train_config: TrainConfig,
     datamodule: ElearningDataModule,
     inter_graph: Data,
     epochs: int,
@@ -74,6 +76,13 @@ def objective(
         temperature=trial.suggest_categorical(
             "temperature", sorted({0.05, 0.1, settings.TAU, 0.2, 0.5})
         ),
+        # Predicción
+        use_item_bias=trial.suggest_categorical("use_item_bias", [True, False]),
+    )
+
+    train_config = replace(
+        base_train_config,
+        # GCL Loss
         alpha=trial.suggest_categorical(
             "alpha", sorted({0.01, settings.LOSS_ALPHA, 0.1, 0.2, 1.0})
         ),
@@ -82,17 +91,17 @@ def objective(
         weight_decay=trial.suggest_categorical(
             "weight_decay", sorted({0.0, 1e-5, settings.WEIGHT_DECAY, 1e-3})
         ),
-        # Predicción
-        use_item_bias=trial.suggest_categorical("use_item_bias", [True, False]),
     )
 
     trial.set_user_attr("config", asdict(config))
+    trial.set_user_attr("train_config", asdict(train_config))
 
     model = RecSys(
         cfg=config,
         inter_graph=inter_graph,
         u_static_feats=datamodule.u_static_feats,
         i_static_feats=datamodule.i_static_feats,
+        train_cfg=train_config,
         val_topk=val_topk,
     )
 
@@ -121,6 +130,7 @@ def objective(
 
 def optimize_model(
     base_config: EDuRecConfig,
+    base_train_config: TrainConfig,
     dm: ElearningDataModule,
     n_trials: int,
     epochs: int,
@@ -156,6 +166,7 @@ def optimize_model(
         lambda trial: objective(
             trial,
             base_config,
+            base_train_config,
             dm,
             inter_graph,
             epochs,

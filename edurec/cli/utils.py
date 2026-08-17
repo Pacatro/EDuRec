@@ -1,4 +1,5 @@
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 import typer
@@ -6,6 +7,7 @@ import typer
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule, dataset_loaders
 from ..recsys import EDuRecConfig
+from ..recsys.configs import TrainConfig
 
 
 def datasets_to_run(dataset: DatasetName | None) -> list[DatasetName]:
@@ -14,6 +16,24 @@ def datasets_to_run(dataset: DatasetName | None) -> list[DatasetName]:
 
 def dataset_run_name(dataset: DatasetName, limit: int | None = None) -> str:
     return dataset.value if limit is None else f"{dataset.value}_limit_{limit}"
+
+
+def config_paths(configs_folder: Path, run_name: str) -> tuple[Path, Path]:
+    """Return the model and training config paths for a given run."""
+    return (
+        Path(configs_folder) / "model" / f"{run_name}.yaml",
+        Path(configs_folder) / "train" / f"{run_name}.yaml",
+    )
+
+
+DATASET_TRAIN_DEFAULTS: dict[DatasetName, TrainConfig] = {
+    DatasetName.ITM: TrainConfig(batch_size=32),
+}
+
+
+def dataset_train_defaults(dataset: DatasetName) -> TrainConfig | None:
+    """Per-dataset training defaults, applied when no config file exists."""
+    return DATASET_TRAIN_DEFAULTS.get(dataset)
 
 
 def parse_seeds(seeds: str) -> list[int]:

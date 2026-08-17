@@ -57,13 +57,6 @@ class EDuRecConfig:
         default_factory=lambda: [settings.EMB_DIM * 2, settings.EMB_DIM]
     )
 
-    # Training Defaults
-    lr: float = settings.LR
-    weight_decay: float = settings.WEIGHT_DECAY
-    topks: list[int] = field(default_factory=lambda: settings.TOP_KS)
-    alpha: float = settings.LOSS_ALPHA
-    adaptive_k: bool = settings.ADAPTIVE_K
-
     @property
     def has_user_features(self) -> bool:
         """Whether the dataset can feed the user feature encoder."""
@@ -209,9 +202,7 @@ class EDuRec(nn.Module):
         )
         self.scorer = Scorer(cfg.scorer)
 
-    def _make_fusion(
-        self, num_sources: int
-    ) -> MaskedGatedFusion | SumFusion | None:
+    def _make_fusion(self, num_sources: int) -> MaskedGatedFusion | SumFusion | None:
         # A single source needs neither gates nor normalization parameters.
         if num_sources == 1:
             return None

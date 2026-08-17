@@ -1,5 +1,3 @@
-adaptive_k: false
-alpha: 1.0
 dropout: 0.15
 edge_dropout: 0.0
 emb_dim: 256
@@ -15,7 +13,6 @@ item_cat_cardinalities:
 - 5
 - 4
 loss_reduction: mean
-lr: 0.0001
 n_blocks: 1
 n_heads: 16
 num_ctx_feats: 0
@@ -27,10 +24,6 @@ num_user_text_feats: 0
 num_users: 12465
 scorer_type: mlp
 temperature: 0.05
-topks:
-- 5
-- 10
-- 20
 use_context: true
 use_gcl: true
 use_item_bias: false
@@ -40,4 +33,3 @@ use_text_features: true
 use_user_features: true
 user_cat_cardinalities:
 - 26
-weight_decay: 1.0e-05

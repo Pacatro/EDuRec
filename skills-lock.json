@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "improve-codebase-architecture": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/improve-codebase-architecture/SKILL.md",
+      "computedHash": "4a02bd01030d5ed6a5040c0382b9f56fbf02c7c8b8fd68aa1bcc55628963f760"
+    }
+  }
+}

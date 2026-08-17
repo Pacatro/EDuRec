@@ -90,10 +90,10 @@ Common options:
 
 ```text
 -d, --dataset [explicit_mars|implicit_mars|itm|doris]
--e, --epochs INTEGER            Default: 150
--l, --lr FLOAT                  Default: 0.0002
--b, --batch_size INTEGER        Default: 128
--p, --patience INTEGER          Default: 5
+-e, --epochs INTEGER            Default: from saved train config
+-l, --lr FLOAT                  Default: from saved train config
+-b, --batch_size INTEGER        Default: from saved train config
+-p, --patience INTEGER          Default: from saved train config
 -v, --val_size FLOAT            Default: 0.1
 -t, --test_size FLOAT           Default: 0.2
 -k, --top_k INTEGER             Default: 20
@@ -143,10 +143,10 @@ Useful options:
 
 ```text
 -d, --dataset [explicit_mars|implicit_mars|itm|doris]
--e, --epochs INTEGER            Default: 150
--l, --lr FLOAT                  Default: 0.0002
--b, --batch-size INTEGER        Default: 128
--p, --patience INTEGER          Default: 5
+-e, --epochs INTEGER            Default: from saved train config
+-l, --lr FLOAT                  Default: from saved train config
+-b, --batch-size INTEGER        Default: from saved train config
+-p, --patience INTEGER          Default: from saved train config
 -k, --top-k INTEGER             Repeat for multiple cutoffs
 -R, --remove-sparse / -K, --keep-sparse
 -I, --min-interactions INTEGER  Default: 3
@@ -168,10 +168,27 @@ Run Optuna-based hyperparameter optimization for EDuRec.
 uv run edurec optim --dataset explicit_mars --trials 30 --use_processed
 ```
 
-The command saves the best configuration, trial log, and study database under
-`results/optimization/<dataset>/`. It also writes the best configuration for
-each dataset to `configs/config-<dataset>.yaml`, so it can be reused by training
-and evaluation. Use `--configs-folder` to choose a different folder.
+The command saves the best model and training configurations, trial log, and
+study database under `results/optimization/<dataset>/`. It also writes the best
+configuration for each dataset to `configs/model/<dataset>.yaml` and
+`configs/train/<dataset>.yaml`, so they can be reused by training and
+evaluation. Use `--configs-folder` to choose a different folder.
+
+### Saved Configurations
+
+The `configs/` folder keeps one model configuration and one independent training
+configuration per evaluated dataset:
+
+```text
+configs/model/<dataset>.yaml   Model architecture hyperparameters
+configs/train/<dataset>.yaml   Training hyperparameters (epochs, lr, batch size,
+                               patience, weight decay, top-k, alpha, adaptive-k)
+```
+
+When a config file exists for the dataset being run, training, evaluation, and
+ablation commands load it. Explicit CLI flags always take precedence over the
+saved configurations, which in turn take precedence over the global defaults in
+`edurec/settings.py`.
 
 ### Run Ablations
 
@@ -252,7 +269,8 @@ patience, batch size, and top-k settings.
 ### Hyperparameter Optimization
 
 `uv run edurec optim` runs Optuna studies for EDuRec and saves the best model
-configuration as YAML for later training, evaluation, or ablation experiments.
+and training configurations as YAML for later training, evaluation, or ablation
+experiments.
 
 ### Ablation Study
 
