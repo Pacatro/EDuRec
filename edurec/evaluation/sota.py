@@ -1,4 +1,5 @@
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from time import perf_counter
 from typing import Any, cast
 
@@ -100,6 +101,17 @@ def _run_model(
     Returns:
         Test metrics, training time and inference time in seconds.
     """
+    with TemporaryDirectory(prefix=f"edurec-recbole-{model.lower()}-") as checkpoint_dir:
+        run_config = {**config_dict, "checkpoint_dir": checkpoint_dir}
+        return _fit_and_evaluate_model(model, dataset_name, cfg_path, run_config)
+
+
+def _fit_and_evaluate_model(
+    model: str,
+    dataset_name: str,
+    cfg_path: Path | None,
+    config_dict: dict[str, object],
+) -> tuple[dict[str, Any], float, float]:
     config = Config(
         model=model,
         dataset=dataset_name,
@@ -141,7 +153,7 @@ def _run_model(
     trainer.fit(
         train_data,
         valid_data,
-        saved=False,
+        saved=True,
         show_progress=show_progress,
     )
 
@@ -153,7 +165,8 @@ def _run_model(
 
     test_result = trainer.evaluate(
         test_data,
-        load_best_model=False,
+        load_best_model=True,
+        model_file=trainer.saved_model_file,
         show_progress=show_progress,
     )
 
