@@ -6,6 +6,8 @@ from typing import Any, cast
 import pandas as pd
 import torch
 import torch.distributed as dist
+from contextlib import contextmanager
+from collections.abc import Iterator
 from recbole.config import Config
 from recbole.data import create_dataset, data_preparation
 from recbole.utils import (
@@ -21,6 +23,27 @@ from .. import settings
 from ..datasets import ElearningDataModule
 
 BENCHMARK_SPLITS = ("train", "valid", "test")
+
+
+@contextmanager
+def _recbole_checkpoints() -> Iterator[None]:
+    """Allow torch.load to unpickle RecBole checkpoints during the run.
+
+    RecBole 1.2.0 saves checkpoints containing custom pickled objects and
+    loads them without weights_only, which fails with PyTorch >= 2.6. The
+    checkpoints are produced by this same run, so they are trusted.
+    """
+    original_load = torch.load
+
+    def trusted_load(*args, **kwargs):
+        kwargs.setdefault("weights_only", False)
+        return original_load(*args, **kwargs)
+
+    torch.load = trusted_load
+    try:
+        yield
+    finally:
+        torch.load = original_load
 
 
 def eval_sota_models(
@@ -53,6 +76,13 @@ def eval_sota_models(
     results: list[dict[str, Any]] = []
 
     for model in models:
+        if not dm.has_temporal_order and _is_sequential_model(model):
+            print(
+                f"[EVAL] Skipping {model}: it is a sequential model and "
+                f"{dataset_name} has no temporal order."
+            )
+            continue
+
         print(f"[EVAL] Evaluating {model}...")
 
         metrics, training_time, inference_time = _run_model(
@@ -150,25 +180,26 @@ def _fit_and_evaluate_model(
     _synchronize_device(device)
     training_started_at = perf_counter()
 
-    trainer.fit(
-        train_data,
-        valid_data,
-        saved=True,
-        show_progress=show_progress,
-    )
+    with _recbole_checkpoints():
+        trainer.fit(
+            train_data,
+            valid_data,
+            saved=True,
+            show_progress=show_progress,
+        )
 
-    _synchronize_device(device)
-    training_time = perf_counter() - training_started_at
+        _synchronize_device(device)
+        training_time = perf_counter() - training_started_at
 
-    _synchronize_device(device)
-    inference_started_at = perf_counter()
+        _synchronize_device(device)
+        inference_started_at = perf_counter()
 
-    test_result = trainer.evaluate(
-        test_data,
-        load_best_model=True,
-        model_file=trainer.saved_model_file,
-        show_progress=show_progress,
-    )
+        test_result = trainer.evaluate(
+            test_data,
+            load_best_model=True,
+            model_file=trainer.saved_model_file,
+            show_progress=show_progress,
+        )
 
     _synchronize_device(device)
     inference_time = perf_counter() - inference_started_at
@@ -185,6 +216,12 @@ def _synchronize_device(device: torch.device) -> None:
         torch.cuda.synchronize(device)
     elif device.type == "mps":
         torch.mps.synchronize()
+
+
+def _is_sequential_model(model: str) -> bool:
+    """Whether the RecBole model requires a time-ordered interaction list."""
+    model_class = get_model(model)
+    return getattr(model_class, "type", None) == ModelType.SEQUENTIAL
 
 
 def _config_for_model(
