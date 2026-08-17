@@ -1,5 +1,5 @@
 import datetime
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Annotated
@@ -10,7 +10,7 @@ import typer
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
 from ..evaluation.ablation import ABLATIONS, get_ablation_config
-from ..recsys import EDuRecConfig, RecSys, train_model
+from ..recsys import ModelConfig, RecSys, train_model
 from ..recsys.configs import resolve_train_config
 from .utils import (
     build_config,
@@ -136,19 +136,7 @@ def run_ablation(
 
             if model_config_path.exists():
                 print("[ABLATION] Using existing model config file:", model_config_path)
-                base_cfg = replace(
-                    EDuRecConfig.load(model_config_path),
-                    num_users=dm.num_users,
-                    num_items=dm.num_items,
-                    num_ctx_feats=dm.train_ds.num_ctx_feats,
-                    num_user_dense_feats=dm.num_user_dense_feats,
-                    num_item_dense_feats=dm.num_item_dense_feats,
-                    num_user_text_feats=dm.num_user_text_feats,
-                    num_item_text_feats=dm.num_item_text_feats,
-                    user_cat_cardinalities=dm.user_cat_cardinalities,
-                    item_cat_cardinalities=dm.item_cat_cardinalities,
-                    has_history=dm.has_history,
-                )
+                base_cfg = build_config(dm, base=ModelConfig.load(model_config_path))
             else:
                 print(
                     "[ABLATION] No model config file found, creating new config for dataset:",

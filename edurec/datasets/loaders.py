@@ -60,12 +60,9 @@ def register_dataset(ds_name: DatasetName) -> Callable[[ExportFn], ExportFn]:
 def load_mars(data_type: Literal["explicit", "implicit"]) -> RawData:
     """Load the MARS dataset.
 
-    This loader combines English and French rating files and merges them with
-    item metadata. Dataset-wide cleaning and filtering happen later in the
+    Combines the English and French rating files and merges them with item
+    metadata. Dataset-wide cleaning and filtering happen later in the
     datamodule preprocessing phase.
-
-    Returns:
-        pd.DataFrame: The MARS dataset.
     """
     mars_folder = settings.RAW_DATA_FOLDER / "mars"
     items_en = pd.read_csv(mars_folder / "items_en.csv")
@@ -142,12 +139,9 @@ def load_implicit_mars() -> RawData:
 def load_itm() -> RawData:
     """Load the ITM dataset.
 
-    This loader merges ratings, items, and user information into a unified
-    DataFrame. Dataset-wide cleaning and filtering happen later in the
-    datamodule preprocessing phase.
-
-    Returns:
-        pd.DataFrame: The ITM dataset.
+    Merges ratings, items, and user information into a unified structure.
+    Dataset-wide cleaning and filtering happen later in the datamodule
+    preprocessing phase.
     """
     itm_folder = settings.RAW_DATA_FOLDER / DatasetName.ITM.value
     ratings_df = pd.read_csv(itm_folder / "ratings.csv")
@@ -371,19 +365,7 @@ def load_mooccubex() -> RawData:
 
 
 def load_raw_data(dataset_name: DatasetName) -> RawData:
-    """
-    Load the specified dataset. If data was processed before, laod the data from disk.
-
-    Args:
-        dataset_name (DatasetName): The name of the dataset to load.
-
-    Raises:
-        ValueError: If the dataset name is not supported.
-
-    Returns:
-        pd.DataFrame: The loaded dataset as a pandas DataFrame.
-    """
-
+    """Load the specified dataset through its registered loader."""
     loader = dataset_loaders.get(dataset_name)
 
     if loader is None:

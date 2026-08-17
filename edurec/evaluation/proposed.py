@@ -1,17 +1,16 @@
 from pathlib import Path
 
-from edurec import settings
-
 import pandas as pd
 
+from .. import settings
 from ..datasets import ElearningDataModule
-from ..recsys import EDuRecConfig, RecSys, train_model
+from ..recsys import ModelConfig, RecSys, train_model
 from ..recsys.configs import TrainConfig
 
 
 def eval_model(
     dm: ElearningDataModule,
-    cfg: EDuRecConfig,
+    cfg: ModelConfig,
     train_cfg: TrainConfig | None = None,
     val_topk: int = settings.TOP_K,
     compile: bool = settings.COMPILE_MODEL,

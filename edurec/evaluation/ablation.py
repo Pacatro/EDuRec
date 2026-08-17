@@ -1,7 +1,7 @@
 from dataclasses import replace
 from typing import Any
 
-from ..recsys.architecture import EDuRecConfig
+from ..recsys.configs import ModelConfig
 
 
 BASE_ABLATION: dict[str, Any] = {
@@ -60,7 +60,7 @@ ABLATIONS: dict[str, dict[str, Any]] = {
 }
 
 
-def get_ablation_config(base_cfg: EDuRecConfig, variant: str) -> EDuRecConfig:
+def get_ablation_config(base_cfg: ModelConfig, variant: str) -> ModelConfig:
     try:
         overrides = ABLATIONS[variant]
     except KeyError as exc:

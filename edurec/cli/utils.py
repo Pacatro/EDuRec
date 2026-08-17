@@ -6,7 +6,7 @@ import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule, dataset_loaders
-from ..recsys import EDuRecConfig
+from ..recsys import ModelConfig
 from ..recsys.configs import TrainConfig
 
 
@@ -45,9 +45,9 @@ def parse_seeds(seeds: str) -> list[int]:
 
 def build_config(
     dm: ElearningDataModule,
-    base: EDuRecConfig | None = None,
+    base: ModelConfig | None = None,
     **overrides: Any,
-) -> EDuRecConfig:
+) -> ModelConfig:
     dataset_config = {
         "num_users": dm.num_users,
         "num_items": dm.num_items,
@@ -63,13 +63,13 @@ def build_config(
     if base is not None:
         return replace(base, **dataset_config, **overrides)
 
-    return EDuRecConfig(
+    return ModelConfig(
         **dataset_config,
         **overrides,
     )
 
 
-def print_model_modules(prefix: str, cfg: EDuRecConfig) -> None:
+def print_model_modules(prefix: str, cfg: ModelConfig) -> None:
     """Print the effective model modules in a compact form."""
     modules = ", ".join(
         f"{name}={'ON' if enabled else 'OFF'}"

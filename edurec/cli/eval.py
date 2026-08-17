@@ -8,7 +8,7 @@ import typer
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
 from ..evaluation import eval_model, eval_sota_models, eval_upgpr
-from ..recsys import EDuRecConfig
+from ..recsys import ModelConfig
 from ..recsys.configs import monitor_topk, resolve_train_config
 from .utils import (
     build_config,
@@ -286,7 +286,7 @@ def eval_models(
             "EDuRec" in pending_models for pending_models in pending_by_seed.values()
         )
         saved_cfg = (
-            EDuRecConfig.load(model_config_path)
+            ModelConfig.load(model_config_path)
             if needs_edurec and model_config_path.exists()
             else None
         )
@@ -345,10 +345,7 @@ def eval_models(
             print_data_summary("EVAL", dm)
 
             if "EDuRec" in pending_models:
-                if saved_cfg is None:
-                    cfg = build_config(dm)
-                else:
-                    cfg = build_config(dm, base=saved_cfg)
+                cfg = build_config(dm, base=saved_cfg)
                 print_model_modules("EVAL", cfg)
                 settings.seed_everything(seed)
                 print(f"[EVAL] Running EDuRec | seed={seed}")

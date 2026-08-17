@@ -14,7 +14,6 @@ from .dataprocessor import DataProcessor
 from .loaders import (
     DatasetName,
     RawData,
-    Schema,
     load_raw_data,
 )
 from .preprocessing import (
@@ -169,6 +168,22 @@ class ElearningDataModule(L.LightningDataModule):
                 users, items, interactions, min_interactions=self.min_interactions
             )
 
+        self.artifacts.train, self.artifacts.val, self.artifacts.test = (
+            self._split_with_relevance(interactions)
+        )
+        self.artifacts = preprocess(
+            processor=DataProcessor(schema=raw.schema),
+            users=users,
+            items=items,
+            train=self.artifacts.train,
+            val=self.artifacts.val,
+            test=self.artifacts.test,
+        )
+        self.artifacts.save(self.processed_folder)
+
+    def _split_with_relevance(
+        self, interactions: pd.DataFrame
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         train, val, test = split_data(
             interactions,
             test_ratio=self.test_ratio,
@@ -177,18 +192,11 @@ class ElearningDataModule(L.LightningDataModule):
             random_state=self.random_state,
         )
         thresholds = get_relevance_threshold(train)
-        train, val, test = (
-            add_relevance(split, thresholds) for split in (train, val, test)
+        return (
+            add_relevance(train, thresholds),
+            add_relevance(val, thresholds),
+            add_relevance(test, thresholds),
         )
-        self.artifacts = preprocess(
-            processor=DataProcessor(schema=raw.schema),
-            users=users,
-            items=items,
-            train=train,
-            val=val,
-            test=test,
-        )
-        self.artifacts.save(self.processed_folder)
 
     @staticmethod
     def _context_cols(interactions: pd.DataFrame) -> list[str]:
@@ -199,17 +207,9 @@ class ElearningDataModule(L.LightningDataModule):
         splits = self.artifacts.splits()
         interactions = pd.concat(splits.values(), ignore_index=True)
         interactions = interactions.drop(columns=[settings.TIME_COL], errors="ignore")
-        train, val, test = split_data(
-            interactions,
-            test_ratio=self.test_ratio,
-            val_ratio=self.val_ratio,
-            min_interactions=self.min_interactions,
-            random_state=self.random_state,
+        self.artifacts.train, self.artifacts.val, self.artifacts.test = (
+            self._split_with_relevance(interactions)
         )
-        thresholds = get_relevance_threshold(train)
-        self.artifacts.train = add_relevance(train, thresholds)
-        self.artifacts.val = add_relevance(val, thresholds)
-        self.artifacts.test = add_relevance(test, thresholds)
 
     def build_inter_graph(self) -> Data:
         # We only build the graph based on the training interactions.
@@ -299,14 +299,6 @@ class ElearningDataModule(L.LightningDataModule):
         return settings.RATING_COL in interactions.columns
 
     @property
-    def schema(self) -> Schema:
-        if self.raw_dataset is not None:
-            return self.raw_dataset.schema
-        if self.artifacts.data_processor is not None:
-            return self.artifacts.data_processor.schema
-        raise RuntimeError("Schema is not available.")
-
-    @property
     def data_processor(self) -> DataProcessor:
         if self.artifacts.data_processor is None:
             raise RuntimeError("Data processor is not available.")
@@ -336,14 +328,6 @@ class ElearningDataModule(L.LightningDataModule):
     def num_items(self) -> int:
         if self.artifacts.i_static_feats is not None:
             return self.artifacts.i_static_feats.shape[0]
-        return 0 if self.raw_dataset is None else len(self.raw_dataset.item_features)
-
-    @property
-    def num_raw_users(self) -> int:
-        return 0 if self.raw_dataset is None else len(self.raw_dataset.user_features)
-
-    @property
-    def num_raw_items(self) -> int:
         return 0 if self.raw_dataset is None else len(self.raw_dataset.item_features)
 
     @property

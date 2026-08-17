@@ -8,8 +8,7 @@ from torch_geometric.data import Data
 
 from .. import settings
 from ..datasets import ElearningDataModule
-from .architecture import EDuRecConfig
-from .configs import TrainConfig
+from .configs import ModelConfig, TrainConfig
 from .recsys import RecSys
 from .training import train_model
 
@@ -23,7 +22,7 @@ def _save_trials_callback(output_path: Path):
 
 def objective(
     trial: optuna.Trial,
-    base_config: EDuRecConfig,
+    base_config: ModelConfig,
     base_train_config: TrainConfig,
     datamodule: ElearningDataModule,
     inter_graph: Data,
@@ -72,21 +71,21 @@ def objective(
         edge_dropout=trial.suggest_categorical(
             "edge_dropout", sorted({0.0, 0.1, settings.DROP_EDGES_P, 0.3, 0.5})
         ),
-        # GCL Loss
+        # GCL loss
         temperature=trial.suggest_categorical(
             "temperature", sorted({0.05, 0.1, settings.TAU, 0.2, 0.5})
         ),
-        # Predicción
+        # Item bias
         use_item_bias=trial.suggest_categorical("use_item_bias", [True, False]),
     )
 
     train_config = replace(
         base_train_config,
-        # GCL Loss
+        # GCL loss
         alpha=trial.suggest_categorical(
             "alpha", sorted({0.01, settings.LOSS_ALPHA, 0.1, 0.2, 1.0})
         ),
-        # Optimización
+        # Optimizer
         lr=trial.suggest_categorical("lr", sorted({1e-4, settings.LR, 5e-4, 1e-3})),
         weight_decay=trial.suggest_categorical(
             "weight_decay", sorted({0.0, 1e-5, settings.WEIGHT_DECAY, 1e-3})
@@ -123,13 +122,13 @@ def objective(
     score = trainer.checkpoint_callback.best_model_score
 
     if score is None:
-        raise RuntimeError(f"No se ha registrado la métrica {model.monitor!r}.")
+        raise RuntimeError(f"Metric {model.monitor!r} was not recorded.")
 
     return score.item()
 
 
 def optimize_model(
-    base_config: EDuRecConfig,
+    base_config: ModelConfig,
     base_train_config: TrainConfig,
     dm: ElearningDataModule,
     n_trials: int,

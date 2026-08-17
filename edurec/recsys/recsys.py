@@ -16,15 +16,37 @@ from torchmetrics.retrieval import (
 
 from .. import settings
 from ..datasets import RecSysQuery
-from .architecture import EDuRec, EDuRecConfig
-from .configs import TrainConfig
+from .architecture.model import EDuRec
+from .configs import ModelConfig, TrainConfig
 from .losses import InfoNCELoss, LossReduction
+
+
+def build_ranking_metrics(
+    topks: list[int],
+    prefix: str,
+    adaptive_k: bool = False,
+) -> MetricCollection:
+    """Build the full-catalog retrieval metric set for every top-k."""
+    metrics = {}
+    for k in topks:
+        common = {
+            "top_k": k,
+            "empty_target_action": "neg",
+            "aggregation": "mean",
+        }
+        metrics[f"precision@{k}"] = RetrievalPrecision(**common, adaptive_k=adaptive_k)
+        metrics[f"recall@{k}"] = RetrievalRecall(**common)
+        metrics[f"ndcg@{k}"] = RetrievalNormalizedDCG(**common)
+        metrics[f"hit@{k}"] = RetrievalHitRate(**common)
+        metrics[f"map@{k}"] = RetrievalMAP(**common)
+        metrics[f"mrr@{k}"] = RetrievalMRR(**common)
+    return MetricCollection(metrics, prefix=prefix)
 
 
 class RecSys(L.LightningModule):
     def __init__(
         self,
-        cfg: EDuRecConfig,
+        cfg: ModelConfig,
         inter_graph: Data,
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
@@ -70,7 +92,11 @@ class RecSys(L.LightningModule):
             },
             prefix="val/",
         )
-        self.test_ranking_metrics = self._build_test_metrics()
+        self.test_ranking_metrics = build_ranking_metrics(
+            self.topks,
+            "test/",
+            adaptive_k=self.train_cfg.adaptive_k,
+        )
 
         self.model = EDuRec(cfg)
         self.model_name = self.__class__.__name__
@@ -126,11 +152,10 @@ class RecSys(L.LightningModule):
         metric_topks: list[int] | None = None,
     ) -> torch.Tensor:
         scores = self(batch)
-        target_item_ids = batch.target_item_id.reshape(-1).long()
 
         rank_loss = self._compute_rec_loss(
             scores=scores,
-            target_item_ids=target_item_ids,
+            target_item_ids=batch.target_item_id,
             negative_item_ids=(batch.negative_item_ids if prefix == "train" else None),
         )
 
@@ -386,28 +411,6 @@ class RecSys(L.LightningModule):
         item_ids = torch.cat([target_item_ids, history_item_ids]).unique()
 
         return user_ids, item_ids
-
-    def _build_test_metrics(self) -> MetricCollection:
-        metrics = {}
-
-        for k in self.topks:
-            common = {
-                "top_k": k,
-                "empty_target_action": "neg",
-                "aggregation": "mean",
-            }
-
-            metrics[f"precision@{k}"] = RetrievalPrecision(
-                **common,
-                adaptive_k=self.train_cfg.adaptive_k,
-            )
-            metrics[f"recall@{k}"] = RetrievalRecall(**common)
-            metrics[f"ndcg@{k}"] = RetrievalNormalizedDCG(**common)
-            metrics[f"hit@{k}"] = RetrievalHitRate(**common)
-            metrics[f"map@{k}"] = RetrievalMAP(**common)
-            metrics[f"mrr@{k}"] = RetrievalMRR(**common)
-
-        return MetricCollection(metrics, prefix="test/")
 
     def _validate_topks(self) -> None:
         requested_topks = [self.val_topk, *self.topks]

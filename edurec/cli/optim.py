@@ -5,7 +5,7 @@ import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
-from ..recsys import EDuRecConfig, optimize_model
+from ..recsys import ModelConfig, optimize_model
 from ..recsys.configs import TrainConfig
 from .utils import (
     build_config,
@@ -145,7 +145,7 @@ def optimize(
             verbose=verbose,
             results_path=dataset_results_path,
         )
-        best_cfg = EDuRecConfig(**study.best_trial.user_attrs["config"])
+        best_cfg = ModelConfig(**study.best_trial.user_attrs["config"])
         best_train_cfg = TrainConfig(**study.best_trial.user_attrs["train_config"])
 
         print(

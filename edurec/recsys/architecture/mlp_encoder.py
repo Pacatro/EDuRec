@@ -43,7 +43,12 @@ class MLPEncoder(nn.Module):
                 )
                 prev_dim = hidden_dim
 
-            layers.extend([nn.Linear(prev_dim, cfg.output_dim), nn.LayerNorm(cfg.output_dim)])
+            layers.extend(
+                [
+                    nn.Linear(prev_dim, cfg.output_dim),
+                    nn.LayerNorm(cfg.output_dim),
+                ]
+            )
             self.network = nn.Sequential(*layers)
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:

@@ -6,17 +6,11 @@ import torch
 import torch.nn.functional as F
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from torchmetrics import MetricCollection
-from torchmetrics.retrieval import (
-    RetrievalHitRate,
-    RetrievalMAP,
-    RetrievalMRR,
-    RetrievalNormalizedDCG,
-    RetrievalPrecision,
-    RetrievalRecall,
-)
+from torchmetrics.retrieval import RetrievalNormalizedDCG
 
 from .. import settings
 from ..datasets import ElearningDataModule, RecSysQuery
+from ..recsys.recsys import build_ranking_metrics
 from ..recsys.training import train_model
 from .upgpr_graph import KnowledgeGraphData, build_knowledge_graph
 from .upgpr_model import UPGPR, UPGPRConfig
@@ -49,21 +43,8 @@ class UPGPRRecSys(L.LightningModule):
             },
             prefix="val/",
         )
-        metric_types = {
-            "precision": (RetrievalPrecision, {"adaptive_k": cfg.adaptive_k}),
-            "recall": (RetrievalRecall, {}),
-            "ndcg": (RetrievalNormalizedDCG, {}),
-            "hit": (RetrievalHitRate, {}),
-            "map": (RetrievalMAP, {}),
-            "mrr": (RetrievalMRR, {}),
-        }
-        self.test_ranking_metrics = MetricCollection(
-            {
-                f"{name}@{k}": metric(top_k=k, empty_target_action="neg", **kwargs)
-                for k in self.topks
-                for name, (metric, kwargs) in metric_types.items()
-            },
-            prefix="test/",
+        self.test_ranking_metrics = build_ranking_metrics(
+            self.topks, "test/", adaptive_k=cfg.adaptive_k
         )
 
     def forward(self, batch: RecSysQuery) -> torch.Tensor:

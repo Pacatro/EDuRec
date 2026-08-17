@@ -6,7 +6,7 @@ import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
-from ..recsys import EDuRecConfig, RecSys, train_model
+from ..recsys import ModelConfig, RecSys, train_model
 from ..recsys.configs import monitor_topk, resolve_train_config
 from ..recsys.io import save_metrics, save_model
 from .utils import (
@@ -183,7 +183,7 @@ def train(
         print_data_summary("TRAIN", dm)
 
         if model_config_path.exists():
-            cfg = build_config(dm, base=EDuRecConfig.load(model_config_path))
+            cfg = build_config(dm, base=ModelConfig.load(model_config_path))
             print(f"[TRAIN] Using saved model config: {model_config_path}")
         else:
             cfg = build_config(dm)
