@@ -1,4 +1,4 @@
-from typing import Annotated, cast
+from typing import Annotated
 
 import lightning as L
 import torch

@@ -30,7 +30,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["wandb>=0.24.0", "pytest>=9.0.2"]
+dev = ["wandb>=0.24.0"]
 
 
 [tool.uv.sources]
