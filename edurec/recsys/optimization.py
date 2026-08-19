@@ -156,7 +156,7 @@ def optimize_model(
         load_if_exists=True,
         sampler=optuna.samplers.TPESampler(
             seed=settings.state["random_state"],
-            n_startup_trials=n_trials,
+            n_startup_trials=min(10, n_trials),
             multivariate=True,
         ),
     )

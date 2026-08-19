@@ -101,7 +101,17 @@ class RecSys(L.LightningModule):
         self.model = EDuRec(cfg)
         self.model_name = self.__class__.__name__
 
-    def forward(self, batch: RecSysQuery) -> torch.Tensor:
+    def forward(
+        self,
+        batch: RecSysQuery,
+        candidate_item_ids: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Score a batch, optionally restricting scoring to candidate items.
+
+        Candidate scoring ``[batch, 1 + num_negatives]`` avoids materializing
+        scores for the full catalog during training. When ``candidate_item_ids``
+        is ``None`` the full ``[batch, num_items]`` score matrix is returned.
+        """
         scores = self.model(
             u_ids=batch.user_id,
             h_ids=batch.history_items,
@@ -110,6 +120,7 @@ class RecSys(L.LightningModule):
             u_static_feats=self.u_static_feats,
             i_static_feats=self.i_static_feats,
             context=batch.context,
+            candidate_item_ids=candidate_item_ids,
         )
 
         if scores.ndim == 3:
@@ -151,12 +162,24 @@ class RecSys(L.LightningModule):
         ranking_metrics: MetricCollection | None = None,
         metric_topks: list[int] | None = None,
     ) -> torch.Tensor:
-        scores = self(batch)
+        negative_item_ids = batch.negative_item_ids if prefix == "train" else None
+        use_candidates = negative_item_ids is not None and negative_item_ids.size(1) > 0
+
+        if use_candidates:
+            assert negative_item_ids is not None
+            candidate_item_ids = torch.cat(
+                [batch.target_item_id.reshape(-1, 1).long(), negative_item_ids],
+                dim=1,
+            )
+            scores = self(batch, candidate_item_ids=candidate_item_ids)
+        else:
+            scores = self(batch)
 
         rank_loss = self._compute_rec_loss(
             scores=scores,
             target_item_ids=batch.target_item_id,
-            negative_item_ids=(batch.negative_item_ids if prefix == "train" else None),
+            negative_item_ids=negative_item_ids,
+            use_candidates=use_candidates,
         )
 
         use_gcl = (
@@ -231,7 +254,15 @@ class RecSys(L.LightningModule):
         scores: torch.Tensor,
         target_item_ids: torch.Tensor,
         negative_item_ids: torch.Tensor | None = None,
+        use_candidates: bool = False,
     ) -> torch.Tensor:
+        """Compute the cross-entropy ranking loss.
+
+        With ``use_candidates=True`` the ``scores`` tensor contains exactly one
+        column per candidate (target followed by negatives), so each row is a
+        small softmax over that candidate set. Otherwise ``scores`` covers the
+        full catalog and candidate columns are gathered from it.
+        """
         if scores.ndim != 2:
             raise RuntimeError(
                 f"RecSys must return [batch, num_items] scores, got {scores.shape}."
@@ -243,6 +274,37 @@ class RecSys(L.LightningModule):
             raise RuntimeError(
                 "target_item_ids must have exactly one target item per batch row."
             )
+
+        if use_candidates:
+            if negative_item_ids is None or negative_item_ids.size(1) == 0:
+                raise RuntimeError(
+                    "Candidate-based scoring requires at least one negative per row."
+                )
+            if negative_item_ids.ndim != 2 or negative_item_ids.size(0) != scores.size(
+                0
+            ):
+                raise RuntimeError(
+                    "negative_item_ids must have shape [batch, num_negatives]."
+                )
+
+            num_candidates = 1 + negative_item_ids.size(1)
+            if scores.size(1) != num_candidates:
+                raise RuntimeError(
+                    "Candidate scores must have one column per target plus "
+                    f"negative, expected {num_candidates}, got {scores.size(1)}."
+                )
+
+            candidate_ids = torch.cat(
+                [target_item_ids.unsqueeze(1), negative_item_ids.long()],
+                dim=1,
+            )
+            self._validate_target_ids(candidate_ids, self.cfg.num_items)
+            positive_labels = torch.zeros(
+                scores.size(0),
+                dtype=torch.long,
+                device=scores.device,
+            )
+            return F.cross_entropy(scores, positive_labels)
 
         self._validate_target_ids(target_item_ids, scores.size(1))
 

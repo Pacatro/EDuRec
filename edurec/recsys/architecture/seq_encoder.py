@@ -97,20 +97,10 @@ class SeqEncoder(nn.Module):
         tokens = self.input_norm(tokens)
         tokens = tokens.masked_fill(~safe_mask.unsqueeze(-1), 0.0)
 
-        causal_mask = torch.triu(
-            torch.ones(
-                history_len,
-                history_len,
-                dtype=torch.bool,
-                device=history_emb.device,
-            ),
-            diagonal=1,
-        )
-
         encoded = self.transformer(
             tokens,
-            mask=causal_mask,
             src_key_padding_mask=~safe_mask,
+            is_causal=True,
         )
 
         # Find the actual final valid position instead of assuming right padding.

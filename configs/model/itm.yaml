@@ -1,17 +1,17 @@
-dropout: 0.0
-edge_dropout: 0.0
+dropout: 0.3
+edge_dropout: 0.1
 emb_dim: 256
-ff_dim: 4096
-gnn_layers: 1
+ff_dim: 512
+fusion_type: masked_gated
+gnn_layers: 2
 graph_mode: lightgcn
 has_history: false
 hidden_dims:
 - 512
-- 256
 item_cat_cardinalities: []
 loss_reduction: mean
 n_blocks: 2
-n_heads: 2
+n_heads: 4
 num_ctx_feats: 3
 num_item_dense_feats: 384
 num_item_text_feats: 384

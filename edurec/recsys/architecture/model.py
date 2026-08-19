@@ -66,8 +66,27 @@ class EDuRec(nn.Module):
     def _fuse(
         sources: list[torch.Tensor],
         fusion: MaskedGatedFusion | SumFusion | None,
+        available: list[torch.Tensor | None] | None = None,
     ) -> torch.Tensor:
-        return sources[0] if fusion is None else fusion(sources)
+        """Fuse source representations, optionally masking unavailable ones."""
+        if fusion is None:
+            return sources[0]
+
+        if available is not None and isinstance(fusion, MaskedGatedFusion):
+            batch_size = sources[0].size(0)
+            device = sources[0].device
+            mask = torch.stack(
+                [
+                    torch.ones(batch_size, dtype=torch.bool, device=device)
+                    if flag is None
+                    else flag.bool()
+                    for flag in available
+                ],
+                dim=1,
+            )
+            return fusion(sources, available=mask)
+
+        return fusion(sources)
 
     def forward(
         self,
@@ -78,17 +97,21 @@ class EDuRec(nn.Module):
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
         context: torch.Tensor | None = None,
+        candidate_item_ids: torch.Tensor | None = None,
     ) -> torch.Tensor:
         user_sources = []
+        user_available: list[torch.Tensor | None] = []
         item_sources = []
 
         if self.gnn is not None:
             user_graph, item_graph = self.gnn(edge_index)
             user_sources.append(user_graph[u_ids])
+            user_available.append(None)
             item_sources.append(item_graph)
 
         if self.user_encoder is not None:
             user_sources.append(self.user_encoder(u_static_feats)[u_ids])
+            user_available.append(None)
         if self.item_encoder is not None:
             item_sources.append(self.item_encoder(i_static_feats))
         context_emb = None
@@ -106,12 +129,21 @@ class EDuRec(nn.Module):
             hist = padded[h_ids.clamp(min=0)]
             seq_user = self.sequence_encoder(hist, h_mask)
             user_sources.append(seq_user)
+            user_available.append(h_mask.bool().any(dim=1))
 
-        user_emb = self._fuse(user_sources, self.user_fusion)
+        user_emb = self._fuse(user_sources, self.user_fusion, user_available)
 
-        scores = self.scorer(user_emb, item_emb, context_emb)
+        scores = self.scorer(
+            user_emb,
+            item_emb,
+            context_emb,
+            item_ids=candidate_item_ids,
+        )
 
         if self.item_bias is not None:
-            scores = scores + self.item_bias
+            if candidate_item_ids is not None:
+                scores = scores + self.item_bias[candidate_item_ids]
+            else:
+                scores = scores + self.item_bias
 
         return scores
