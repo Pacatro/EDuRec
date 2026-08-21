@@ -65,6 +65,7 @@ DORIS_REQUIRED_FILES = (
 DORIS_ZIP_URL = "https://ndownloader.figstatic.com/files/41041415"
 MOOCCUBEX_BASE_URL = "https://lfs.aminer.cn/misc/moocdata/data/mooccube2"
 MOOCCUBEX_REQUIRED_FILES = ("entities/user.json", "entities/course.json")
+MOOCCUBEX_MAX_INTERACTIONS: int = 500_000
 ITM_REQUIRED_FILES = ("ratings.csv", "items.csv", "users.csv")
 KAGGLE_ITM_DATASET = "irecsys/itmrec"
 

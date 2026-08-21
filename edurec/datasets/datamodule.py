@@ -11,6 +11,7 @@ from .. import settings
 from .atomic_files import save_atomic_files
 from .cache import ProcessedData, processed_cache_exists
 from .dataprocessor import DataProcessor
+from .downloaders import download_raw_data
 from .loaders import (
     DatasetName,
     RawData,
@@ -27,8 +28,6 @@ from .preprocessing import (
 )
 from .recsys_dataset import RecSysDataset
 from .user_history import build_histories
-from .downloaders import download_raw_data
-
 
 EXCLUDED_CONTEXT_COLS = (
     settings.USER_COL,
@@ -51,7 +50,6 @@ class ElearningDataModule(L.LightningDataModule):
         use_processed_data: bool = False,
         save_atomic_files: bool = False,
         random_state: int | None = None,
-        limit: int | None = None,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -65,13 +63,7 @@ class ElearningDataModule(L.LightningDataModule):
         self.use_processed_data = use_processed_data
         self.save_atomic_files = save_atomic_files
         self.random_state = random_state
-        if limit is not None and limit < 1:
-            raise ValueError("limit must be greater than zero.")
-        self.limit = limit
-
-        self.data_variant = (
-            dataset.value if limit is None else f"{dataset.value}_limit_{limit}"
-        )
+        self.data_variant = dataset.value
         self.processed_folder = Path(settings.PROCESSED_FOLDER) / self.data_variant
         self.atomic_folder = Path(settings.ATOMICFILES_FOLDER) / self.data_variant
         self.raw_dataset: RawData | None = None
@@ -151,8 +143,6 @@ class ElearningDataModule(L.LightningDataModule):
     def _process_raw_data(self) -> None:
         raw = load_raw_data(self.dataset_name)
         interactions = clean_cols(raw.interactions)
-        if self.limit is not None:
-            interactions = interactions.head(self.limit).reset_index(drop=True)
         self.raw_dataset = RawData(
             interactions=interactions,
             user_features=clean_cols(raw.user_features),

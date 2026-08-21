@@ -14,10 +14,6 @@ def datasets_to_run(dataset: DatasetName | None) -> list[DatasetName]:
     return [dataset] if dataset is not None else list(dataset_loaders)
 
 
-def dataset_run_name(dataset: DatasetName, limit: int | None = None) -> str:
-    return dataset.value if limit is None else f"{dataset.value}_limit_{limit}"
-
-
 def config_paths(configs_folder: Path, run_name: str) -> tuple[Path, Path]:
     """Return the model and training config paths for a given run."""
     return (
@@ -99,8 +95,6 @@ def print_data_summary(prefix: str, dm: ElearningDataModule) -> None:
         f"[{prefix}] Splits: "
         + ", ".join(f"{split}={size:,}" for split, size in split_sizes.items())
     )
-    if dm.limit is not None:
-        print(f"[{prefix}] Interaction limit: {dm.limit:,}")
     if not dm.is_explicit:
         negatives = dm.train_ds.negative_item_ids
         print(

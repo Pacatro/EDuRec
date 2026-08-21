@@ -12,7 +12,6 @@ from ..recsys.io import save_metrics, save_model
 from .utils import (
     build_config,
     config_paths,
-    dataset_run_name,
     datasets_to_run,
     dataset_train_defaults,
     print_data_summary,
@@ -41,14 +40,6 @@ def train(
             "-l",
             min=0.0,
             help="Learning rate. Uses the saved training config if omitted.",
-        ),
-    ] = None,
-    limit: Annotated[
-        int | None,
-        typer.Option(
-            "--limit",
-            min=1,
-            help="Maximum number of interactions to use before splitting.",
         ),
     ] = None,
     batch_size: Annotated[
@@ -119,7 +110,7 @@ def train(
     datasets = datasets_to_run(dataset)
 
     for dataset_idx, dataset_name in enumerate(datasets, start=1):
-        run_name = dataset_run_name(dataset_name, limit)
+        run_name = dataset_name.value
         dataset_experiment_name = (
             f"{experiment_name}_{run_name}" if experiment_name else None
         )
@@ -161,7 +152,7 @@ def train(
                 "[TRAIN] Data config: "
                 f"use_processed={use_processed_data}, remove_sparse={remove_sparse}, "
                 f"min_interactions={min_interactions}, "
-                f"val_ratio={val_size}, test_ratio={test_size}, limit={limit}"
+                f"val_ratio={val_size}, test_ratio={test_size}"
             )
 
         dm = ElearningDataModule(
@@ -174,7 +165,6 @@ def train(
             min_interactions=min_interactions,
             remove_sparse=remove_sparse,
             save_atomic_files=True,
-            limit=limit,
         )
 
         dm.prepare_data()

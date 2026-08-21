@@ -10,7 +10,6 @@ from ..recsys.configs import TrainConfig
 from .utils import (
     build_config,
     config_paths,
-    dataset_run_name,
     datasets_to_run,
     print_data_summary,
     print_model_modules,
@@ -22,15 +21,6 @@ app = typer.Typer(no_args_is_help=True)
 @app.command(name="optim", help="Run a hyperparameter optimization for the model.")
 def optimize(
     dataset: Annotated[DatasetName | None, typer.Option("--dataset", "-d")] = None,
-    limit: Annotated[
-        int | None,
-        typer.Option(
-            "--limit",
-            "-l",
-            min=1,
-            help="Maximum number of interactions to use before splitting.",
-        ),
-    ] = None,
     epochs: Annotated[
         int,
         typer.Option(
@@ -95,7 +85,7 @@ def optimize(
     print(f"[OPTIM] Configs folder: {configs_folder}")
 
     for dataset_name in datasets:
-        run_name = dataset_run_name(dataset_name, limit)
+        run_name = dataset_name.value
         if verbose:
             print(
                 f"[OPTIM] Config: epochs={epochs}, batch_size={batch_size}, trials={n_trials}, patience={patience}"
@@ -104,7 +94,7 @@ def optimize(
                 "[OPTIM] Data config: "
                 f"use_processed={use_processed_data}, remove_sparse={remove_sparse}, "
                 f"min_interactions={min_interactions}, "
-                f"val_ratio={val_ratio}, test_ratio={test_ratio}, limit={limit}"
+                f"val_ratio={val_ratio}, test_ratio={test_ratio}"
             )
 
         dm = ElearningDataModule(
@@ -117,7 +107,6 @@ def optimize(
             min_interactions=min_interactions,
             remove_sparse=remove_sparse,
             save_atomic_files=False,
-            limit=limit,
         )
 
         dm.prepare_data()

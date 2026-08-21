@@ -1,5 +1,6 @@
+from collections.abc import Callable
 from enum import StrEnum
-from typing import Callable, NamedTuple, Literal
+from typing import Literal, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -285,6 +286,7 @@ def load_mooccubex() -> RawData:
 
     user_frames: list[pd.DataFrame] = []
     interaction_frames: list[pd.DataFrame] = []
+    num_interactions = 0
     user_columns = ["id", "gender", "school", "year_of_birth"]
 
     for chunk in pd.read_json(
@@ -311,26 +313,30 @@ def load_mooccubex() -> RawData:
             },
             inplace=True,
         )
+        enrollments[settings.ITEM_COL] = "C_" + enrollments[settings.ITEM_COL].astype(
+            "string"
+        )
+        timestamps = pd.to_datetime(
+            enrollments[settings.TIME_COL], errors="coerce", utc=True
+        )
+        enrollments = enrollments.loc[timestamps.notna()].copy()
+        enrollments[settings.TIME_COL] = (
+            timestamps.loc[timestamps.notna()].astype("int64") // 10**9
+        )
+        enrollments = enrollments.loc[
+            enrollments[settings.ITEM_COL].isin(items[settings.ITEM_COL])
+        ]
         interaction_frames.append(enrollments)
+        num_interactions += len(enrollments)
+
+        if num_interactions >= settings.MOOCCUBEX_MAX_INTERACTIONS:
+            break
 
     users = pd.concat(user_frames, ignore_index=True)
-    interactions = pd.concat(interaction_frames, ignore_index=True)
-
-    # course.json uses IDs such as ``C_584313`` whereas course_order contains
-    # the numeric portion only.
-    interactions[settings.ITEM_COL] = "C_" + interactions[settings.ITEM_COL].astype(
-        "string"
+    interactions = pd.concat(interaction_frames, ignore_index=True).head(
+        settings.MOOCCUBEX_MAX_INTERACTIONS
     )
-    timestamps = pd.to_datetime(
-        interactions[settings.TIME_COL], errors="coerce", utc=True
-    )
-    interactions = interactions.loc[timestamps.notna()].copy()
-    interactions[settings.TIME_COL] = (
-        timestamps.loc[timestamps.notna()].astype("int64") // 10**9
-    )
-    interactions = interactions.loc[
-        interactions[settings.ITEM_COL].isin(items[settings.ITEM_COL])
-    ].reset_index(drop=True)
+    interactions = interactions.reset_index(drop=True)
 
     schema = {
         "users": {

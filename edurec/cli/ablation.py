@@ -15,7 +15,6 @@ from ..recsys.configs import resolve_train_config
 from .utils import (
     build_config,
     config_paths,
-    dataset_run_name,
     datasets_to_run,
     dataset_train_defaults,
     parse_seeds,
@@ -48,14 +47,6 @@ def run_ablation(
             "--lr",
             "-l",
             help="Learning rate. Uses the saved training config if omitted.",
-        ),
-    ] = None,
-    limit: Annotated[
-        int | None,
-        typer.Option(
-            "--limit",
-            min=1,
-            help="Maximum number of interactions to use before splitting.",
         ),
     ] = None,
     batch_size: Annotated[int | None, typer.Option("--batch_size", "-b", min=1)] = None,
@@ -95,7 +86,7 @@ def run_ablation(
     print(f"[ABLATION] Output folder: {output_dir}")
 
     for dataset_name in datasets:
-        run_name = dataset_run_name(dataset_name, limit)
+        run_name = dataset_name.value
         dataset_root = output_dir / run_name
         dataset_root.mkdir(parents=True, exist_ok=True)
         model_config_path, train_config_path = config_paths(
@@ -127,7 +118,6 @@ def run_ablation(
                 min_interactions=min_interactions,
                 remove_sparse=remove_sparse,
                 save_atomic_files=False,
-                limit=limit,
             )
             dm.prepare_data()
             dm.setup()
