@@ -224,6 +224,10 @@ def eval_models(
             "model. Uses the saved training config if omitted.",
         ),
     ] = None,
+    compile: Annotated[
+        bool,
+        typer.Option("--compile", help="Compile EDuRec before training."),
+    ] = settings.COMPILE_MODEL,
     output_dir: Annotated[
         Path,
         typer.Option("--output-dir", "-o", help="Root folder for evaluation results."),
@@ -344,6 +348,7 @@ def eval_models(
                     cfg=cfg,
                     train_cfg=train_cfg,
                     val_topk=val_topk,
+                    compile=compile,
                     verbose=verbose,
                 )
                 _save_seed_results(proposed_results, dataset_root, seed)

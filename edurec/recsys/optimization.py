@@ -30,6 +30,7 @@ def objective(
     patience: int,
     val_topk: int = settings.TOP_K,
     verbose: bool = False,
+    compile: bool = settings.COMPILE_MODEL,
 ) -> float:
     emb_dim = trial.suggest_categorical(
         "emb_dim", sorted({64, settings.EMB_DIM, 256, 512})
@@ -112,7 +113,7 @@ def objective(
             epochs=epochs,
             patience=patience,
             monitor=model.monitor,
-            compile=False,
+            compile=compile,
             verbose=verbose,
             default_root_dir=root_dir,
         )
@@ -137,6 +138,7 @@ def optimize_model(
     val_topk: int = settings.TOP_K,
     verbose: bool = False,
     results_path: Path | None = None,
+    compile: bool = settings.COMPILE_MODEL,
 ) -> optuna.Study:
     assert dm.is_processed, "Data must be processed before optimizing the model."
 
@@ -170,8 +172,9 @@ def optimize_model(
             inter_graph,
             epochs,
             patience,
-            val_topk,
-            verbose,
+            val_topk=val_topk,
+            verbose=verbose,
+            compile=compile,
         ),
         n_trials=n_trials,
         gc_after_trial=True,

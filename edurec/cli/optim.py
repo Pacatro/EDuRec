@@ -64,6 +64,10 @@ def optimize(
     use_processed_data: Annotated[
         bool, typer.Option("--use_processed", "-P")
     ] = settings.SAVE_DATA,
+    compile: Annotated[
+        bool,
+        typer.Option("--compile", help="Compile each model before training."),
+    ] = settings.COMPILE_MODEL,
     configs_folder: Annotated[
         Path,
         typer.Option(
@@ -131,6 +135,7 @@ def optimize(
             n_trials=n_trials,
             epochs=epochs,
             patience=patience,
+            compile=compile,
             verbose=verbose,
             results_path=dataset_results_path,
         )

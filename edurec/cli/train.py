@@ -88,6 +88,10 @@ def train(
             help="Use adaptive k. Uses the saved training config if omitted.",
         ),
     ] = None,
+    compile: Annotated[
+        bool,
+        typer.Option("--compile", help="Compile the model before training."),
+    ] = settings.COMPILE_MODEL,
     debug: Annotated[bool, typer.Option("--debug", "-D")] = False,
     save: Annotated[bool, typer.Option("--save_model", "-S")] = False,
     use_processed_data: Annotated[
@@ -203,6 +207,7 @@ def train(
             patience=train_cfg.patience,
             experiment_name=dataset_experiment_name,
             monitor=recsys.monitor,
+            compile=compile,
             verbose=verbose,
         )
 

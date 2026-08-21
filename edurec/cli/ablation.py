@@ -66,6 +66,10 @@ def run_ablation(
     use_processed_data: Annotated[
         bool, typer.Option("--use_processed", "-P")
     ] = settings.SAVE_DATA,
+    compile: Annotated[
+        bool,
+        typer.Option("--compile", help="Compile each model before training."),
+    ] = settings.COMPILE_MODEL,
     debug: Annotated[bool, typer.Option("--debug", "-D")] = False,
     output_dir: Annotated[
         Path,
@@ -166,7 +170,7 @@ def run_ablation(
                         epochs=train_cfg.epochs,
                         patience=train_cfg.patience,
                         monitor=model.monitor,
-                        compile=False,
+                        compile=compile,
                         verbose=verbose,
                         default_root_dir=tmp,
                     )
