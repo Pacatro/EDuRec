@@ -97,10 +97,15 @@ class SeqEncoder(nn.Module):
         tokens = self.input_norm(tokens)
         tokens = tokens.masked_fill(~safe_mask.unsqueeze(-1), 0.0)
 
+        # Generar la máscara causal explícita para resolver la incompatibilidad
+        causal_mask = nn.Transformer.generate_square_subsequent_mask(
+            history_len, device=tokens.device
+        )
+
         encoded = self.transformer(
             tokens,
+            mask=causal_mask,
             src_key_padding_mask=~safe_mask,
-            is_causal=True,
         )
 
         # Find the actual final valid position instead of assuming right padding.
