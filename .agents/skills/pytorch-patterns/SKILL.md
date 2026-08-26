@@ -48,6 +48,7 @@ def set_seed(seed: int = 42) -> None:
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+
 # Bad: No seed control
 model = MyModel()  # Different weights every run
 ```
@@ -60,17 +61,18 @@ Always document and verify tensor shapes.
 # Good: Shape-annotated forward pass
 def forward(self, x: torch.Tensor) -> torch.Tensor:
     # x: (batch_size, channels, height, width)
-    x = self.conv1(x)    # -> (batch_size, 32, H, W)
-    x = self.pool(x)     # -> (batch_size, 32, H//2, W//2)
+    x = self.conv1(x)  # -> (batch_size, 32, H, W)
+    x = self.pool(x)  # -> (batch_size, 32, H//2, W//2)
     x = x.view(x.size(0), -1)  # -> (batch_size, 32*H//2*W//2)
-    return self.fc(x)    # -> (batch_size, num_classes)
+    return self.fc(x)  # -> (batch_size, num_classes)
+
 
 # Bad: No shape tracking
 def forward(self, x):
     x = self.conv1(x)
     x = self.pool(x)
     x = x.view(x.size(0), -1)  # What size is this?
-    return self.fc(x)           # Will this even work?
+    return self.fc(x)  # Will this even work?
 ```
 
 ## Model Architecture Patterns
@@ -98,6 +100,7 @@ class ImageClassifier(nn.Module):
         x = x.view(x.size(0), -1)
         return self.classifier(x)
 
+
 # Bad: Everything in forward
 class ImageClassifier(nn.Module):
     def __init__(self):
@@ -122,6 +125,7 @@ def _init_weights(self, module: nn.Module) -> None:
     elif isinstance(module, nn.BatchNorm2d):
         nn.init.ones_(module.weight)
         nn.init.zeros_(module.bias)
+
 
 model = MyModel()
 model.apply(model._init_weights)
@@ -233,11 +237,11 @@ class ImageDataset(Dataset):
 dataloader = DataLoader(
     dataset,
     batch_size=32,
-    shuffle=True,            # Shuffle for training
-    num_workers=4,           # Parallel data loading
-    pin_memory=True,         # Faster CPU->GPU transfer
-    persistent_workers=True, # Keep workers alive between epochs
-    drop_last=True,          # Consistent batch sizes for BatchNorm
+    shuffle=True,  # Shuffle for training
+    num_workers=4,  # Parallel data loading
+    pin_memory=True,  # Faster CPU->GPU transfer
+    persistent_workers=True,  # Keep workers alive between epochs
+    drop_last=True,  # Consistent batch sizes for BatchNorm
 )
 
 # Bad: Slow defaults
@@ -248,11 +252,14 @@ dataloader = DataLoader(dataset, batch_size=32)  # num_workers=0, no pin_memory
 
 ```python
 # Good: Pad sequences in collate_fn
-def collate_fn(batch: list[tuple[torch.Tensor, int]]) -> tuple[torch.Tensor, torch.Tensor]:
+def collate_fn(
+    batch: list[tuple[torch.Tensor, int]],
+) -> tuple[torch.Tensor, torch.Tensor]:
     sequences, labels = zip(*batch)
     # Pad to max length in batch
     padded = nn.utils.rnn.pad_sequence(sequences, batch_first=True, padding_value=0)
     return padded, torch.tensor(labels)
+
 
 dataloader = DataLoader(dataset, batch_size=32, collate_fn=collate_fn)
 ```
@@ -270,12 +277,16 @@ def save_checkpoint(
     loss: float,
     path: str,
 ) -> None:
-    torch.save({
-        "epoch": epoch,
-        "model_state_dict": model.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
-        "loss": loss,
-    }, path)
+    torch.save(
+        {
+            "epoch": epoch,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "loss": loss,
+        },
+        path,
+    )
+
 
 def load_checkpoint(
     path: str,
@@ -287,6 +298,7 @@ def load_checkpoint(
     if optimizer:
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     return checkpoint
+
 
 # Bad: Only saving model weights (can't resume training)
 torch.save(model.state_dict(), "model.pt")
@@ -314,6 +326,7 @@ for data, target in dataloader:
 ```python
 # Good: Trade compute for memory
 from torch.utils.checkpoint import checkpoint
+
 
 class LargeModel(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -363,7 +376,7 @@ with torch.no_grad():
 
 # Bad: In-place operations breaking autograd
 x = F.relu(x, inplace=True)  # Can break gradient computation
-x += residual                  # In-place add breaks autograd graph
+x += residual  # In-place add breaks autograd graph
 
 # Good: Out-of-place operations
 x = F.relu(x)
