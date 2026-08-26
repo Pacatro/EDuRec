@@ -1,9 +1,9 @@
 import json
 import shutil
+from collections.abc import Mapping
 from dataclasses import asdict
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Mapping
 
 import pandas as pd
 
@@ -18,7 +18,7 @@ def save_model(
     models_folder: str | Path,
 ) -> tuple[Path, Path]:
     """Save the best model and its config to the expected folder structure."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
     models_root = Path(models_folder)
     models_root.mkdir(parents=True, exist_ok=True)
 
