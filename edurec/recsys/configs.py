@@ -1,6 +1,7 @@
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
-from typing import Any, Literal, Mapping, Self
+from typing import Any, Literal, Self
 
 import yaml
 
