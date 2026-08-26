@@ -3,9 +3,9 @@ from pathlib import Path
 from typing import cast
 
 import lightning as L
+import torch
 from lightning.pytorch.callbacks import Callback, EarlyStopping, ModelCheckpoint, Timer
 from lightning.pytorch.loggers import WandbLogger
-import torch
 
 from .. import settings
 from ..datasets import ElearningDataModule

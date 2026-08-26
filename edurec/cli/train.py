@@ -12,8 +12,8 @@ from ..recsys.io import save_metrics, save_model
 from .utils import (
     build_config,
     config_paths,
-    datasets_to_run,
     dataset_train_defaults,
+    datasets_to_run,
     print_data_summary,
     print_model_modules,
 )
