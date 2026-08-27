@@ -10,11 +10,12 @@ from ..datasets import DatasetName, ElearningDataModule
 from ..evaluation import eval_model, eval_sota_models
 from ..recsys import ModelConfig
 from ..recsys.configs import monitor_topk, resolve_train_config
+from ..recsys.ranking import EVALUATION_PROTOCOL
 from .utils import (
     build_config,
     config_paths,
-    datasets_to_run,
     dataset_train_defaults,
+    datasets_to_run,
     parse_seeds,
     print_data_summary,
     print_model_modules,
@@ -30,7 +31,12 @@ def _save_seed_results(
 ) -> None:
     for result in results.to_dict(orient="records"):
         model = str(result.pop("model"))
-        row = {"model": model, "seed": seed, **result}
+        row = {
+            "model": model,
+            **result,
+            "seed": seed,
+            "evaluation_protocol": EVALUATION_PROTOCOL,
+        }
         path = dataset_root / model / f"seed_{seed}" / settings.METRICS_FILENAME
         path.parent.mkdir(parents=True, exist_ok=True)
         pd.DataFrame([row]).to_csv(path, index=False)
@@ -52,6 +58,9 @@ def _load_seed_result(
     try:
         result = pd.read_csv(path).iloc[0].to_dict()
     except (IndexError, pd.errors.EmptyDataError, OSError):
+        return None
+
+    if result.get("evaluation_protocol") != EVALUATION_PROTOCOL:
         return None
 
     result["model"] = str(result.get("model", model))
@@ -92,7 +101,11 @@ def _collect_seed_results(
 
 def _summarize_seed_results(results: pd.DataFrame) -> pd.DataFrame:
     """Aggregate numeric evaluation metrics across seeds for each model."""
-    metric_cols = [col for col in results.columns if col not in {"model", "seed"}]
+    metric_cols = [
+        col
+        for col in results.columns
+        if col not in {"model", "seed", "evaluation_protocol"}
+    ]
     summary_rows: list[dict[str, str]] = []
 
     for model, model_results in results.groupby("model", sort=False):
@@ -369,6 +382,7 @@ def eval_models(
                     batch_size=train_cfg.batch_size,
                     patience=train_cfg.patience,
                     topks=train_cfg.topks,
+                    adaptive_k=train_cfg.adaptive_k,
                     results_path=dataset_root,
                     show_progress=verbose,
                 )

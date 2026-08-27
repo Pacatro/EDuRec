@@ -5,42 +5,14 @@ from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from torch_geometric.data import Data
 from torch_geometric.utils import dropout_edge
 from torchmetrics import MetricCollection
-from torchmetrics.retrieval import (
-    RetrievalHitRate,
-    RetrievalMAP,
-    RetrievalMRR,
-    RetrievalNormalizedDCG,
-    RetrievalPrecision,
-    RetrievalRecall,
-)
+from torchmetrics.retrieval import RetrievalNormalizedDCG
 
 from .. import settings
 from ..datasets import RecSysQuery
 from .architecture.model import EDuRec
 from .configs import ModelConfig, TrainConfig
 from .losses import InfoNCELoss, LossReduction
-
-
-def build_ranking_metrics(
-    topks: list[int],
-    prefix: str,
-    adaptive_k: bool = False,
-) -> MetricCollection:
-    """Build the full-catalog retrieval metric set for every top-k."""
-    metrics = {}
-    for k in topks:
-        common = {
-            "top_k": k,
-            "empty_target_action": "neg",
-            "aggregation": "mean",
-        }
-        metrics[f"precision@{k}"] = RetrievalPrecision(**common, adaptive_k=adaptive_k)
-        metrics[f"recall@{k}"] = RetrievalRecall(**common)
-        metrics[f"ndcg@{k}"] = RetrievalNormalizedDCG(**common)
-        metrics[f"hit@{k}"] = RetrievalHitRate(**common)
-        metrics[f"map@{k}"] = RetrievalMAP(**common)
-        metrics[f"mrr@{k}"] = RetrievalMRR(**common)
-    return MetricCollection(metrics, prefix=prefix)
+from .ranking import build_ranking_metrics, update_ranking_metrics
 
 
 class RecSys(L.LightningModule):
@@ -232,10 +204,13 @@ class RecSys(L.LightningModule):
             if not metric_topks:
                 raise ValueError("metric_topks must be provided with ranking_metrics.")
 
-            self._update_ranking_metrics(
+            update_ranking_metrics(
                 metrics=ranking_metrics,
                 scores=scores,
-                batch=batch,
+                target_item_ids=batch.target_item_id,
+                query_ids=batch.query_id,
+                history_items=batch.history_items,
+                history_mask=batch.history_valid_mask,
                 max_k=max(metric_topks),
             )
 
@@ -331,115 +306,6 @@ class RecSys(L.LightningModule):
             device=scores.device,
         )
         return F.cross_entropy(candidate_scores, positive_labels)
-
-    @torch.no_grad()
-    def _update_ranking_metrics(
-        self,
-        metrics: MetricCollection,
-        scores: torch.Tensor,
-        batch: RecSysQuery,
-        max_k: int,
-    ) -> None:
-        """Update full-catalog ranking metrics using only the top ``max_k``.
-
-        The dataset contains one relevant target per query. Therefore, keeping
-        only the highest-scoring ``max_k`` candidates is sufficient for every
-        metric computed at K <= ``max_k``. A target outside this candidate set
-        becomes an empty-target query and ``empty_target_action='neg'`` assigns
-        the correct value of zero.
-        """
-        if scores.ndim != 2:
-            raise ValueError(
-                f"scores must have shape [batch, num_items], got {scores.shape}."
-            )
-
-        if not torch.isfinite(scores).all():
-            raise FloatingPointError(
-                "Model scores contain NaN or infinite values before evaluation."
-            )
-
-        batch_size, num_items = scores.shape
-        if max_k <= 0 or max_k > num_items:
-            raise ValueError(f"max_k must be in [1, {num_items}], got {max_k}.")
-
-        target_item_ids = batch.target_item_id.reshape(-1).long()
-        query_ids = batch.query_id.reshape(-1).long()
-
-        if target_item_ids.numel() != batch_size:
-            raise ValueError("Expected exactly one target item per query.")
-        if query_ids.numel() != batch_size:
-            raise ValueError("Expected exactly one query ID per query.")
-        if query_ids.unique().numel() != query_ids.numel():
-            raise ValueError("query_id values must be unique inside each batch.")
-
-        self._validate_target_ids(target_item_ids, num_items)
-
-        eval_scores = self._mask_seen_items(
-            scores=scores.detach().float(),
-            history_items=batch.history_items,
-            history_mask=batch.history_valid_mask,
-            target_item_ids=target_item_ids,
-        )
-
-        top_scores, top_item_ids = torch.topk(
-            eval_scores,
-            k=max_k,
-            dim=1,
-            largest=True,
-            sorted=True,
-        )
-
-        top_targets = top_item_ids.eq(target_item_ids.unsqueeze(1))
-        indexes = query_ids.unsqueeze(1).expand_as(top_item_ids)
-
-        metrics.update(
-            preds=top_scores.reshape(-1),
-            target=top_targets.reshape(-1),
-            indexes=indexes.reshape(-1),
-        )
-
-    @staticmethod
-    def _mask_seen_items(
-        scores: torch.Tensor,
-        history_items: torch.Tensor,
-        history_mask: torch.Tensor,
-        target_item_ids: torch.Tensor,
-    ) -> torch.Tensor:
-        """Exclude previous interactions from the evaluation candidate set.
-
-        ``history_items`` uses zero as padding and stores real item IDs shifted
-        by one. The current target is restored after masking so repeated-item
-        next-event prediction remains evaluable.
-        """
-        masked_scores = scores.clone()
-        batch_size, num_items = masked_scores.shape
-
-        if history_items.shape != history_mask.shape:
-            raise ValueError("history_items and history_mask must have the same shape.")
-        if history_items.size(0) != batch_size:
-            raise ValueError("History batch size must match the score batch size.")
-
-        history_ids = history_items.long() - 1
-        valid_history = (
-            history_mask.bool() & history_ids.ge(0) & history_ids.lt(num_items)
-        )
-
-        batch_indexes = (
-            torch.arange(batch_size, device=masked_scores.device)
-            .unsqueeze(1)
-            .expand_as(history_ids)
-        )
-
-        target_scores = masked_scores.gather(1, target_item_ids.unsqueeze(1))
-
-        masked_scores[
-            batch_indexes[valid_history], history_ids[valid_history]
-        ] = -torch.inf
-
-        # Restore the target in case it occurred previously in the sequence.
-        masked_scores.scatter_(1, target_item_ids.unsqueeze(1), target_scores)
-
-        return masked_scores
 
     def _compute_gcl_loss(self, batch: RecSysQuery) -> torch.Tensor:
         if self.model.gnn is None:

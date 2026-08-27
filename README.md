@@ -262,9 +262,16 @@ configured top-k values.
 
 ### SOTA Benchmark Evaluation
 
-The same evaluation command exports RecBole atomic files and runs comparable
-baseline models with aligned split files, metrics, learning rate, epoch count,
-patience, batch size, and top-k settings.
+The same evaluation command exports RecBole atomic files and runs the baseline
+models with aligned split files, learning rate, epoch count, patience, batch
+size, and top-k settings. Sequential baselines receive prebuilt histories for
+the original train, validation, and test splits instead of asking RecBole to
+split the merged interaction file again.
+
+Final ranking metrics use one shared evaluator for every model. Each positive
+test interaction is one query with one target, and EDuRec and the RecBole
+baselines use the same full item catalog, seen-item mask, and TorchMetrics
+implementations for Precision, Recall, NDCG, Hit Rate, MAP, and MRR.
 
 ### Hyperparameter Optimization
 
