@@ -24,11 +24,7 @@ from .utils import (
 app = typer.Typer(no_args_is_help=True)
 
 
-def _save_seed_results(
-    results: pd.DataFrame,
-    dataset_root: Path,
-    seed: int,
-) -> None:
+def _save_seed_results(results: pd.DataFrame, dataset_root: Path, seed: int) -> None:
     for result in results.to_dict(orient="records"):
         model = str(result.pop("model"))
         row = {
@@ -125,10 +121,7 @@ def _summarize_seed_results(results: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(summary_rows, columns=["model", *metric_cols])
 
 
-@app.command(
-    name="eval",
-    help="Evaluate EDuRec against RecBole SOTA models.",
-)
+@app.command(name="eval", help="Evaluate EDuRec against RecBole SOTA models.")
 def eval_models(
     dataset: Annotated[
         DatasetName | None,

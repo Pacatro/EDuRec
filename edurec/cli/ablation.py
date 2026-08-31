@@ -15,8 +15,8 @@ from ..recsys.configs import resolve_train_config
 from .utils import (
     build_config,
     config_paths,
-    datasets_to_run,
     dataset_train_defaults,
+    datasets_to_run,
     parse_seeds,
     print_data_summary,
     print_model_modules,
