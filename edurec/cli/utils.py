@@ -59,10 +59,7 @@ def build_config(
     if base is not None:
         return replace(base, **dataset_config, **overrides)
 
-    return ModelConfig(
-        **dataset_config,
-        **overrides,
-    )
+    return ModelConfig(**dataset_config, **overrides)
 
 
 def print_model_modules(prefix: str, cfg: ModelConfig) -> None:
