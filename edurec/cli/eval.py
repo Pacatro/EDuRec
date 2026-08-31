@@ -37,7 +37,9 @@ def _save_seed_results(
             "seed": seed,
             "evaluation_protocol": EVALUATION_PROTOCOL,
         }
-        path = dataset_root / model / f"seed_{seed}" / settings.METRICS_FILENAME
+        path = (
+            dataset_root / model / f"seed_{seed}" / f"{settings.METRICS_FILENAME}.csv"
+        )
         path.parent.mkdir(parents=True, exist_ok=True)
         pd.DataFrame([row]).to_csv(path, index=False)
 
