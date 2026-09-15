@@ -48,6 +48,7 @@ ABLATIONS: dict[str, dict[str, Any]] = {
     },
     "no_user_features": {**FULL_ABLATION, "use_user_features": False},
     "no_item_features": {**FULL_ABLATION, "use_item_features": False},
+    "no_text": {**FULL_ABLATION, "use_text_features": False},
     "no_sequence": {
         **FULL_ABLATION,
         "use_seq_encoder": False,

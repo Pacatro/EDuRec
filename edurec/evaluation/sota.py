@@ -61,7 +61,6 @@ def eval_sota_models(
     patience: int = settings.PATIENCE,
     topks: list[int] | None = None,
     adaptive_k: bool = settings.ADAPTIVE_K,
-    results_path: Path | None = None,
     show_progress: bool = False,
 ) -> pd.DataFrame:
     dataset_name = dm.data_variant
@@ -112,21 +111,9 @@ def eval_sota_models(
             "inference_time_s": inference_time,
         }
 
-        if results_path is not None:
-            _save_model_result(result, model, results_path)
-
         results.append(result)
 
     return pd.DataFrame(results)
-
-
-def _save_model_result(result: dict[str, Any], model: str, results_path: Path) -> None:
-    model_root = results_path / model / f"seed_{result['seed']}"
-    model_root.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame([result]).to_csv(
-        model_root / settings.METRICS_FILENAME,
-        index=False,
-    )
 
 
 def _run_model(

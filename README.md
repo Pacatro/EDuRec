@@ -205,6 +205,7 @@ Implemented main variants:
 - `no_graph`: removes LightGCN and graph contrastive learning.
 - `no_features`: removes both user and item feature encoders.
 - `no_user_features` / `no_item_features`: removes one side-feature encoder.
+- `no_text`: removes the text embeddings from the user/item feature encoders.
 - `no_sequence`: removes SASRec history encoding.
 - `no_context`: removes the independent interaction-context representation.
 - `sum_fusion`: replaces `MaskedGatedFusion` with a direct sum of the module

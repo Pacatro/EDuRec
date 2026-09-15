@@ -49,7 +49,9 @@ def _load_seed_result(
     model: str,
     seed: int,
 ) -> dict[str, object] | None:
-    path = dataset_root / model / f"seed_{seed}" / settings.METRICS_FILENAME
+    path = (
+        dataset_root / model / f"seed_{seed}" / f"{settings.METRICS_FILENAME}.csv"
+    )
     if not path.exists():
         return None
 
@@ -378,7 +380,6 @@ def eval_models(
                     patience=train_cfg.patience,
                     topks=train_cfg.topks,
                     adaptive_k=train_cfg.adaptive_k,
-                    results_path=dataset_root,
                     show_progress=verbose,
                 )
                 _save_seed_results(sota_results, dataset_root, seed)

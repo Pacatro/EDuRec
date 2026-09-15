@@ -11,6 +11,8 @@ class MLPEncoderConfig:
     output_dim: int = 128
     hidden_dims: list[int] = field(default_factory=list)
     dropout: float = 0.1
+    num_text_features: int = 0
+    use_text_features: bool = True
 
 
 class MLPEncoder(nn.Module):
@@ -19,13 +21,28 @@ class MLPEncoder(nn.Module):
         self.num_dense_features = cfg.num_dense_features
         self.output_dim = cfg.output_dim
 
+        if not 0 <= cfg.num_text_features <= cfg.num_dense_features:
+            raise ValueError(
+                "num_text_features must be in [0, num_dense_features], got "
+                f"{cfg.num_text_features} for {cfg.num_dense_features} dense features."
+            )
+
+        # Text embeddings are stored as the trailing block of the dense features
+        # (dense, then text, then categorical), so dropping text means slicing
+        # the dense block and keeping the categorical block untouched.
+        self.num_input_dense = (
+            cfg.num_dense_features
+            if cfg.use_text_features
+            else cfg.num_dense_features - cfg.num_text_features
+        )
+
         cat_emb_dim = max(4, min(cfg.output_dim // 2, 32))
         self.cat_embeddings = nn.ModuleList(
             nn.Embedding(cardinality + 1, cat_emb_dim, padding_idx=0)
             for cardinality in cfg.categorical_cardinalities
         )
 
-        input_dim = self.num_dense_features + len(self.cat_embeddings) * cat_emb_dim
+        input_dim = self.num_input_dense + len(self.cat_embeddings) * cat_emb_dim
         hidden_dims = cfg.hidden_dims or [cfg.output_dim * 2]
 
         if input_dim == 0:
@@ -57,8 +74,8 @@ class MLPEncoder(nn.Module):
 
         encoded_parts: list[torch.Tensor] = []
 
-        if self.num_dense_features > 0:
-            encoded_parts.append(features[..., : self.num_dense_features].float())
+        if self.num_input_dense > 0:
+            encoded_parts.append(features[..., : self.num_input_dense].float())
 
         if self.cat_embeddings:
             cat_ids = features[..., self.num_dense_features :].long() + 1

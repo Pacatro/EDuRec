@@ -92,14 +92,32 @@ class ModelConfig(BaseConfig):
     )
 
     @property
+    def effective_user_dense_feats(self) -> int:
+        """User dense features actually fed to the encoder after ablations."""
+        if self.use_text_features:
+            return self.num_user_dense_feats
+        return self.num_user_dense_feats - self.num_user_text_feats
+
+    @property
+    def effective_item_dense_feats(self) -> int:
+        """Item dense features actually fed to the encoder after ablations."""
+        if self.use_text_features:
+            return self.num_item_dense_feats
+        return self.num_item_dense_feats - self.num_item_text_feats
+
+    @property
     def has_user_features(self) -> bool:
         """Whether the dataset can feed the user feature encoder."""
-        return self.num_user_dense_feats > 0 or bool(self.user_cat_cardinalities)
+        return self.effective_user_dense_feats > 0 or bool(
+            self.user_cat_cardinalities
+        )
 
     @property
     def has_item_features(self) -> bool:
         """Whether the dataset can feed the item feature encoder."""
-        return self.num_item_dense_feats > 0 or bool(self.item_cat_cardinalities)
+        return self.effective_item_dense_feats > 0 or bool(
+            self.item_cat_cardinalities
+        )
 
     @property
     def available_modules(self) -> dict[str, bool]:
@@ -134,6 +152,8 @@ class ModelConfig(BaseConfig):
             categorical_cardinalities=self.user_cat_cardinalities,
             output_dim=self.emb_dim,
             dropout=self.dropout,
+            num_text_features=self.num_user_text_feats,
+            use_text_features=self.use_text_features,
         )
 
     @property
@@ -143,6 +163,8 @@ class ModelConfig(BaseConfig):
             categorical_cardinalities=self.item_cat_cardinalities,
             output_dim=self.emb_dim,
             dropout=self.dropout,
+            num_text_features=self.num_item_text_feats,
+            use_text_features=self.use_text_features,
         )
 
     @property
