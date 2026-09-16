@@ -1,5 +1,7 @@
+import ast
 from collections.abc import Callable
 from enum import StrEnum
+from pathlib import Path
 from typing import Literal, NamedTuple
 
 import numpy as np
@@ -14,6 +16,7 @@ class DatasetName(StrEnum):
     ITM = "itm"
     DORIS = "doris"
     MOOCCUBEX = "mooccubex"
+    COCO = "coco"
 
 
 type Schema = dict[str, dict[str, list[str]]]
@@ -352,6 +355,180 @@ def load_mooccubex() -> RawData:
             "cat": [],
             "text": ["name", "prerequisites", "about"],
             "list": ["field"],
+        },
+        "inter": {
+            "bin": [],
+            "num": [],
+            "cat": [],
+            "text": [],
+            "list": [],
+        },
+    }
+
+    return RawData(
+        interactions=interactions,
+        item_features=items,
+        user_features=users,
+        schema=schema,
+    )
+
+
+COCO_TEXT_COLS = (
+    "short_description",
+    "objectives",
+    "requirements",
+    "target_audience",
+    "long_description",
+)
+COCO_LESSON_CLASSES = {
+    "lecture": "num_lectures",
+    "chapter": "num_chapters",
+    "quiz": "num_quizzes",
+    "practice": "num_practices",
+}
+COCO_INSTRUCTOR_COLS = (
+    "num_instructors",
+    "instructor_enrollments",
+    "instructor_reviews",
+)
+
+
+def _coco_instructor_features(coco_folder: Path) -> pd.DataFrame:
+    """Aggregate instructor statistics per course."""
+    teach = pd.read_csv(
+        coco_folder / "teach_latest.csv",
+        usecols=["course_id", "instructor_id"],
+    )
+    instructors = pd.read_csv(coco_folder / "instructor_latest.csv")
+    merged = teach.merge(instructors, on="instructor_id", how="left")
+
+    return merged.groupby("course_id").agg(
+        num_instructors=("instructor_id", "nunique"),
+        instructor_enrollments=("total_enrollments", "sum"),
+        instructor_reviews=("total_reviews", "sum"),
+    )
+
+
+def _coco_curriculum_features(coco_folder: Path) -> pd.DataFrame:
+    """Count lessons, chapters, quizzes, and practices per course."""
+    curriculum = pd.read_csv(
+        coco_folder / "curriculum_lesson_chapter_latest.csv",
+        usecols=["course_id", "class"],
+    )
+    counts = curriculum.groupby("course_id")["class"].value_counts().unstack()
+    counts = counts.reindex(columns=list(COCO_LESSON_CLASSES), fill_value=0)
+    counts.rename(columns=COCO_LESSON_CLASSES, inplace=True)
+
+    return counts
+
+
+def _flatten_list_text(value: object) -> object:
+    """Turn stringified lists into plain text for the embedding model."""
+    if not isinstance(value, str):
+        return value
+
+    stripped = value.strip()
+    if not (stripped.startswith("[") and stripped.endswith("]")):
+        return value
+
+    try:
+        parsed = ast.literal_eval(stripped)
+    except (SyntaxError, ValueError):
+        return value
+
+    if isinstance(parsed, (list, tuple)):
+        return " ".join(str(item).strip() for item in parsed if str(item).strip())
+
+    return value
+
+
+@register_dataset(DatasetName.COCO)
+def load_coco() -> RawData:
+    """Load the COCO course-review dataset.
+
+    Ratings live in ``evaluate_latest.csv``; the free-text reviewer comment is
+    dropped because it is written after the rating and would leak the relevance
+    target. Course metadata is enriched with curriculum and instructor
+    aggregates so the item encoder receives course-level signals.
+    """
+    coco_folder = settings.RAW_DATA_FOLDER / DatasetName.COCO.value
+
+    interactions = pd.read_csv(
+        coco_folder / "evaluate_latest.csv",
+        usecols=["learner_id", "course_id", "learner_rating", "learner_timestamp"],
+        nrows=settings.COCO_MAX_INTERACTIONS,
+    )
+    interactions.dropna(inplace=True)
+    interactions.rename(
+        columns={
+            "learner_id": settings.USER_COL,
+            "course_id": settings.ITEM_COL,
+            "learner_rating": settings.RATING_COL,
+            "learner_timestamp": settings.TIME_COL,
+        },
+        inplace=True,
+    )
+    interactions[settings.ITEM_COL] = interactions[settings.ITEM_COL].astype(np.int64)
+    interactions[settings.RATING_COL] = interactions[settings.RATING_COL].astype(
+        np.float32
+    )
+
+    timestamps = pd.to_datetime(
+        interactions[settings.TIME_COL], errors="coerce", utc=True
+    )
+    interactions = interactions.loc[timestamps.notna()].copy()
+    interactions[settings.TIME_COL] = (
+        timestamps.loc[timestamps.notna()].astype("int64") // 10**9
+    )
+    interactions = interactions.reset_index(drop=True)
+
+    items = pd.read_csv(coco_folder / "course_latest.csv")
+    items.rename(columns={"course_id": settings.ITEM_COL}, inplace=True)
+    items = items.drop(columns=["short_url"], errors="ignore")
+    for col in COCO_TEXT_COLS:
+        if col in items:
+            items[col] = items[col].map(_flatten_list_text)
+
+    items = items.merge(
+        _coco_instructor_features(coco_folder),
+        left_on=settings.ITEM_COL,
+        right_index=True,
+        how="left",
+    )
+    items = items.merge(
+        _coco_curriculum_features(coco_folder),
+        left_on=settings.ITEM_COL,
+        right_index=True,
+        how="left",
+    )
+    numeric_cols = [
+        *COCO_INSTRUCTOR_COLS,
+        *COCO_LESSON_CLASSES.values(),
+    ]
+    items[numeric_cols] = items[numeric_cols].fillna(0).astype(np.float32)
+    items = items.reset_index(drop=True)
+
+    users = interactions[[settings.USER_COL]].drop_duplicates().reset_index(drop=True)
+
+    schema = {
+        "users": {
+            "bin": [],
+            "num": [],
+            "cat": [],
+            "text": [],
+            "list": [],
+        },
+        "items": {
+            "bin": [],
+            "num": list(numeric_cols),
+            "cat": [
+                "language",
+                "first_level_category",
+                "second_level_category",
+                "instructional_level",
+            ],
+            "text": list(COCO_TEXT_COLS),
+            "list": ["subtitles"],
         },
         "inter": {
             "bin": [],

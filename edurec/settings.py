@@ -68,6 +68,14 @@ MOOCCUBEX_REQUIRED_FILES = ("entities/user.json", "entities/course.json")
 MOOCCUBEX_MAX_INTERACTIONS: int = 500_000
 ITM_REQUIRED_FILES = ("ratings.csv", "items.csv", "users.csv")
 KAGGLE_ITM_DATASET = "irecsys/itmrec"
+COCO_REQUIRED_FILES = (
+    "course_latest.csv",
+    "curriculum_lesson_chapter_latest.csv",
+    "evaluate_latest.csv",
+    "instructor_latest.csv",
+    "teach_latest.csv",
+)
+COCO_MAX_INTERACTIONS: int = 100_000
 
 # Preprocessing
 PROCESSED_FOLDER: str = f"{DATA_FOLDER}/processed"

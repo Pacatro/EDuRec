@@ -133,6 +133,18 @@ def download_mooccubex() -> Path:
     return dest
 
 
+@register_dataset(DatasetName.COCO)
+def download_coco() -> Path:
+    dest = settings.RAW_DATA_FOLDER / DatasetName.COCO.value
+    if all((dest / f).exists() for f in settings.COCO_REQUIRED_FILES):
+        return dest
+
+    raise FileNotFoundError(
+        "The COCO dataset is not distributed through an automated download. "
+        f"Place its CSV files in {dest}: {', '.join(settings.COCO_REQUIRED_FILES)}."
+    )
+
+
 def download_raw_data(dataset_name: DatasetName) -> Path:
     downloader = dataset_downloaders.get(dataset_name)
     if downloader is None:
