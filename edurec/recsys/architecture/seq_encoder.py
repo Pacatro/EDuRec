@@ -97,10 +97,11 @@ class SeqEncoder(nn.Module):
         tokens = self.input_norm(tokens)
         tokens = tokens.masked_fill(~safe_mask.unsqueeze(-1), 0.0)
 
-        # Generar la máscara causal explícita para resolver la incompatibilidad
+        # Boolean masks must match the type of src_key_padding_mask to avoid
+        # PyTorch's deprecated mixed-mask behaviour.
         causal_mask = nn.Transformer.generate_square_subsequent_mask(
             history_len, device=tokens.device
-        )
+        ).bool()
 
         encoded = self.transformer(
             tokens,
