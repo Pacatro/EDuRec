@@ -193,12 +193,7 @@ def _fit_and_evaluate_model(
     training_started_at = perf_counter()
 
     with _recbole_checkpoints():
-        trainer.fit(
-            train_data,
-            valid_data,
-            saved=True,
-            show_progress=show_progress,
-        )
+        trainer.fit(train_data, valid_data, saved=True, show_progress=show_progress)
 
         _synchronize_device(device)
         training_time = perf_counter() - training_started_at
@@ -504,7 +499,9 @@ def _build_config_dict(
         "load_col": load_col,
         "seed": settings.state["random_state"],
         "reproducibility": True,
-        "gpu_id": 0,
+        # RecBole derives the device from gpu_id (ignoring use_gpu), so an
+        # empty gpu_id is what actually forces CPU execution.
+        "gpu_id": "" if settings.state["device"] == "cpu" else settings.SOTA_GPU_ID,
         "use_gpu": settings.state["device"] != "cpu",
         "epochs": epochs,
         "train_batch_size": batch_size,

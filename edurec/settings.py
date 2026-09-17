@@ -141,6 +141,7 @@ SOTA_MODELS: list[str] = [
     "SASRec",
     "BERT4Rec",
 ]
+SOTA_GPU_ID: int = 1
 
 # Hyperparameter optimization
 OPTIM_N_TRIALS: int = 30

@@ -3,7 +3,6 @@ from typing import Any
 
 from ..recsys.configs import ModelConfig
 
-
 BASE_ABLATION: dict[str, Any] = {
     "graph_mode": "id",
     "use_user_features": False,
@@ -70,3 +69,40 @@ def get_ablation_config(base_cfg: ModelConfig, variant: str) -> ModelConfig:
             f"Unknown ablation variant {variant!r}. Available variants: {choices}."
         ) from exc
     return replace(base_cfg, **overrides)
+
+
+def ablation_applicable(base_cfg: ModelConfig, variant: str) -> bool:
+    """Whether a variant actually changes the model for this dataset.
+
+    Variants that disable a module the dataset does not provide (e.g.
+    ``no_sequence`` on a dataset without history) would otherwise be silently
+    identical to ``full`` and report a meaningless zero importance.
+    """
+    if variant in {"base", "full", "dot_product"}:
+        return True
+
+    full = get_ablation_config(base_cfg, "full")
+    candidate = get_ablation_config(base_cfg, variant)
+
+    if variant == "no_graph":
+        return full.available_modules["graph"]
+    if variant == "no_gcl":
+        return full.use_gcl and full.graph_mode == "lightgcn"
+    if variant == "sum_fusion":
+        return sum(full.available_modules.values()) >= 2
+    if variant == "no_item_bias":
+        return full.use_item_bias
+    if variant == "no_text":
+        return full.num_user_text_feats > 0 or full.num_item_text_feats > 0
+    if variant == "no_features":
+        return full.has_user_features or full.has_item_features
+    if variant == "no_user_features":
+        return full.has_user_features
+    if variant == "no_item_features":
+        return full.has_item_features
+    if variant == "no_sequence":
+        return full.available_modules["sequence"]
+    if variant == "no_context":
+        return full.available_modules["context"]
+
+    return full.available_modules != candidate.available_modules

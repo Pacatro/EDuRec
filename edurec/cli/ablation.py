@@ -9,7 +9,7 @@ import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
-from ..evaluation.ablation import ABLATIONS, get_ablation_config
+from ..evaluation.ablation import ABLATIONS, ablation_applicable, get_ablation_config
 from ..recsys import ModelConfig, RecSys, train_model
 from ..recsys.configs import resolve_train_config
 from .utils import (
@@ -141,11 +141,18 @@ def run_ablation(
             for variant in variants:
                 settings.seed_everything(seed)
                 cfg = get_ablation_config(base_cfg, variant)
+                applicable = ablation_applicable(base_cfg, variant)
                 variant_root = dataset_root / variant / f"seed_{seed}"
                 variant_root.mkdir(parents=True, exist_ok=True)
                 cfg.save(variant_root / "config.yaml")
 
                 print(f"[ABLATION] {run_name} | {variant} | seed={seed}")
+                if not applicable:
+                    print(
+                        f"[ABLATION] WARNING: variant {variant!r} disables a module "
+                        f"that {run_name} does not provide; it is a no-op and its "
+                        "row is marked applicable=0."
+                    )
                 print_model_modules("ABLATION", cfg)
 
                 model = RecSys(
@@ -190,6 +197,7 @@ def run_ablation(
                 row: dict[str, float | int | str] = {
                     "variant": variant,
                     "seed": seed,
+                    "applicable": int(applicable),
                     **{
                         f"module_{name}": int(enabled)
                         for name, enabled in cfg.available_modules.items()
