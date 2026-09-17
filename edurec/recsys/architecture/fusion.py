@@ -24,6 +24,8 @@ class MaskedGatedFusion(nn.Module):
         )
 
         self.gate_logits = nn.Parameter(torch.zeros(cfg.num_sources))
+        self.gate_scorer = nn.Linear(cfg.emb_dim, 1, bias=False)
+        nn.init.zeros_(self.gate_scorer.weight)
 
         self.dropout = nn.Dropout(cfg.dropout)
         self.output_norm = nn.LayerNorm(cfg.emb_dim)
@@ -57,7 +59,8 @@ class MaskedGatedFusion(nn.Module):
             dim=1,
         )
 
-        gate_logits = self.gate_logits.expand(batch_size, -1).masked_fill(
+        content_logits = self.gate_scorer(normalized_sources).squeeze(-1)
+        gate_logits = (self.gate_logits.unsqueeze(0) + content_logits).masked_fill(
             ~available,
             torch.finfo(self.gate_logits.dtype).min,
         )

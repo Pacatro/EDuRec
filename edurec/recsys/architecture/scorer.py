@@ -12,6 +12,7 @@ class ScorerConfig:
     dropout: float = 0.1
     scorer_type: Literal["mlp", "dot"] = "mlp"
     use_context: bool = False
+    dot_temperature: float | None = None
 
 
 class Scorer(nn.Module):
@@ -30,6 +31,16 @@ class Scorer(nn.Module):
 
         if cfg.scorer_type == "dot":
             self.mlp = None
+            # Embeddings are LayerNorm-ed, so a raw dot product produces logits
+            # of order emb_dim and saturates the ranking cross-entropy. A
+            # learnable scale (initialised to 1 / sqrt(emb_dim)) lets the model
+            # calibrate the logit temperature.
+            initial_scale = (
+                1.0 / (cfg.emb_dim**0.5)
+                if cfg.dot_temperature is None
+                else 1.0 / cfg.dot_temperature
+            )
+            self.logit_scale = nn.Parameter(torch.tensor(initial_scale))
             return
 
         input_dim = cfg.emb_dim * (3 if cfg.use_context else 2)
@@ -96,6 +107,7 @@ class Scorer(nn.Module):
         cand_emb = item_emb[item_ids]
 
         if self.scorer_type == "dot":
+            scale = self.logit_scale.clamp(min=1e-3)
             scores = torch.bmm(user_emb.unsqueeze(1), cand_emb.transpose(1, 2)).squeeze(
                 1
             )
@@ -103,7 +115,7 @@ class Scorer(nn.Module):
                 scores = scores + torch.bmm(
                     context_emb.unsqueeze(1), cand_emb.transpose(1, 2)
                 ).squeeze(1)
-            return scores
+            return scores * scale
 
         if self.mlp is None:
             raise RuntimeError("MLP scorer is not initialized.")
@@ -127,10 +139,11 @@ class Scorer(nn.Module):
     ) -> torch.Tensor:
         """Score the full catalog in chunks: ``[batch, num_items]``."""
         if self.scorer_type == "dot":
+            scale = self.logit_scale.clamp(min=1e-3)
             scores = user_emb @ item_emb.T
             if context_emb is not None:
                 scores = scores + context_emb @ item_emb.T
-            return scores
+            return scores * scale
 
         if self.mlp is None:
             raise RuntimeError("MLP scorer is not initialized.")
