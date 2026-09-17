@@ -220,6 +220,8 @@ class RecSys(L.LightningModule):
                 on_epoch=True,
                 prog_bar=False,
                 logger=True,
+                sync_dist=True,
+                batch_size=scores.size(0),
             )
 
         return loss
