@@ -108,16 +108,12 @@ class ModelConfig(BaseConfig):
     @property
     def has_user_features(self) -> bool:
         """Whether the dataset can feed the user feature encoder."""
-        return self.effective_user_dense_feats > 0 or bool(
-            self.user_cat_cardinalities
-        )
+        return self.effective_user_dense_feats > 0 or bool(self.user_cat_cardinalities)
 
     @property
     def has_item_features(self) -> bool:
         """Whether the dataset can feed the item feature encoder."""
-        return self.effective_item_dense_feats > 0 or bool(
-            self.item_cat_cardinalities
-        )
+        return self.effective_item_dense_feats > 0 or bool(self.item_cat_cardinalities)
 
     @property
     def available_modules(self) -> dict[str, bool]:

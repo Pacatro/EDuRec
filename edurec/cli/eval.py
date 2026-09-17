@@ -49,9 +49,7 @@ def _load_seed_result(
     model: str,
     seed: int,
 ) -> dict[str, object] | None:
-    path = (
-        dataset_root / model / f"seed_{seed}" / f"{settings.METRICS_FILENAME}.csv"
-    )
+    path = dataset_root / model / f"seed_{seed}" / f"{settings.METRICS_FILENAME}.csv"
     if not path.exists():
         return None
 
