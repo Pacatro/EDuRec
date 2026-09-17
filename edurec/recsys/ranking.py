@@ -85,7 +85,7 @@ def update_ranking_metrics(
         target_item_ids=target_item_ids,
     )
 
-    top_scores, top_item_ids = torch.topk(
+    _, top_item_ids = torch.topk(
         eval_scores,
         k=max_k,
         dim=1,
@@ -96,8 +96,19 @@ def update_ranking_metrics(
     top_targets = top_item_ids.eq(target_item_ids.unsqueeze(1))
     indexes = query_ids.unsqueeze(1).expand_as(top_item_ids)
 
+    # Retrieval metrics only consume the ordering of ``preds``. Feeding raw
+    # logits is unsafe because torchmetrics zeroes targets whose predicted score
+    # is <= 0 in precision/recall/MAP/MRR but not in hit-rate/NDCG, which made
+    # those metrics inconsistent. A strictly positive rank score derived from
+    # the (already sorted) top-k positions removes that filter distortion.
+    rank_scores = (
+        (max_k - torch.arange(max_k, device=scores.device, dtype=torch.float32))
+        .unsqueeze(0)
+        .expand(batch_size, max_k)
+    )
+
     metrics.update(
-        preds=top_scores.reshape(-1),
+        preds=rank_scores.reshape(-1),
         target=top_targets.reshape(-1),
         indexes=indexes.reshape(-1),
     )
