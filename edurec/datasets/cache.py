@@ -1,6 +1,9 @@
+import hashlib
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Self
+from typing import Any, Self
 
 import pandas as pd
 import torch
@@ -8,17 +11,37 @@ from safetensors.torch import load_file, save_file
 
 from .dataprocessor import DataProcessor
 
+# Bump whenever the preprocessing logic changes in a way that invalidates
+# existing caches (e.g. deduplication or timestamp parsing changes).
+CACHE_VERSION = 2
+MANIFEST_FILENAME = "manifest.json"
+
 CACHE_FILES = (
     "train.feather",
     "val.feather",
     "test.feather",
     "static_feats.safetensors",
     "processor.joblib",
+    MANIFEST_FILENAME,
 )
+
+
+def processing_cache_key(params: Mapping[str, Any]) -> str:
+    """Stable digest of everything that affects the processed artifacts."""
+    payload = json.dumps(params, sort_keys=True, default=str)
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
 
 
 def processed_cache_exists(folder: Path) -> bool:
     if not all((folder / name).exists() for name in CACHE_FILES):
+        return False
+
+    try:
+        manifest = json.loads((folder / MANIFEST_FILENAME).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    if manifest.get("version") != CACHE_VERSION:
         return False
 
     tensors = load_file(folder / "static_feats.safetensors")
@@ -58,7 +81,11 @@ class ProcessedData:
             "test": self.test,
         }
 
-    def save(self, folder: Path) -> None:
+    def save(
+        self,
+        folder: Path,
+        manifest: Mapping[str, Any] | None = None,
+    ) -> None:
         folder.mkdir(parents=True, exist_ok=True)
 
         for split, df in self.splits().items():
@@ -79,6 +106,11 @@ class ProcessedData:
             raise RuntimeError("Data processor is not available.")
 
         self.data_processor.save(folder / "processor.joblib")
+
+        (folder / MANIFEST_FILENAME).write_text(
+            json.dumps(dict(manifest or {}), indent=2, sort_keys=True, default=str),
+            encoding="utf-8",
+        )
 
     @classmethod
     def load(cls, folder: Path) -> Self:

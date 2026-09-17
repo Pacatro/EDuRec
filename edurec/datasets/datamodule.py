@@ -9,7 +9,12 @@ from torch_geometric.data import Data
 
 from .. import settings
 from .atomic_files import save_atomic_files
-from .cache import ProcessedData, processed_cache_exists
+from .cache import (
+    CACHE_VERSION,
+    ProcessedData,
+    processed_cache_exists,
+    processing_cache_key,
+)
 from .dataprocessor import DataProcessor
 from .downloaders import download_raw_data
 from .loaders import (
@@ -64,13 +69,34 @@ class ElearningDataModule(L.LightningDataModule):
         self.save_atomic_files = save_atomic_files
         self.random_state = random_state
         self.data_variant = dataset.value
-        self.processed_folder = Path(settings.PROCESSED_FOLDER) / self.data_variant
+        # The processed cache is keyed by every parameter and setting that
+        # changes its content, so stale caches are never reused silently.
+        self.cache_params = {
+            "version": CACHE_VERSION,
+            "dataset": dataset.value,
+            "min_interactions": min_interactions,
+            "test_ratio": test_ratio,
+            "val_ratio": val_ratio,
+            "random_state": random_state,
+            "remove_sparse": remove_sparse,
+            "feature_types": list(settings.PREPROCESS_FEATURE_TYPES),
+            "text_embedding_model": settings.TEXT_EMBEDDING_MODEL,
+            "text_embedding_dim": settings.TEXT_EMBEDDING_DIM,
+            "text_max_tokens": settings.TEXT_MAX_TOKENS,
+            "max_history_len": settings.MAX_HISTORY_LEN,
+        }
+        self.cache_key = processing_cache_key(self.cache_params)
+        self.processed_folder = (
+            Path(settings.PROCESSED_FOLDER) / self.data_variant / self.cache_key
+        )
         self.atomic_folder = Path(settings.ATOMICFILES_FOLDER) / self.data_variant
         self.raw_dataset: RawData | None = None
         self.artifacts = ProcessedData()
 
     def prepare_data(self) -> None:
-        if processed_cache_exists(self.processed_folder):
+        # Only skip the download when the cache will actually be reused;
+        # otherwise the raw files are still required by _process_raw_data.
+        if self.use_processed_data and processed_cache_exists(self.processed_folder):
             return
         download_raw_data(self.dataset_name)
 
@@ -80,8 +106,6 @@ class ElearningDataModule(L.LightningDataModule):
                 self.processed_folder
             ):
                 self.artifacts = ProcessedData.load(self.processed_folder)
-                if not self.has_temporal_order:
-                    self._randomize_processed_splits()
             else:
                 self._process_raw_data()
 
@@ -104,11 +128,13 @@ class ElearningDataModule(L.LightningDataModule):
             train_negatives = None
             if not self.is_explicit:
                 train_interactions = relevant_splits["train"]
+                all_observed = pd.concat(relevant_splits.values(), ignore_index=True)
                 train_negatives = generate_negative_samples(
                     interactions=train_interactions,
                     item_ids=np.arange(self.num_items),
                     num_negatives=settings.TRAIN_NEGATIVES_PER_POSITIVE,
                     random_state=self.random_state,
+                    observed_interactions=all_observed,
                 )
 
             self.train_ds = self._make_dataset(
@@ -169,7 +195,7 @@ class ElearningDataModule(L.LightningDataModule):
             val=self.artifacts.val,
             test=self.artifacts.test,
         )
-        self.artifacts.save(self.processed_folder)
+        self.artifacts.save(self.processed_folder, manifest=self.cache_params)
 
     def _split_with_relevance(
         self, interactions: pd.DataFrame
@@ -191,15 +217,6 @@ class ElearningDataModule(L.LightningDataModule):
     @staticmethod
     def _context_cols(interactions: pd.DataFrame) -> list[str]:
         return [col for col in interactions.columns if col not in EXCLUDED_CONTEXT_COLS]
-
-    def _randomize_processed_splits(self) -> None:
-        """Replace cached temporal splits when the dataset has no real ordering."""
-        splits = self.artifacts.splits()
-        interactions = pd.concat(splits.values(), ignore_index=True)
-        interactions = interactions.drop(columns=[settings.TIME_COL], errors="ignore")
-        self.artifacts.train, self.artifacts.val, self.artifacts.test = (
-            self._split_with_relevance(interactions)
-        )
 
     def build_inter_graph(self) -> Data:
         # We only build the graph based on the training interactions.

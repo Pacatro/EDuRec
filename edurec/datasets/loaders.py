@@ -1,4 +1,5 @@
 import ast
+import warnings
 from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
@@ -61,6 +62,13 @@ def register_dataset(ds_name: DatasetName) -> Callable[[ExportFn], ExportFn]:
     return decorator
 
 
+def _to_epoch_seconds(values: pd.Series) -> pd.Series:
+    """Convert a datetime-like column to integer seconds, using NaN for NaT."""
+    parsed = pd.to_datetime(values, errors="coerce", utc=True)
+    seconds = parsed.astype("int64") // 10**9
+    return seconds.where(parsed.notna())
+
+
 def load_mars(data_type: Literal["explicit", "implicit"]) -> RawData:
     """Load the MARS dataset.
 
@@ -89,6 +97,22 @@ def load_mars(data_type: Literal["explicit", "implicit"]) -> RawData:
         },
         inplace=True,
     )
+
+    if settings.TIME_COL in interactions.columns:
+        timestamp_seconds = _to_epoch_seconds(interactions[settings.TIME_COL])
+        valid_timestamps = timestamp_seconds.notna() & timestamp_seconds.ge(0)
+        num_invalid = int((~valid_timestamps).sum())
+        if num_invalid:
+            warnings.warn(
+                f"Dropping {num_invalid} MARS interactions with invalid "
+                "created_at timestamps.",
+                stacklevel=2,
+            )
+        interactions = interactions.loc[valid_timestamps].copy()
+        interactions[settings.TIME_COL] = timestamp_seconds.loc[
+            valid_timestamps
+        ].astype(np.int64)
+        interactions = interactions.reset_index(drop=True)
 
     items.rename(
         columns={"item_id": settings.ITEM_COL, "type": "item_type"},

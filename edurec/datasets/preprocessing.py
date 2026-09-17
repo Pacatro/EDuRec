@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import pandas as pd
 import torch
@@ -18,6 +20,25 @@ def clean_cols(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def deduplicate_interactions(df: pd.DataFrame) -> pd.DataFrame:
+    """Collapse repeated ``(user, item)`` pairs into a single interaction.
+
+    Keeping duplicate pairs would let the same user-item interaction appear in
+    more than one split (train/test leakage). When a timestamp is present the
+    most recent event is kept, otherwise the last occurrence in file order is.
+    """
+    subset = [settings.USER_COL, settings.ITEM_COL]
+    if not set(subset).issubset(df.columns):
+        return df
+
+    frame = df
+    if settings.TIME_COL in frame.columns and frame[settings.TIME_COL].notna().any():
+        frame = frame.sort_values(
+            [settings.USER_COL, settings.TIME_COL], kind="mergesort"
+        )
+    return frame.drop_duplicates(subset=subset, keep="last").reset_index(drop=True)
+
+
 def split_data(
     df: pd.DataFrame,
     test_ratio: float,
@@ -25,6 +46,7 @@ def split_data(
     min_interactions: int,
     random_state: int | None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    df = deduplicate_interactions(df)
     rng = np.random.default_rng(random_state)
     has_time = settings.TIME_COL in df.columns
     splits = {"train": [], "val": [], "test": []}
@@ -68,7 +90,7 @@ def filter_sparse(
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Remove users and items with fewer than ``min_interactions``."""
 
-    filtered = interactions.copy()
+    filtered = deduplicate_interactions(interactions)
 
     while True:
         previous_size = len(filtered)
@@ -134,12 +156,14 @@ def generate_negative_samples(
     item_ids: pd.Series | np.ndarray | list[int],
     num_negatives: int = 1,
     random_state: int | None = None,
+    observed_interactions: pd.DataFrame | None = None,
 ) -> np.ndarray:
     """Precompute random negative item IDs aligned with positive interactions.
 
     Each output row corresponds to the interaction at the same input position.
     Samples are unique within a row and exclude every item observed by that
-    user in ``interactions``.
+    user in ``observed_interactions`` (defaults to ``interactions``). Pass the
+    union of all splits so held-out positives are never used as negatives.
     """
     required_cols = {settings.USER_COL, settings.ITEM_COL}
     missing_cols = required_cols.difference(interactions.columns)
@@ -164,25 +188,35 @@ def generate_negative_samples(
             f"At least {num_negatives} candidate items are required for sampling."
         )
 
-    observed_by_user = interactions.groupby(settings.USER_COL, sort=False)[
+    observed_source = (
+        observed_interactions if observed_interactions is not None else interactions
+    )
+    observed_by_user = observed_source.groupby(settings.USER_COL, sort=False)[
         settings.ITEM_COL
     ].agg(set)
     rng = np.random.default_rng(random_state)
     candidates_by_user: dict[object, np.ndarray] = {}
+    replace_by_user: dict[object, bool] = {}
     for user_id in observed_by_user.index:
         unseen_items = items.difference(observed_by_user[user_id], sort=False)
-        if len(unseen_items) < num_negatives:
+        if len(unseen_items) == 0:
             raise ValueError(
+                f"User {user_id!r} has no unseen items to sample negatives from."
+            )
+        if len(unseen_items) < num_negatives:
+            warnings.warn(
                 f"User {user_id!r} has only {len(unseen_items)} unseen items; "
-                f"cannot generate {num_negatives} unique negatives."
+                f"sampling {num_negatives} negatives with replacement.",
+                stacklevel=2,
             )
         candidates_by_user[user_id] = unseen_items.to_numpy(dtype=np.int64)
+        replace_by_user[user_id] = len(unseen_items) < num_negatives
 
     for row_idx, user_id in enumerate(interactions[settings.USER_COL]):
         negatives[row_idx] = rng.choice(
             candidates_by_user[user_id],
             size=num_negatives,
-            replace=False,
+            replace=replace_by_user[user_id],
         )
 
     return negatives

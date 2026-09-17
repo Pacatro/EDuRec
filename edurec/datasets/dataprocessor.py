@@ -349,6 +349,12 @@ class DataProcessor:
                 values = df[col].map(self.user_id_map).fillna(-1)
             elif col == settings.ITEM_COL:
                 values = df[col].map(self.item_id_map).fillna(-1)
+            elif col == settings.TIME_COL:
+                values = pd.to_numeric(df[col], errors="coerce")
+                if values.isna().any():
+                    raise ValueError(
+                        f"Temporal column {col!r} contains invalid timestamps."
+                    )
             else:
                 values = pd.to_numeric(df[col], errors="coerce").fillna(0)
             parts.append(
