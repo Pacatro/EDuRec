@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Annotated
 
 import lightning as L
@@ -98,4 +99,4 @@ def test_recsys(
     )
     test_results = trainer.test(model=model, datamodule=dm, weights_only=False)[0]
 
-    save_metrics(test_results, dataset.value, model_path.parent)
+    save_metrics(test_results, dataset.value, Path(models_folder))

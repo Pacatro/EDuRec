@@ -62,13 +62,15 @@ def load_model(
     if not root.is_dir():
         raise NotADirectoryError(f"Models folder is not a directory: {root}")
 
+    # Order by the timestamped folder name first: mtime is not stable because
+    # other artifacts (e.g. metrics) can be written inside the model folder.
     model_dirs = sorted(
         {
             config_file.parent
             for config_file in root.rglob(settings.MODEL_METADATA_FILENAME)
             if (config_file.parent / settings.MODEL_FILENAME).exists()
         },
-        key=lambda path: path.stat().st_mtime,
+        key=lambda path: (path.name, path.stat().st_mtime),
     )
 
     if not model_dirs:
