@@ -139,8 +139,14 @@ def optimize(
             verbose=verbose,
             results_path=dataset_results_path,
         )
-        best_cfg = ModelConfig(**study.best_trial.user_attrs["config"])
-        best_train_cfg = TrainConfig(**study.best_trial.user_attrs["train_config"])
+        best_attrs = study.best_trial.user_attrs
+        if "config" not in best_attrs or "train_config" not in best_attrs:
+            raise RuntimeError(
+                "The best Optuna trial is missing its configuration metadata; "
+                "delete the study database and rerun the optimization."
+            )
+        best_cfg = ModelConfig(**best_attrs["config"])
+        best_train_cfg = TrainConfig(**best_attrs["train_config"])
 
         print(
             f"[OPTIM] Best NDCG {study.best_value} in trial: {study.best_trial.number}"

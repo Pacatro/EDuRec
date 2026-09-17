@@ -1,3 +1,5 @@
+import hashlib
+import json
 from dataclasses import asdict, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -11,6 +13,26 @@ from ..datasets import ElearningDataModule
 from .configs import ModelConfig, TrainConfig
 from .recsys import RecSys
 from .training import train_model
+
+# Bump whenever the search space or the objective changes so old studies are
+# not silently resumed with incompatible trials.
+OPTIMIZER_VERSION = 1
+
+
+def _optim_digest(
+    base_config: ModelConfig,
+    base_train_config: TrainConfig,
+    cache_key: str | None,
+) -> str:
+    """Namespace a study by base config, processed data and optimizer version."""
+    payload = {
+        "optimizer_version": OPTIMIZER_VERSION,
+        "model": asdict(base_config),
+        "train": asdict(base_train_config),
+        "cache_key": cache_key,
+    }
+    encoded = json.dumps(payload, sort_keys=True, default=str)
+    return hashlib.sha1(encoded.encode("utf-8")).hexdigest()
 
 
 def _save_trials_callback(output_path: Path):
@@ -151,9 +173,11 @@ def optimize_model(
         storage = f"sqlite:///{results_path / 'study.db'}"
         callbacks = [_save_trials_callback(results_path / "trials.csv")]
 
+    digest = _optim_digest(base_config, base_train_config, dm.cache_key)
+
     study = optuna.create_study(
         direction="maximize",
-        study_name=f"edurec-{dm.dataset_name.value}",
+        study_name=f"edurec-{dm.dataset_name.value}-{digest[:10]}",
         storage=storage,
         load_if_exists=True,
         sampler=optuna.samplers.TPESampler(
@@ -162,6 +186,7 @@ def optimize_model(
             multivariate=True,
         ),
     )
+    study.set_user_attr("search_space_hash", digest)
 
     study.optimize(
         lambda trial: objective(
