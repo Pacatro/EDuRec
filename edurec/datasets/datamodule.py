@@ -13,7 +13,6 @@ from .cache import (
     CACHE_VERSION,
     ProcessedData,
     processed_cache_exists,
-    processing_cache_key,
 )
 from .dataprocessor import DataProcessor
 from .downloaders import download_raw_data
@@ -69,8 +68,9 @@ class ElearningDataModule(L.LightningDataModule):
         self.save_atomic_files = save_atomic_files
         self.random_state = random_state
         self.data_variant = dataset.value
-        # The processed cache is keyed by every parameter and setting that
-        # changes its content, so stale caches are never reused silently.
+        # The processed cache lives in a single folder per dataset variant. Its
+        # manifest records every parameter and setting that changes its content,
+        # so stale caches are detected and never reused silently.
         self.cache_params = {
             "version": CACHE_VERSION,
             "dataset": dataset.value,
@@ -85,10 +85,7 @@ class ElearningDataModule(L.LightningDataModule):
             "text_max_tokens": settings.TEXT_MAX_TOKENS,
             "max_history_len": settings.MAX_HISTORY_LEN,
         }
-        self.cache_key = processing_cache_key(self.cache_params)
-        self.processed_folder = (
-            Path(settings.PROCESSED_FOLDER) / self.data_variant / self.cache_key
-        )
+        self.processed_folder = Path(settings.PROCESSED_FOLDER) / self.data_variant
         self.atomic_folder = Path(settings.ATOMICFILES_FOLDER) / self.data_variant
         self.raw_dataset: RawData | None = None
         self.artifacts = ProcessedData()
@@ -96,14 +93,16 @@ class ElearningDataModule(L.LightningDataModule):
     def prepare_data(self) -> None:
         # Only skip the download when the cache will actually be reused;
         # otherwise the raw files are still required by _process_raw_data.
-        if self.use_processed_data and processed_cache_exists(self.processed_folder):
+        if self.use_processed_data and processed_cache_exists(
+            self.processed_folder, self.cache_params
+        ):
             return
         download_raw_data(self.dataset_name)
 
     def setup(self, stage: str | None = None):
         if not self.is_processed:
             if self.use_processed_data and processed_cache_exists(
-                self.processed_folder
+                self.processed_folder, self.cache_params
             ):
                 self.artifacts = ProcessedData.load(self.processed_folder)
             else:

@@ -1,8 +1,10 @@
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import asdict, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any
 
 import optuna
 from lightning.pytorch.callbacks import ModelCheckpoint
@@ -22,14 +24,14 @@ OPTIMIZER_VERSION = 1
 def _optim_digest(
     base_config: ModelConfig,
     base_train_config: TrainConfig,
-    cache_key: str | None,
+    cache_params: Mapping[str, Any] | None,
 ) -> str:
     """Namespace a study by base config, processed data and optimizer version."""
     payload = {
         "optimizer_version": OPTIMIZER_VERSION,
         "model": asdict(base_config),
         "train": asdict(base_train_config),
-        "cache_key": cache_key,
+        "cache_params": cache_params,
     }
     encoded = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha1(encoded.encode("utf-8")).hexdigest()
@@ -173,7 +175,7 @@ def optimize_model(
         storage = f"sqlite:///{results_path / 'study.db'}"
         callbacks = [_save_trials_callback(results_path / "trials.csv")]
 
-    digest = _optim_digest(base_config, base_train_config, dm.cache_key)
+    digest = _optim_digest(base_config, base_train_config, dm.cache_params)
 
     study = optuna.create_study(
         direction="maximize",

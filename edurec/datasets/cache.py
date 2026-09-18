@@ -1,4 +1,3 @@
-import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -26,13 +25,15 @@ CACHE_FILES = (
 )
 
 
-def processing_cache_key(params: Mapping[str, Any]) -> str:
-    """Stable digest of everything that affects the processed artifacts."""
-    payload = json.dumps(params, sort_keys=True, default=str)
-    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
+def _normalized(params: Mapping[str, Any]) -> dict[str, Any]:
+    """Round-trip through JSON so comparisons match what was persisted."""
+    return json.loads(json.dumps(dict(params), sort_keys=True, default=str))
 
 
-def processed_cache_exists(folder: Path) -> bool:
+def processed_cache_exists(
+    folder: Path,
+    params: Mapping[str, Any] | None = None,
+) -> bool:
     if not all((folder / name).exists() for name in CACHE_FILES):
         return False
 
@@ -42,6 +43,9 @@ def processed_cache_exists(folder: Path) -> bool:
         return False
 
     if manifest.get("version") != CACHE_VERSION:
+        return False
+
+    if params is not None and manifest != _normalized(params):
         return False
 
     tensors = load_file(folder / "static_feats.safetensors")
