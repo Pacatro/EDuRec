@@ -223,6 +223,13 @@ def eval_models(
             help="RecBole SOTA model to evaluate. Repeat this option for multiple models.",
         ),
     ] = settings.SOTA_MODELS,
+    only_proposed: Annotated[
+        bool,
+        typer.Option(
+            "--only-proposed",
+            help="Only evaluate the proposed EDuRec model, skipping SOTA models.",
+        ),
+    ] = False,
     adaptive_k: Annotated[
         bool | None,
         typer.Option(
@@ -250,6 +257,8 @@ def eval_models(
     ] = Path(settings.CONFIGS_FOLDER),
 ) -> None:
     parsed_seeds = parse_seeds(seeds)
+    if only_proposed:
+        sota_models = []
     val_ratio = settings.VAL_RATIO
     test_ratio = settings.TEST_RATIO
     verbose = settings.state["verbose"]
@@ -384,11 +393,22 @@ def eval_models(
 
         rows = _collect_seed_results(dataset_root, models, parsed_seeds)
         results = pd.DataFrame(rows)
-        csv_path = dataset_root / "evaluation_results.csv"
+        csv_name = (
+            "evaluation_results.csv"
+            if not only_proposed
+            else "evaluation_results_proposed.csv"
+        )
+        summary_name = (
+            "evaluation_summary.csv"
+            if not only_proposed
+            else "evaluation_summary_proposed.csv"
+        )
+
+        csv_path = dataset_root / csv_name
         results.to_csv(csv_path, index=False)
 
         summary = _summarize_seed_results(results)
-        summary_path = dataset_root / "evaluation_summary.csv"
+        summary_path = dataset_root / summary_name
         summary.to_csv(summary_path, index=False)
 
         print("[EVAL] Results:")
