@@ -1,5 +1,5 @@
+import datetime
 from dataclasses import asdict
-from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Annotated
@@ -9,20 +9,17 @@ import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
-from ..recsys import EDuRecConfig, RecSys, train_model
-from ..evaluation.ablation import (
-    ABLATIONS,
-    CONTENT_ABLATIONS,
-    get_ablation_config,
-    get_content_ablation_config,
-)
+from ..evaluation.ablation import ABLATIONS, ablation_applicable, get_ablation_config
+from ..recsys import ModelConfig, RecSys, train_model
+from ..recsys.configs import resolve_train_config
 from .utils import (
     build_config,
-    dataset_config_path,
-    dataset_run_name,
+    config_paths,
+    dataset_train_defaults,
     datasets_to_run,
     parse_seeds,
     print_data_summary,
+    print_model_modules,
 )
 
 app = typer.Typer(no_args_is_help=True)
@@ -34,27 +31,26 @@ def run_ablation(
     seeds: Annotated[
         str,
         typer.Option("--seeds", "-s", help="Comma-separated seeds to run."),
-    ] = "13,42,77,101,2026",
-    include_content: Annotated[
-        bool,
-        typer.Option("--include-content/--main-only", help="Run content ablations."),
-    ] = True,
-    epochs: Annotated[int, typer.Option("--epochs", "-e", min=1)] = settings.EPOCHS,
-    lr: Annotated[float, typer.Option("--lr", "-l")] = settings.LR,
-    limit: Annotated[
+    ] = "13,42,77",
+    epochs: Annotated[
         int | None,
         typer.Option(
-            "--limit",
+            "--epochs",
+            "-e",
             min=1,
-            help="Maximum number of interactions to use before splitting.",
+            help="Number of training epochs. Uses the saved training config if omitted.",
         ),
     ] = None,
-    batch_size: Annotated[
-        int, typer.Option("--batch_size", "-b", min=1)
-    ] = settings.BATCH_SIZE,
-    patience: Annotated[
-        int, typer.Option("--patience", "-p", min=1)
-    ] = settings.PATIENCE,
+    lr: Annotated[
+        float | None,
+        typer.Option(
+            "--lr",
+            "-l",
+            help="Learning rate. Uses the saved training config if omitted.",
+        ),
+    ] = None,
+    batch_size: Annotated[int | None, typer.Option("--batch_size", "-b", min=1)] = None,
+    patience: Annotated[int | None, typer.Option("--patience", "-p", min=1)] = None,
     val_size: Annotated[float, typer.Option("--val_size", "-v")] = settings.VAL_RATIO,
     test_size: Annotated[
         float, typer.Option("--test_size", "-t")
@@ -66,12 +62,14 @@ def run_ablation(
     min_interactions: Annotated[
         int, typer.Option("--min_interactions", "-i")
     ] = settings.MIN_INTERACTIONS,
-    adaptive_k: Annotated[
-        bool, typer.Option("--adaptive_k", "-a")
-    ] = settings.ADAPTIVE_K,
+    adaptive_k: Annotated[bool | None, typer.Option("--adaptive_k", "-a")] = None,
     use_processed_data: Annotated[
         bool, typer.Option("--use_processed", "-P")
     ] = settings.SAVE_DATA,
+    compile: Annotated[
+        bool,
+        typer.Option("--compile", help="Compile each model before training."),
+    ] = settings.COMPILE_MODEL,
     debug: Annotated[bool, typer.Option("--debug", "-D")] = False,
     output_dir: Annotated[
         Path,
@@ -80,10 +78,10 @@ def run_ablation(
 ) -> None:
     parsed_seeds = parse_seeds(seeds)
     datasets = datasets_to_run(dataset)
-    started_at = datetime.now()
+    started_at = datetime.datetime.now(datetime.UTC)
     verbose = settings.state["verbose"]
 
-    variants = list(ABLATIONS) + (list(CONTENT_ABLATIONS) if include_content else [])
+    variants = list(ABLATIONS)
 
     print("\n[ABLATION] EDuRec ablation run")
     print(f"[ABLATION] Datasets: {', '.join(ds.value for ds in datasets)}")
@@ -92,13 +90,22 @@ def run_ablation(
     print(f"[ABLATION] Output folder: {output_dir}")
 
     for dataset_name in datasets:
-        run_name = dataset_run_name(dataset_name, limit)
+        run_name = dataset_name.value
         dataset_root = output_dir / run_name
         dataset_root.mkdir(parents=True, exist_ok=True)
-        base_cfg_path = dataset_config_path(
-            settings.CONFIGS_FOLDER,
-            dataset_name,
-            limit,
+        model_config_path, train_config_path = config_paths(
+            Path(settings.CONFIGS_FOLDER), run_name
+        )
+        train_cfg = resolve_train_config(
+            cli={
+                "epochs": epochs,
+                "lr": lr,
+                "batch_size": batch_size,
+                "patience": patience,
+                "adaptive_k": adaptive_k,
+            },
+            saved_path=train_config_path,
+            defaults=dataset_train_defaults(dataset_name),
         )
         rows = []
 
@@ -107,7 +114,7 @@ def run_ablation(
 
             dm = ElearningDataModule(
                 dataset=dataset_name,
-                batch_size=batch_size,
+                batch_size=train_cfg.batch_size,
                 test_ratio=test_size,
                 val_ratio=val_size,
                 use_processed_data=use_processed_data,
@@ -115,47 +122,45 @@ def run_ablation(
                 min_interactions=min_interactions,
                 remove_sparse=remove_sparse,
                 save_atomic_files=False,
-                limit=limit,
             )
+            dm.prepare_data()
             dm.setup()
             print_data_summary("ABLATION", dm)
             inter_graph = dm.build_inter_graph()
 
-            if base_cfg_path.exists():
-                print("[ABLATION] Using existing config file:", base_cfg_path)
-                base_cfg = EDuRecConfig.load(base_cfg_path)
+            if model_config_path.exists():
+                print("[ABLATION] Using existing model config file:", model_config_path)
+                base_cfg = build_config(dm, base=ModelConfig.load(model_config_path))
             else:
                 print(
-                    "[ABLATION] No config file found, creating new config for dataset:",
+                    "[ABLATION] No model config file found, creating new config for dataset:",
                     run_name,
                 )
-                base_cfg = build_config(
-                    dm,
-                    lr=lr,
-                    adaptive_k=adaptive_k,
-                    topks=settings.TOP_KS,
-                )
+                base_cfg = build_config(dm)
 
             for variant in variants:
                 settings.seed_everything(seed)
-                cfg = (
-                    get_ablation_config(base_cfg, variant)
-                    if variant in ABLATIONS
-                    else get_content_ablation_config(base_cfg, variant)
-                )
+                cfg = get_ablation_config(base_cfg, variant)
+                applicable = ablation_applicable(base_cfg, variant)
                 variant_root = dataset_root / variant / f"seed_{seed}"
                 variant_root.mkdir(parents=True, exist_ok=True)
                 cfg.save(variant_root / "config.yaml")
 
                 print(f"[ABLATION] {run_name} | {variant} | seed={seed}")
+                if not applicable:
+                    print(
+                        f"[ABLATION] WARNING: variant {variant!r} disables a module "
+                        f"that {run_name} does not provide; it is a no-op and its "
+                        "row is marked applicable=0."
+                    )
+                print_model_modules("ABLATION", cfg)
 
                 model = RecSys(
                     cfg=cfg,
                     inter_graph=inter_graph,
                     u_static_feats=dm.u_static_feats,
                     i_static_feats=dm.i_static_feats,
-                    user_stats=dm.user_stats,
-                    item_stats=dm.item_stats,
+                    train_cfg=train_cfg,
                     val_topk=top_k,
                 )
                 num_parameters = sum(
@@ -165,18 +170,19 @@ def run_ablation(
                 with TemporaryDirectory(
                     prefix=f"edurec-ablation-{variant}-{seed}-"
                 ) as tmp:
-                    trainer, best_model_path = train_model(
+                    trainer, best_model_path, timer = train_model(
                         model=model,
                         dm=dm,
                         debug=debug,
-                        epochs=epochs,
-                        patience=patience,
+                        epochs=train_cfg.epochs,
+                        patience=train_cfg.patience,
                         monitor=model.monitor,
-                        compile=False,
+                        compile=compile,
                         verbose=verbose,
                         default_root_dir=tmp,
                     )
 
+                    training_time = timer.time_elapsed("train")
                     metrics = (
                         {}
                         if debug
@@ -186,16 +192,30 @@ def run_ablation(
                             weights_only=False,
                         )[0]
                     )
+                    inference_time = 0.0 if debug else timer.time_elapsed("test")
 
                 row: dict[str, float | int | str] = {
                     "variant": variant,
                     "seed": seed,
+                    "applicable": int(applicable),
+                    **{
+                        f"module_{name}": int(enabled)
+                        for name, enabled in cfg.available_modules.items()
+                    },
+                    "graph_mode": cfg.graph_mode,
+                    "fusion_type": cfg.fusion_type,
+                    "scorer_type": cfg.scorer_type,
+                    "use_text_features": int(cfg.use_text_features),
+                    "use_gcl": int(cfg.use_gcl),
+                    "use_item_bias": int(cfg.use_item_bias),
                     **{
                         name.removeprefix("test/"): value
                         for name, value in metrics.items()
                         if isinstance(value, int | float)
                     },
                     "num_parameters": num_parameters,
+                    "training_time_s": training_time,
+                    "inference_time_s": inference_time,
                 }
                 rows.append(row)
 
@@ -216,5 +236,6 @@ def run_ablation(
         aggregate.to_csv(aggregate_path, index=False)
         print(f"[ABLATION] Saved aggregate table: {aggregate_path}")
 
-    elapsed = str(datetime.now() - started_at).split(".", maxsplit=1)[0]
+    finish = datetime.datetime.now(datetime.UTC)
+    elapsed = str(finish - started_at).split(".", maxsplit=1)[0]
     print(f"[ABLATION] Finished in {elapsed}")

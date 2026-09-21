@@ -1,5 +1,4 @@
-from dataclasses import replace
-from datetime import datetime
+import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -8,44 +7,41 @@ import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
-from ..evaluation import eval_model, eval_sota_models, eval_upgpr
-from ..recsys import EDuRecConfig, optimize_model
+from ..evaluation import eval_model, eval_sota_models
+from ..recsys import ModelConfig
+from ..recsys.configs import monitor_topk, resolve_train_config
+from ..recsys.ranking import EVALUATION_PROTOCOL
 from .utils import (
     build_config,
-    dataset_config_path,
-    dataset_run_name,
+    config_paths,
+    dataset_train_defaults,
     datasets_to_run,
     parse_seeds,
     print_data_summary,
+    print_model_modules,
 )
 
 app = typer.Typer(no_args_is_help=True)
 
 
-def _save_seed_results(
-    results: pd.DataFrame,
-    dataset_root: Path,
-    seed: int,
-) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
-
+def _save_seed_results(results: pd.DataFrame, dataset_root: Path, seed: int) -> None:
     for result in results.to_dict(orient="records"):
         model = str(result.pop("model"))
-        row = {"model": model, "seed": seed, **result}
-        model_root = dataset_root / model / f"seed_{seed}"
-        model_root.mkdir(parents=True, exist_ok=True)
-        pd.DataFrame([row]).to_csv(
-            model_root / settings.METRICS_FILENAME,
-            index=False,
+        row = {
+            "model": model,
+            **result,
+            "seed": seed,
+            "evaluation_protocol": EVALUATION_PROTOCOL,
+        }
+        path = (
+            dataset_root / model / f"seed_{seed}" / f"{settings.METRICS_FILENAME}.csv"
         )
-        rows.append(row)
-
-    return rows
+        path.parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame([row]).to_csv(path, index=False)
 
 
 def _target_models(sota_models: list[str]) -> list[str]:
-    models = ["EDuRec", "UPGPR", *sota_models]
-    return list(dict.fromkeys(models))
+    return list(dict.fromkeys(["EDuRec", *sota_models]))
 
 
 def _load_seed_result(
@@ -53,7 +49,7 @@ def _load_seed_result(
     model: str,
     seed: int,
 ) -> dict[str, object] | None:
-    path = dataset_root / model / f"seed_{seed}" / settings.METRICS_FILENAME
+    path = dataset_root / model / f"seed_{seed}" / f"{settings.METRICS_FILENAME}.csv"
     if not path.exists():
         return None
 
@@ -62,30 +58,29 @@ def _load_seed_result(
     except (IndexError, pd.errors.EmptyDataError, OSError):
         return None
 
+    if result.get("evaluation_protocol") != EVALUATION_PROTOCOL:
+        return None
+
     result["model"] = str(result.get("model", model))
     result["seed"] = int(result.get("seed", seed))
     return result  # type: ignore
 
 
-def _evaluated_seeds_by_model(
+def _pending_models_by_seed(
     dataset_root: Path,
     models: list[str],
-) -> dict[str, set[int]]:
-    evaluated: dict[str, set[int]] = {model: set() for model in models}
-    for model in models:
-        model_root = dataset_root / model
-        if not model_root.exists():
-            continue
-
-        for seed_root in model_root.glob("seed_*"):
-            try:
-                seed = int(seed_root.name.removeprefix("seed_"))
-            except ValueError:
-                continue
-
-            if _load_seed_result(dataset_root, model, seed) is not None:
-                evaluated[model].add(seed)
-    return evaluated
+    seeds: list[int],
+) -> dict[int, list[str]]:
+    pending = {}
+    for seed in seeds:
+        missing = [
+            model
+            for model in models
+            if _load_seed_result(dataset_root, model, seed) is None
+        ]
+        if missing:
+            pending[seed] = missing
+    return pending
 
 
 def _collect_seed_results(
@@ -93,7 +88,7 @@ def _collect_seed_results(
     models: list[str],
     seeds: list[int],
 ) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
+    rows = []
     for seed in seeds:
         for model in models:
             row = _load_seed_result(dataset_root, model, seed)
@@ -102,14 +97,31 @@ def _collect_seed_results(
     return rows
 
 
-def _last_seed_label(seeds: set[int]) -> str:
-    return str(max(seeds)) if seeds else "none"
+def _summarize_seed_results(results: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate numeric evaluation metrics across seeds for each model."""
+    metric_cols = [
+        col
+        for col in results.columns
+        if col not in {"model", "seed", "evaluation_protocol"}
+    ]
+    summary_rows: list[dict[str, str]] = []
+
+    for model, model_results in results.groupby("model", sort=False):
+        row = {"model": str(model)}
+        for metric in metric_cols:
+            values = pd.to_numeric(model_results[metric], errors="coerce").dropna()
+            if values.empty:
+                continue
+
+            mean = values.mean()
+            std = values.std(ddof=1) if len(values) > 1 else 0.0
+            row[metric] = f"{mean:.4f} ± {std:.4f}"
+        summary_rows.append(row)
+
+    return pd.DataFrame(summary_rows, columns=["model", *metric_cols])
 
 
-@app.command(
-    name="eval",
-    help="Evaluate EDuRec against UPGPR and RecBole SOTA models.",
-)
+@app.command(name="eval", help="Evaluate EDuRec against RecBole SOTA models.")
 def eval_models(
     dataset: Annotated[
         DatasetName | None,
@@ -120,67 +132,52 @@ def eval_models(
         typer.Option("--seeds", "-s", help="Comma-separated seeds to run."),
     ] = "13,42,77",
     epochs: Annotated[
-        int,
+        int | None,
         typer.Option(
             "--epochs",
             "-e",
             min=1,
-            help="Number of training epochs used by all evaluated models.",
+            help="Number of training epochs. Uses the saved training config if omitted.",
         ),
-    ] = settings.EPOCHS,
+    ] = None,
     lr: Annotated[
-        float,
+        float | None,
         typer.Option(
             "--lr",
             "-l",
             min=0.0,
-            help="Learning rate used by all evaluated models.",
-        ),
-    ] = settings.LR,
-    limit: Annotated[
-        int | None,
-        typer.Option(
-            "--limit",
-            min=1,
-            help="Maximum number of interactions to use before splitting.",
+            help="Learning rate. Uses the saved training config if omitted.",
         ),
     ] = None,
     batch_size: Annotated[
-        int,
+        int | None,
         typer.Option(
             "--batch-size",
             "-b",
             min=1,
-            help="Batch size used by EDuRec, UPGPR and RecBole.",
+            help="Batch size used by EDuRec and RecBole. "
+            "Uses the saved training config if omitted.",
         ),
-    ] = settings.BATCH_SIZE,
+    ] = None,
     patience: Annotated[
-        int,
+        int | None,
         typer.Option(
             "--patience",
             "-p",
             min=1,
-            help="Early stopping patience used by all evaluated models.",
+            help="Early stopping patience. Uses the saved training config if omitted.",
         ),
-    ] = settings.PATIENCE,
-    n_trials: Annotated[
-        int,
-        typer.Option(
-            "--trials",
-            "-n",
-            min=1,
-            help="Number of trials when no optimized configuration exists.",
-        ),
-    ] = settings.OPTIM_N_TRIALS,
+    ] = None,
     topks: Annotated[
-        list[int],
+        list[int] | None,
         typer.Option(
             "--top-k",
             "-k",
             min=1,
-            help="Top-k values to evaluate. Repeat this option for multiple values.",
+            help="Top-k values to evaluate. Repeat this option for multiple values. "
+            "Uses the saved training config if omitted.",
         ),
-    ] = settings.TOP_KS,
+    ] = None,
     remove_sparse: Annotated[
         bool,
         typer.Option(
@@ -226,14 +223,26 @@ def eval_models(
             help="RecBole SOTA model to evaluate. Repeat this option for multiple models.",
         ),
     ] = settings.SOTA_MODELS,
-    adaptive_k: Annotated[
+    only_proposed: Annotated[
         bool,
+        typer.Option(
+            "--only-proposed",
+            help="Only evaluate the proposed EDuRec model, skipping SOTA models.",
+        ),
+    ] = False,
+    adaptive_k: Annotated[
+        bool | None,
         typer.Option(
             "--adaptive-k/--fixed-k",
             "-a/-A",
-            help="Use adaptive k to compute metrics that support it in the proposed model.",
+            help="Use adaptive k to compute metrics that support it in the proposed "
+            "model. Uses the saved training config if omitted.",
         ),
-    ] = settings.ADAPTIVE_K,
+    ] = None,
+    compile: Annotated[
+        bool,
+        typer.Option("--compile", help="Compile EDuRec before training."),
+    ] = settings.COMPILE_MODEL,
     output_dir: Annotated[
         Path,
         typer.Option("--output-dir", "-o", help="Root folder for evaluation results."),
@@ -243,76 +252,83 @@ def eval_models(
         typer.Option(
             "--configs-folder",
             "-C",
-            help="Folder containing optimized EDuRec configurations.",
+            help="Folder containing saved EDuRec configurations.",
         ),
     ] = Path(settings.CONFIGS_FOLDER),
 ) -> None:
     parsed_seeds = parse_seeds(seeds)
-    eval_topks = list(topks)
-    val_topk = max(eval_topks)
-    val_ratio = 0.1
-    test_ratio = 0.1
+    if only_proposed:
+        sota_models = []
+    val_ratio = settings.VAL_RATIO
+    test_ratio = settings.TEST_RATIO
     verbose = settings.state["verbose"]
 
     datasets = datasets_to_run(dataset)
 
-    sota_label = ", ".join(sota_models) if sota_models else "none"
     models = _target_models(sota_models)
 
     print("\n[EVAL] Evaluation run")
     print(f"[EVAL] Datasets: {', '.join(ds.value for ds in datasets)}")
-    print(f"[EVAL] Models: EDuRec, UPGPR + {len(sota_models)} SOTA")
+    print(f"[EVAL] Models: EDuRec + {len(sota_models)} SOTA")
     print(f"[EVAL] Seeds: {', '.join(str(seed) for seed in parsed_seeds)}")
     print(f"[EVAL] Results folder: {output_dir}")
-    print(f"[EVAL] Configs folder: {configs_folder}")
-    print(f"[EVAL] Top-k: {eval_topks} | val@{val_topk}\n")
+    print(f"[EVAL] Configs folder: {configs_folder}\n")
 
-    for dataset_idx, dataset in enumerate(datasets, start=1):
-        run_name = dataset_run_name(dataset, limit)
-        batch_size = settings.BATCH_SIZE if dataset != DatasetName.ITM else 32
+    for dataset_idx, dataset_name in enumerate(datasets, start=1):
+        run_name = dataset_name.value
         dataset_root = output_dir / run_name
         dataset_root.mkdir(parents=True, exist_ok=True)
-        dataset_started_at = datetime.now()
-        config_path = dataset_config_path(configs_folder, dataset, limit)
-        optimized_cfg = EDuRecConfig.load(config_path) if config_path.exists() else None
-        evaluated_seeds = _evaluated_seeds_by_model(dataset_root, models)
-        pending_by_seed = {
-            seed: [
-                model
-                for model in models
-                if seed not in evaluated_seeds.get(model, set())
-            ]
-            for seed in parsed_seeds
-        }
-        pending_by_seed = {
-            seed: pending_models
-            for seed, pending_models in pending_by_seed.items()
-            if pending_models
-        }
+        dataset_started_at = datetime.datetime.now(datetime.UTC)
+        model_config_path, train_config_path = config_paths(configs_folder, run_name)
+        train_cfg = resolve_train_config(
+            cli={
+                "epochs": epochs,
+                "lr": lr,
+                "batch_size": batch_size,
+                "patience": patience,
+                "topks": topks,
+                "adaptive_k": adaptive_k,
+            },
+            saved_path=train_config_path,
+            defaults=dataset_train_defaults(dataset_name),
+        )
+        val_topk = monitor_topk(None, train_cfg)
+        pending_by_seed = _pending_models_by_seed(dataset_root, models, parsed_seeds)
+        needs_edurec = any(
+            "EDuRec" in pending_models for pending_models in pending_by_seed.values()
+        )
+        saved_cfg = (
+            ModelConfig.load(model_config_path)
+            if needs_edurec and model_config_path.exists()
+            else None
+        )
 
         print(f"[EVAL] [{dataset_idx}/{len(datasets)}] Dataset: {run_name}")
-        print(f"[EVAL] Models: EDuRec, UPGPR, {sota_label}")
-        print("[EVAL] Last evaluated seed by model:")
-        for model in models:
-            print(f"[EVAL]   {model}: {_last_seed_label(evaluated_seeds[model])}")
+        print(f"[EVAL] Top-k: {train_cfg.topks} | val@{val_topk}")
+        print(
+            f"[EVAL] Models: EDuRec, {', '.join(sota_models) if sota_models else 'none'}"
+        )
         if not pending_by_seed:
             print("[EVAL] All requested seeds are already evaluated. Skipping runs.")
-        if optimized_cfg is not None:
-            print(f"[EVAL] Using optimized config: {config_path}")
+        if saved_cfg is not None:
+            print(f"[EVAL] Using saved model config: {model_config_path}")
+        if train_config_path.exists():
+            print(f"[EVAL] Using saved training config: {train_config_path}")
 
         if verbose:
             if cfg_path is not None:
                 print(f"[EVAL] Extra RecBole config: {cfg_path}")
             print(
                 "[EVAL] Config: "
-                f"epochs={epochs}, lr={lr}, batch_size={batch_size}, "
-                f"patience={patience}, adaptive_k={adaptive_k}"
+                f"epochs={train_cfg.epochs}, lr={train_cfg.lr}, "
+                f"batch_size={train_cfg.batch_size}, patience={train_cfg.patience}, "
+                f"adaptive_k={train_cfg.adaptive_k}"
             )
             print(
                 "[EVAL] Data config: "
                 f"use_processed={use_processed_data}, remove_sparse={remove_sparse}, "
                 f"min_interactions={min_interactions}, "
-                f"val_ratio={val_ratio}, test_ratio={test_ratio}, limit={limit}"
+                f"val_ratio={val_ratio}, test_ratio={test_ratio}"
             )
 
         for seed, pending_models in pending_by_seed.items():
@@ -323,8 +339,8 @@ def eval_models(
             )
 
             dm = ElearningDataModule(
-                dataset=dataset,
-                batch_size=batch_size,
+                dataset=dataset_name,
+                batch_size=train_cfg.batch_size,
                 test_ratio=test_ratio,
                 val_ratio=val_ratio,
                 min_interactions=min_interactions,
@@ -332,77 +348,27 @@ def eval_models(
                 use_processed_data=use_processed_data,
                 save_atomic_files=True,
                 random_state=seed,
-                limit=limit,
             )
 
+            dm.prepare_data()
             dm.setup()
 
             print_data_summary("EVAL", dm)
 
-            if optimized_cfg is None:
-                print(f"[EVAL] No optimized config found. Running {n_trials} trials...")
-                study = optimize_model(
-                    base_config=build_config(
-                        dm,
-                        lr=lr,
-                        adaptive_k=adaptive_k,
-                        topks=eval_topks,
-                    ),
-                    dm=dm,
-                    n_trials=n_trials,
-                    epochs=epochs,
-                    patience=patience,
-                    val_topk=val_topk,
-                    verbose=verbose,
-                    results_path=dataset_root / "optimization",
-                )
-                optimized_cfg = EDuRecConfig(**study.best_trial.user_attrs["config"])
-                config_path.parent.mkdir(parents=True, exist_ok=True)
-                optimized_cfg.save(config_path)
-                print(f"[EVAL] Optimized config saved: {config_path}")
-
-            cfg = replace(
-                optimized_cfg,
-                num_users=dm.num_users,
-                num_items=dm.num_items,
-                num_ctx_feats=dm.train_ds.num_ctx_feats,
-                num_user_dense_feats=dm.num_user_dense_feats,
-                num_item_dense_feats=dm.num_item_dense_feats,
-                num_user_text_feats=dm.num_user_text_feats,
-                num_item_text_feats=dm.num_item_text_feats,
-                user_cat_cardinalities=dm.user_cat_cardinalities,
-                item_cat_cardinalities=dm.item_cat_cardinalities,
-                adaptive_k=adaptive_k,
-                topks=eval_topks,
-            )
-
             if "EDuRec" in pending_models:
+                cfg = build_config(dm, base=saved_cfg)
+                print_model_modules("EVAL", cfg)
                 settings.seed_everything(seed)
                 print(f"[EVAL] Running EDuRec | seed={seed}")
                 proposed_results = eval_model(
                     dm=dm,
                     cfg=cfg,
-                    epochs=epochs,
+                    train_cfg=train_cfg,
                     val_topk=val_topk,
-                    patience=patience,
+                    compile=compile,
                     verbose=verbose,
                 )
                 _save_seed_results(proposed_results, dataset_root, seed)
-
-            if "UPGPR" in pending_models:
-                settings.seed_everything(seed)
-                print(f"[EVAL] Running UPGPR | seed={seed}")
-                upgpr_results = eval_upgpr(
-                    dm=dm,
-                    epochs=epochs,
-                    lr=lr,
-                    val_topk=val_topk,
-                    topks=eval_topks,
-                    patience=patience,
-                    adaptive_k=adaptive_k,
-                    verbose=verbose,
-                )
-                _save_seed_results(upgpr_results, dataset_root, seed)
 
             pending_sota_models = [
                 model for model in sota_models if model in pending_models
@@ -415,31 +381,40 @@ def eval_models(
                     models=pending_sota_models,
                     dm=dm,
                     cfg_path=cfg_path,
-                    epochs=epochs,
-                    lr=lr,
-                    batch_size=batch_size,
-                    patience=patience,
-                    topks=eval_topks,
-                    results_path=dataset_root,
+                    epochs=train_cfg.epochs,
+                    lr=train_cfg.lr,
+                    batch_size=train_cfg.batch_size,
+                    patience=train_cfg.patience,
+                    topks=train_cfg.topks,
+                    adaptive_k=train_cfg.adaptive_k,
                     show_progress=verbose,
                 )
                 _save_seed_results(sota_results, dataset_root, seed)
 
         rows = _collect_seed_results(dataset_root, models, parsed_seeds)
         results = pd.DataFrame(rows)
-        csv_path = dataset_root / "evaluation_results.csv"
+        csv_name = (
+            "evaluation_results.csv"
+            if not only_proposed
+            else "evaluation_results_proposed.csv"
+        )
+        summary_name = (
+            "evaluation_summary.csv"
+            if not only_proposed
+            else "evaluation_summary_proposed.csv"
+        )
+
+        csv_path = dataset_root / csv_name
         results.to_csv(csv_path, index=False)
 
-        metric_cols = [col for col in results.columns if col not in {"model", "seed"}]
-        preferred_cols = ["model", "seed"] + sorted(
-            metric_cols,
-            key=lambda col: (
-                col.split("@", maxsplit=1)[-1].zfill(4) if "@" in col else "0000",
-                col,
-            ),
-        )
+        summary = _summarize_seed_results(results)
+        summary_path = dataset_root / summary_name
+        summary.to_csv(summary_path, index=False)
+
         print("[EVAL] Results:")
-        print(results[preferred_cols].round(4).to_string(index=False))
+        print(summary)
         print(f"[EVAL] Saved: {csv_path}")
-        elapsed = str(datetime.now() - dataset_started_at).split(".", maxsplit=1)[0]
+        print(f"[EVAL] Saved summary: {summary_path}")
+        now = datetime.datetime.now(datetime.UTC)
+        elapsed = str(now - dataset_started_at).split(".", maxsplit=1)[0]
         print(f"[EVAL] Finished {run_name} in {elapsed}\n")

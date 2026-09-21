@@ -1,2 +1,0 @@
-,model,recall@5,recall@10,recall@20,mrr@5,mrr@10,mrr@20,ndcg@5,ndcg@10,ndcg@20,hit@5,hit@10,hit@20,precision@5,precision@10,precision@20,map@5,map@10,map@20
-0,SASRec,0.2112,0.2918,0.3871,0.1242,0.1349,0.1414,0.1458,0.1718,0.1958,0.2112,0.2918,0.3871,0.0422,0.0292,0.0194,0.1242,0.1349,0.1414

@@ -2,15 +2,25 @@ from pathlib import Path
 
 import lightning as L
 import numpy as np
+import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 from torch_geometric.data import Data
 
 from .. import settings
 from .atomic_files import save_atomic_files
-from .cache import ProcessedData, processed_cache_exists
+from .cache import (
+    CACHE_VERSION,
+    ProcessedData,
+    processed_cache_exists,
+)
 from .dataprocessor import DataProcessor
-from .loaders import DatasetName, RawData, Schema, load_raw_data
+from .downloaders import download_raw_data
+from .loaders import (
+    DatasetName,
+    RawData,
+    load_raw_data,
+)
 from .preprocessing import (
     add_relevance,
     clean_cols,
@@ -21,7 +31,15 @@ from .preprocessing import (
     split_data,
 )
 from .recsys_dataset import RecSysDataset
-from .user_history import UserHistory, build_histories
+from .user_history import build_histories
+
+EXCLUDED_CONTEXT_COLS = (
+    settings.USER_COL,
+    settings.ITEM_COL,
+    settings.RELEVANT_COL,
+    settings.RATING_COL,
+    settings.TIME_COL,
+)
 
 
 class ElearningDataModule(L.LightningDataModule):
@@ -36,7 +54,6 @@ class ElearningDataModule(L.LightningDataModule):
         use_processed_data: bool = False,
         save_atomic_files: bool = False,
         random_state: int | None = None,
-        limit: int | None = None,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -50,80 +67,45 @@ class ElearningDataModule(L.LightningDataModule):
         self.use_processed_data = use_processed_data
         self.save_atomic_files = save_atomic_files
         self.random_state = random_state
-        if limit is not None and limit < 1:
-            raise ValueError("limit must be greater than zero.")
-        self.limit = limit
-
-        self.data_variant = (
-            dataset.value if limit is None else f"{dataset.value}_limit_{limit}"
-        )
+        self.data_variant = dataset.value
+        # The processed cache lives in a single folder per dataset variant. With
+        # use_processed_data the cached artifacts are loaded as-is; otherwise the
+        # dataset is reprocessed and the cache folder is overwritten. This
+        # parameter record is kept in the manifest for traceability.
+        self.cache_params = {
+            "version": CACHE_VERSION,
+            "dataset": dataset.value,
+            "min_interactions": min_interactions,
+            "test_ratio": test_ratio,
+            "val_ratio": val_ratio,
+            "random_state": random_state,
+            "remove_sparse": remove_sparse,
+            "feature_types": list(settings.PREPROCESS_FEATURE_TYPES),
+            "text_embedding_model": settings.TEXT_EMBEDDING_MODEL,
+            "text_embedding_dim": settings.TEXT_EMBEDDING_DIM,
+            "text_max_tokens": settings.TEXT_MAX_TOKENS,
+            "max_history_len": settings.MAX_HISTORY_LEN,
+        }
         self.processed_folder = Path(settings.PROCESSED_FOLDER) / self.data_variant
         self.atomic_folder = Path(settings.ATOMICFILES_FOLDER) / self.data_variant
         self.raw_dataset: RawData | None = None
         self.artifacts = ProcessedData()
 
-        self.excluded_cols = {
-            settings.USER_COL,
-            settings.ITEM_COL,
-            settings.RELEVANT_COL,
-            settings.RATING_COL,
-            settings.TIME_COL,
-        }
-
+    def prepare_data(self) -> None:
+        # Only skip the download when the cache will actually be reused;
+        # otherwise the raw files are still required by _process_raw_data.
         if self.use_processed_data and processed_cache_exists(self.processed_folder):
-            self.artifacts = ProcessedData.load(self.processed_folder)
-        else:
-            raw = load_raw_data(dataset)
-            interactions = clean_cols(raw.interactions)
-            if limit is not None:
-                interactions = interactions.head(limit).reset_index(drop=True)
-            self.raw_dataset = RawData(
-                interactions=interactions,
-                user_features=clean_cols(raw.user_features),
-                item_features=clean_cols(raw.item_features),
-                schema=raw.schema,
-            )
-            self.artifacts.data_processor = DataProcessor(schema=raw.schema)
+            return
+        download_raw_data(self.dataset_name)
 
     def setup(self, stage: str | None = None):
         if not self.is_processed:
-            if self.raw_dataset is None:
-                raise RuntimeError("Raw dataset is not available.")
-
-            users = self.raw_dataset.user_features
-            items = self.raw_dataset.item_features
-            interactions = self.raw_dataset.interactions
-
-            if self.remove_sparse:
-                users, items, interactions = filter_sparse(
-                    users,
-                    items,
-                    interactions,
-                    min_interactions=self.min_interactions,
-                )
-
-            train, val, test = split_data(
-                interactions,
-                test_ratio=self.test_ratio,
-                val_ratio=self.val_ratio,
-                min_interactions=self.min_interactions,
-                random_state=self.random_state,
-            )
-
-            thresholds = get_relevance_threshold(train)
-            train = add_relevance(train, thresholds)
-            val = add_relevance(val, thresholds)
-            test = add_relevance(test, thresholds)
-
-            self.artifacts = preprocess(
-                processor=self.data_processor,
-                users=users,
-                items=items,
-                train=train,
-                val=val,
-                test=test,
-            )
-            self.artifacts.save(self.processed_folder)
+            if self.use_processed_data and processed_cache_exists(
+                self.processed_folder
+            ):
+                self.artifacts = ProcessedData.load(self.processed_folder)
+            else:
+                self._process_raw_data()
 
         if self.save_atomic_files:
             self.atomic_files = save_atomic_files(
@@ -132,67 +114,107 @@ class ElearningDataModule(L.LightningDataModule):
                 output_dir=self.atomic_folder,
             )
 
-        # Build the sequential histories using only relevant (positive) interactions
-        relevant_splits = {}
-        for split in ("train", "val", "test"):
-            df = getattr(self.artifacts, split)
-            if df is not None:
-                relevant_splits[split] = df[df[settings.RELEVANT_COL] > 0].reset_index(
-                    drop=True
-                )
-            else:
-                relevant_splits[split] = None
+        # Build sequential histories using only relevant (positive) interactions.
+        relevant_splits = {
+            split: df.loc[df[settings.RELEVANT_COL] > 0].reset_index(drop=True)
+            for split, df in self.artifacts.splits().items()
+        }
 
-        histories = build_histories(
-            relevant_splits,
-            excluded_cols=self.excluded_cols,
-        )
+        histories = build_histories(relevant_splits, enabled=self.has_temporal_order)
 
         if stage in ("fit", None):
             train_negatives = None
             if not self.is_explicit:
                 train_interactions = relevant_splits["train"]
-                if train_interactions is None:
-                    raise RuntimeError("Processed train split is not available.")
+                all_observed = pd.concat(relevant_splits.values(), ignore_index=True)
                 train_negatives = generate_negative_samples(
                     interactions=train_interactions,
                     item_ids=np.arange(self.num_items),
                     num_negatives=settings.TRAIN_NEGATIVES_PER_POSITIVE,
                     random_state=self.random_state,
+                    observed_interactions=all_observed,
                 )
 
             self.train_ds = self._make_dataset(
-                "train",
-                histories,
+                relevant_splits["train"],
+                histories["train"],
                 negative_item_ids=train_negatives,
             )
-            self.val_ds = self._make_dataset("val", histories)
+            self.val_ds = self._make_dataset(relevant_splits["val"], histories["val"])
         elif stage == "test":
-            self.test_ds = self._make_dataset("test", histories)
+            self.test_ds = self._make_dataset(
+                relevant_splits["test"], histories["test"]
+            )
 
     def _make_dataset(
         self,
-        split: str,
-        histories: dict[str, UserHistory],
+        interactions: pd.DataFrame,
+        history: tuple[torch.Tensor, torch.Tensor],
         negative_item_ids: np.ndarray | None = None,
     ) -> RecSysDataset:
-        df = getattr(self.artifacts, split)
-        if df is None:
-            raise RuntimeError(f"Processed split {split} is not available.")
-
-        # Filter dataset to positive interactions
-        positive_mask = (df[settings.RELEVANT_COL] > 0).to_numpy(copy=True)
-        interactions = df.loc[positive_mask].reset_index(drop=True)
-
-        # histories[split] already aligns perfectly row-by-row with interactions
-        history = histories[split]
+        # The precomputed tensors align row-by-row with positive interactions.
+        history_items, history_valid_mask = history
 
         return RecSysDataset(
             interactions=interactions,
-            history=history,
+            history_items=history_items,
+            history_valid_mask=history_valid_mask,
             num_ctx_feats=self.num_ctx_feats,
+            context_cols=self._context_cols(interactions),
             negative_item_ids=negative_item_ids,
         )
+
+    def _process_raw_data(self) -> None:
+        raw = load_raw_data(self.dataset_name)
+        interactions = clean_cols(raw.interactions)
+        self.raw_dataset = RawData(
+            interactions=interactions,
+            user_features=clean_cols(raw.user_features),
+            item_features=clean_cols(raw.item_features),
+            schema=raw.schema,
+        )
+
+        users = self.raw_dataset.user_features
+        items = self.raw_dataset.item_features
+        interactions = self.raw_dataset.interactions
+        if self.remove_sparse:
+            users, items, interactions = filter_sparse(
+                users, items, interactions, min_interactions=self.min_interactions
+            )
+
+        self.artifacts.train, self.artifacts.val, self.artifacts.test = (
+            self._split_with_relevance(interactions)
+        )
+        self.artifacts = preprocess(
+            processor=DataProcessor(schema=raw.schema),
+            users=users,
+            items=items,
+            train=self.artifacts.train,
+            val=self.artifacts.val,
+            test=self.artifacts.test,
+        )
+        self.artifacts.save(self.processed_folder, manifest=self.cache_params)
+
+    def _split_with_relevance(
+        self, interactions: pd.DataFrame
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        train, val, test = split_data(
+            interactions,
+            test_ratio=self.test_ratio,
+            val_ratio=self.val_ratio,
+            min_interactions=self.min_interactions,
+            random_state=self.random_state,
+        )
+        thresholds = get_relevance_threshold(train)
+        return (
+            add_relevance(train, thresholds),
+            add_relevance(val, thresholds),
+            add_relevance(test, thresholds),
+        )
+
+    @staticmethod
+    def _context_cols(interactions: pd.DataFrame) -> list[str]:
+        return [col for col in interactions.columns if col not in EXCLUDED_CONTEXT_COLS]
 
     def build_inter_graph(self) -> Data:
         # We only build the graph based on the training interactions.
@@ -243,33 +265,24 @@ class ElearningDataModule(L.LightningDataModule):
         generator.manual_seed(int(self.random_state))
         return generator
 
-    def train_dataloader(self) -> DataLoader:
+    def _dataloader(self, dataset: RecSysDataset, shuffle: bool) -> DataLoader:
         return DataLoader(
-            self.train_ds,
+            dataset,
             batch_size=self.batch_size,
             num_workers=settings.NUM_WORKERS,
-            shuffle=True,
+            shuffle=shuffle,
             persistent_workers=settings.NUM_WORKERS > 0,
-            generator=self._data_generator(),
+            generator=self._data_generator() if shuffle else None,
         )
+
+    def train_dataloader(self) -> DataLoader:
+        return self._dataloader(self.train_ds, shuffle=True)
 
     def val_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self.val_ds,
-            batch_size=self.batch_size,
-            num_workers=settings.NUM_WORKERS,
-            shuffle=False,
-            persistent_workers=settings.NUM_WORKERS > 0,
-        )
+        return self._dataloader(self.val_ds, shuffle=False)
 
     def test_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self.test_ds,
-            batch_size=self.batch_size,
-            num_workers=settings.NUM_WORKERS,
-            shuffle=False,
-            persistent_workers=settings.NUM_WORKERS > 0,
-        )
+        return self._dataloader(self.test_ds, shuffle=False)
 
     @property
     def is_processed(self) -> bool:
@@ -289,14 +302,6 @@ class ElearningDataModule(L.LightningDataModule):
         if interactions is None:
             raise RuntimeError("Interactions are not available.")
         return settings.RATING_COL in interactions.columns
-
-    @property
-    def schema(self) -> Schema:
-        if self.raw_dataset is not None:
-            return self.raw_dataset.schema
-        if self.artifacts.data_processor is not None:
-            return self.artifacts.data_processor.schema
-        raise RuntimeError("Schema is not available.")
 
     @property
     def data_processor(self) -> DataProcessor:
@@ -331,14 +336,6 @@ class ElearningDataModule(L.LightningDataModule):
         return 0 if self.raw_dataset is None else len(self.raw_dataset.item_features)
 
     @property
-    def num_raw_users(self) -> int:
-        return 0 if self.raw_dataset is None else len(self.raw_dataset.user_features)
-
-    @property
-    def num_raw_items(self) -> int:
-        return 0 if self.raw_dataset is None else len(self.raw_dataset.item_features)
-
-    @property
     def num_interactions(self) -> int:
         if self.is_processed:
             return sum(
@@ -355,18 +352,35 @@ class ElearningDataModule(L.LightningDataModule):
     @property
     def num_ctx_feats(self) -> int:
         if self.artifacts.train is not None:
-            return len(
-                [c for c in self.artifacts.train.columns if c not in self.excluded_cols]
-            )
+            return len(self._context_cols(self.artifacts.train))
         if self.raw_dataset is not None:
-            return len(
-                [
-                    c
-                    for c in self.raw_dataset.interactions.columns
-                    if c not in self.excluded_cols
-                ]
-            )
+            return len(self._context_cols(self.raw_dataset.interactions))
         return 0
+
+    @property
+    def has_history(self) -> bool:
+        """Return whether training provides at least one usable history event."""
+        train_ds = getattr(self, "train_ds", None)
+        return bool(
+            self.has_temporal_order
+            and train_ds is not None
+            and train_ds.history_valid_mask.numel() > 0
+            and train_ds.history_valid_mask.any().item()
+        )
+
+    @property
+    def has_temporal_order(self) -> bool:
+        """Whether interactions have a meaningful chronological ordering."""
+        interactions = (
+            self.raw_dataset.interactions
+            if self.raw_dataset is not None
+            else self.artifacts.train
+        )
+        return interactions is not None and settings.TIME_COL in interactions.columns
+
+    @property
+    def split_strategy(self) -> str:
+        return "temporal" if self.has_temporal_order else "random"
 
     @property
     def sparsity(self) -> float:
@@ -375,20 +389,6 @@ class ElearningDataModule(L.LightningDataModule):
             if self.num_users == 0 or self.num_items == 0
             else 1 - self.num_interactions / (self.num_users * self.num_items)
         )
-
-    @property
-    def user_stats(self) -> torch.Tensor:
-        if self.artifacts.user_stats is None:
-            raise RuntimeError("User router statistics are not available.")
-
-        return self.artifacts.user_stats
-
-    @property
-    def item_stats(self) -> torch.Tensor:
-        if self.artifacts.item_stats is None:
-            raise RuntimeError("Item router statistics are not available.")
-
-        return self.artifacts.item_stats
 
     @property
     def num_user_feats(self) -> int:

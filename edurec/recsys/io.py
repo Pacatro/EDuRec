@@ -1,25 +1,24 @@
 import json
 import shutil
+from collections.abc import Mapping
 from dataclasses import asdict
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Mapping
 
 import pandas as pd
 
 from .. import settings
-from .architecture import EDuRecConfig
+from .configs import ModelConfig
 
 
 def save_model(
-    model_config: EDuRecConfig,
+    model_config: ModelConfig,
     dataset_name: str,
     best_model_path: str | Path,
     models_folder: str | Path,
-    metrics: Mapping[str, float],
-) -> tuple[Path, Path, Path | None]:
+) -> tuple[Path, Path]:
     """Save the best model and its config to the expected folder structure."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
     models_root = Path(models_folder)
     models_root.mkdir(parents=True, exist_ok=True)
 
@@ -34,16 +33,18 @@ def save_model(
         json.dumps(asdict(model_config), indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
-
-    metrics_path = save_metrics(metrics, model_folder)
-    return model_file_path, model_config_path, metrics_path
+    return model_file_path, model_config_path
 
 
 def save_metrics(
     metrics: Mapping[str, float],
+    dataset_name: str,
     saving_models_folder: str | Path,
 ) -> Path:
-    file_path = Path(saving_models_folder) / settings.METRICS_FILENAME
+    file_path = (
+        Path(saving_models_folder) / f"{settings.METRICS_FILENAME}_{dataset_name}.csv"
+    )
+    file_path.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame.from_dict(dict(metrics), orient="index").to_csv(file_path, index=True)
     return file_path
 
@@ -51,7 +52,7 @@ def save_metrics(
 def load_model(
     models_folder: str | Path,
     dataset_name: str,
-) -> tuple[Path, EDuRecConfig]:
+) -> tuple[Path, ModelConfig]:
     """Load the most recent saved model and rebuild its config."""
     root = Path(models_folder) / dataset_name
 
@@ -61,13 +62,15 @@ def load_model(
     if not root.is_dir():
         raise NotADirectoryError(f"Models folder is not a directory: {root}")
 
+    # Order by the timestamped folder name first: mtime is not stable because
+    # other artifacts (e.g. metrics) can be written inside the model folder.
     model_dirs = sorted(
         {
             config_file.parent
             for config_file in root.rglob(settings.MODEL_METADATA_FILENAME)
             if (config_file.parent / settings.MODEL_FILENAME).exists()
         },
-        key=lambda path: path.stat().st_mtime,
+        key=lambda path: (path.name, path.stat().st_mtime),
     )
 
     if not model_dirs:
@@ -82,5 +85,7 @@ def load_model(
 
     config_payload = json.loads(config_file.read_text(encoding="utf-8"))
     config_data = config_payload.get("config", config_payload)
+    fields = ModelConfig.__dataclass_fields__
+    config_data = {k: v for k, v in config_data.items() if k in fields}
 
-    return model_file, EDuRecConfig(**config_data)
+    return model_file, ModelConfig(**config_data)

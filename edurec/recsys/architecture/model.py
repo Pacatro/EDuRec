@@ -1,319 +1,149 @@
-from dataclasses import dataclass, field, asdict
-from pathlib import Path
-from typing import Literal, Self
-import yaml
-
 import torch
 from torch import nn
 
-from ... import settings
-from .graph_encoder import GraphEncoder, GraphEncoderConfig
-from .mlp_encoder import MLPEncoder, MLPEncoderConfig
-from .router import Router, RouterConfig
-from .sasrec import SASRecConfig, SASRecEncoder
-from .scorer import Scorer, ScorerConfig
-
-ROUTER_CTX_DIM = 3
-ROUTER_NUM_MODULES = 3
-
-
-@dataclass
-class EDuRecConfig:
-    num_users: int
-    num_items: int
-    num_ctx_feats: int
-    num_user_dense_feats: int
-    num_item_dense_feats: int
-    num_user_text_feats: int
-    num_item_text_feats: int
-    user_cat_cardinalities: list[int]
-    item_cat_cardinalities: list[int]
-    emb_dim: int = settings.EMB_DIM
-    use_item_bias: bool = True
-    dropout: float = settings.DROPOUT
-
-    # Ablations
-    graph_mode: Literal["id", "lightgcn", "none"] = "lightgcn"
-    use_user_features: bool = True
-    use_item_features: bool = True
-    use_text_features: bool = True
-    use_sasrec: bool = True
-    use_context: bool = True
-    use_routers: bool = True
-    use_gcl: bool = True
-    scorer_type: Literal["mlp", "dot"] = "mlp"
-
-    # GCL Defaults
-    edge_dropout: float = settings.DROP_EDGES_P
-    temperature: float = settings.TAU
-    loss_reduction: str = settings.LOSS_REDUCTION
-    gnn_layers: int = settings.GNN_LAYERS
-
-    # SASRec Defaults
-    n_heads: int = settings.NUM_HEADS
-    n_blocks: int = settings.NUM_BLOCKS
-    ff_dim: int = settings.FF_DIM
-
-    # Scorer defaults
-    hidden_dims: list[int] = field(
-        default_factory=lambda: [settings.EMB_DIM * 2, settings.EMB_DIM]
-    )
-
-    # Training Defaults
-    lr: float = settings.LR
-    weight_decay: float = settings.WEIGHT_DECAY
-    topks: list[int] = field(default_factory=lambda: settings.TOP_KS)
-    alpha: float = settings.LOSS_ALPHA
-    adaptive_k: bool = settings.ADAPTIVE_K
-
-    @property
-    def gnn(self) -> GraphEncoderConfig:
-        return GraphEncoderConfig(
-            num_users=self.num_users,
-            num_items=self.num_items,
-            emb_dim=self.emb_dim,
-            num_layers=self.gnn_layers if self.graph_mode == "lightgcn" else 0,
-            num_user_dense_feats=self.num_user_dense_feats,
-            num_item_dense_feats=self.num_item_dense_feats,
-            user_cat_cardinalities=self.user_cat_cardinalities,
-            item_cat_cardinalities=self.item_cat_cardinalities,
-        )
-
-    @property
-    def user_encoder(self) -> MLPEncoderConfig:
-        return MLPEncoderConfig(
-            num_dense_features=self.num_user_dense_feats,
-            categorical_cardinalities=self.user_cat_cardinalities,
-            output_dim=self.emb_dim,
-            dropout=self.dropout,
-        )
-
-    @property
-    def item_encoder(self) -> MLPEncoderConfig:
-        struct_dense_feats = max(
-            self.num_item_dense_feats - self.num_item_text_feats, 0
-        )
-        return MLPEncoderConfig(
-            num_dense_features=struct_dense_feats,
-            categorical_cardinalities=self.item_cat_cardinalities,
-            output_dim=self.emb_dim,
-            dropout=self.dropout,
-        )
-
-    @property
-    def sasrec(self) -> SASRecConfig:
-        return SASRecConfig(
-            emb_dim=self.emb_dim,
-            n_heads=self.n_heads,
-            n_blocks=self.n_blocks,
-            ff_dim=self.ff_dim,
-            dropout=self.dropout,
-            num_ctx_feats=self.num_ctx_feats if self.use_context else 0,
-        )
-
-    @property
-    def scorer(self) -> ScorerConfig:
-        return ScorerConfig(
-            emb_dim=self.emb_dim,
-            hidden_dims=self.hidden_dims,
-            dropout=self.dropout,
-            scorer_type=self.scorer_type,
-        )
-
-    @property
-    def router(self) -> RouterConfig:
-        return RouterConfig(
-            ctx_dim=ROUTER_CTX_DIM,
-            num_modules=ROUTER_NUM_MODULES,
-            dropout=self.dropout,
-        )
-
-    def save(self, path: Path | str) -> None:
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w") as f:
-            yaml.dump(asdict(self), f)
-
-    @classmethod
-    def load(cls, path: Path | str) -> Self:
-        path = Path(path)
-        if not path.exists():
-            raise FileNotFoundError(f"Config file not found: {path}")
-
-        with open(path, "r") as f:
-            return cls(**yaml.safe_load(f))
+from ..configs import ModelConfig
+from .fusion import FusionConfig, MaskedGatedFusion, SumFusion
+from .graph_encoder import GraphEncoder
+from .mlp_encoder import MLPEncoder
+from .scorer import Scorer
+from .seq_encoder import SeqEncoder
 
 
 class EDuRec(nn.Module):
-    def __init__(self, cfg: EDuRecConfig):
+    def __init__(self, cfg: ModelConfig):
         super().__init__()
         self.cfg = cfg
 
-        self.gnn = GraphEncoder(cfg.gnn) if cfg.graph_mode != "none" else None
+        available = cfg.available_modules
+
+        self.gnn = GraphEncoder(cfg.graph_encoder) if available["graph"] else None
         self.user_encoder = (
-            MLPEncoder(cfg.user_encoder) if cfg.use_user_features else None
+            MLPEncoder(cfg.user_encoder) if available["user_features"] else None
         )
         self.item_encoder = (
-            MLPEncoder(cfg.item_encoder) if cfg.use_item_features else None
+            MLPEncoder(cfg.item_encoder) if available["item_features"] else None
         )
-        self.text_projection = (
-            nn.Linear(cfg.num_item_text_feats, cfg.emb_dim, bias=False)
-            if cfg.use_text_features and cfg.num_item_text_feats > 0
-            else None
+        self.context_encoder = (
+            MLPEncoder(cfg.context_encoder) if available["context"] else None
         )
-        self.item_norm = nn.LayerNorm(cfg.emb_dim)
-        self.user_norm = nn.LayerNorm(cfg.emb_dim)
+        item_sources = int(available["graph"]) + int(available["item_features"])
+        user_sources = (
+            int(available["graph"])
+            + int(available["user_features"])
+            + int(available["sequence"])
+        )
+        if item_sources == 0 or user_sources == 0:
+            raise ValueError(
+                "The effective configuration must provide at least one user and "
+                "one item representation module."
+            )
+        self.item_fusion = self._make_fusion(item_sources)
+        self.user_fusion = self._make_fusion(user_sources)
         self.item_bias = (
             nn.Parameter(torch.zeros(cfg.num_items)) if cfg.use_item_bias else None
         )
-        self.sequence_encoder = SASRecEncoder(cfg.sasrec) if cfg.use_sasrec else None
-        self.user_router = Router(cfg.router) if cfg.use_routers else None
-        self.item_router = Router(cfg.router) if cfg.use_routers else None
+        self.sequence_encoder = (
+            SeqEncoder(cfg.seq_encoder) if available["sequence"] else None
+        )
         self.scorer = Scorer(cfg.scorer)
+
+    def _make_fusion(self, num_sources: int) -> MaskedGatedFusion | SumFusion | None:
+        # A single source needs neither gates nor normalization parameters.
+        if num_sources == 1:
+            return None
+        fusion_cfg = FusionConfig(
+            emb_dim=self.cfg.emb_dim,
+            num_sources=num_sources,
+            dropout=self.cfg.dropout,
+        )
+        if self.cfg.fusion_type == "sum":
+            return SumFusion(fusion_cfg)
+        if self.cfg.fusion_type == "masked_gated":
+            return MaskedGatedFusion(fusion_cfg)
+        raise ValueError(f"Unknown fusion type: {self.cfg.fusion_type!r}.")
+
+    @staticmethod
+    def _fuse(
+        sources: list[torch.Tensor],
+        fusion: MaskedGatedFusion | SumFusion | None,
+        available: list[torch.Tensor | None] | None = None,
+    ) -> torch.Tensor:
+        """Fuse source representations, optionally masking unavailable ones."""
+        if fusion is None:
+            return sources[0]
+
+        if available is not None and isinstance(fusion, MaskedGatedFusion):
+            batch_size = sources[0].size(0)
+            device = sources[0].device
+            mask = torch.stack(
+                [
+                    torch.ones(batch_size, dtype=torch.bool, device=device)
+                    if flag is None
+                    else flag.bool()
+                    for flag in available
+                ],
+                dim=1,
+            )
+            return fusion(sources, available=mask)
+
+        return fusion(sources)
 
     def forward(
         self,
         u_ids: torch.Tensor,
         h_ids: torch.Tensor,
-        h_ctx: torch.Tensor,
         h_mask: torch.Tensor,
         edge_index: torch.Tensor,
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
-        user_stats: torch.Tensor,
-        item_stats: torch.Tensor,
+        context: torch.Tensor | None = None,
+        candidate_item_ids: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        if self.cfg.use_routers:
-            self._validate_router_stats(user_stats, item_stats)
+        user_sources = []
+        user_available: list[torch.Tensor | None] = []
+        item_sources = []
 
-        if self.gnn is None:
-            user_graph_embs = u_static_feats.new_zeros(
-                self.cfg.num_users, self.cfg.emb_dim
-            )
-            item_graph_embs = i_static_feats.new_zeros(
-                self.cfg.num_items, self.cfg.emb_dim
-            )
-        else:
-            user_graph_embs, item_graph_embs = self.gnn(edge_index)
+        if self.gnn is not None:
+            user_graph, item_graph = self.gnn(edge_index)
+            user_sources.append(user_graph[u_ids])
+            user_available.append(None)
+            item_sources.append(item_graph)
 
-        if self.user_encoder is None:
-            user_feature_embs = u_static_feats.new_zeros(
-                self.cfg.num_users, self.cfg.emb_dim
-            )
-        else:
-            user_feature_embs = self.user_encoder(u_static_feats)
-        item_feature_embs, text_embs = self._encode_item_features(i_static_feats)
+        if self.user_encoder is not None:
+            user_sources.append(self.user_encoder(u_static_feats)[u_ids])
+            user_available.append(None)
+        if self.item_encoder is not None:
+            item_sources.append(self.item_encoder(i_static_feats))
+        context_emb = None
+        if self.context_encoder is not None:
+            if context is None:
+                raise ValueError(
+                    "context is required when the context module is active."
+                )
+            context_emb = self.context_encoder(context)
 
-        if text_embs is None:
-            text_embs = item_graph_embs.new_zeros(item_graph_embs.shape)
+        item_emb = self._fuse(item_sources, self.item_fusion)
 
-        item_modules = torch.stack(
-            [item_graph_embs, item_feature_embs, text_embs],
-            dim=1,
+        if self.sequence_encoder is not None:
+            padded = torch.cat([item_emb.new_zeros(1, item_emb.size(1)), item_emb])
+            hist = padded[h_ids.clamp(min=0)]
+            seq_user = self.sequence_encoder(hist, h_mask)
+            user_sources.append(seq_user)
+            user_available.append(h_mask.bool().any(dim=1))
+
+        user_emb = self._fuse(user_sources, self.user_fusion, user_available)
+
+        scores = self.scorer(
+            user_emb,
+            item_emb,
+            context_emb,
+            item_ids=candidate_item_ids,
         )
-        item_feats_emb = self._combine_modules(
-            item_modules,
-            self.item_router,
-            item_stats[:, :ROUTER_CTX_DIM],
-        )
-
-        item_emb = self.item_norm(item_feats_emb)
-        padded_item_embs = torch.cat(
-            [item_emb.new_zeros(1, item_emb.size(1)), item_emb], dim=0
-        )
-
-        hist_emb = padded_item_embs[h_ids.clamp(min=0)]
-        if self.sequence_encoder is None:
-            seq_user_emb = hist_emb.new_zeros(hist_emb.size(0), self.cfg.emb_dim)
-        else:
-            seq_user_emb = self.sequence_encoder(
-                hist_emb,
-                h_mask,
-                h_ctx if self.cfg.use_context else None,
-            )
-
-        user_graph_emb = user_graph_embs[u_ids]
-        user_feature_emb = user_feature_embs[u_ids]
-        batch_user_stats = user_stats[u_ids]
-        user_modules = torch.stack(
-            [user_graph_emb, user_feature_emb, seq_user_emb],
-            dim=1,
-        )
-        user_emb = self.user_norm(
-            self._combine_modules(
-                user_modules,
-                self.user_router,
-                batch_user_stats[:, :ROUTER_CTX_DIM],
-            )
-        )
-
-        scores = self.scorer(user_emb, item_emb)
 
         if self.item_bias is not None:
-            scores = scores + self.item_bias
+            if candidate_item_ids is not None:
+                scores = scores + self.item_bias[candidate_item_ids]
+            else:
+                scores = scores + self.item_bias
 
         return scores
-
-    def _encode_item_features(
-        self, item_static_feats: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor | None]:
-        struct_dim = max(
-            self.cfg.num_item_dense_feats - self.cfg.num_item_text_feats, 0
-        )
-        cat_start = self.cfg.num_item_dense_feats
-
-        if self.item_encoder is None:
-            item_feature_emb = item_static_feats.new_zeros(
-                item_static_feats.size(0), self.cfg.emb_dim
-            )
-        else:
-            parts = []
-            if struct_dim > 0:
-                parts.append(item_static_feats[..., :struct_dim])
-            if self.cfg.item_cat_cardinalities:
-                parts.append(item_static_feats[..., cat_start:])
-
-            if parts:
-                structured_inputs = torch.cat(parts, dim=-1)
-                item_feature_emb = self.item_encoder(structured_inputs)
-            else:
-                item_feature_emb = item_static_feats.new_zeros(
-                    item_static_feats.size(0), self.cfg.emb_dim
-                )
-
-        if self.text_projection is None:
-            return item_feature_emb, None
-
-        text_start = struct_dim
-        text_end = text_start + self.cfg.num_item_text_feats
-        text_emb = self.text_projection(item_static_feats[..., text_start:text_end])
-        return item_feature_emb, text_emb
-
-    def _combine_modules(
-        self,
-        modules: torch.Tensor,
-        router: Router | None,
-        router_ctx: torch.Tensor,
-    ) -> torch.Tensor:
-        if router is None:
-            return modules.sum(dim=1)
-
-        weights = router(router_ctx)
-        return (modules * weights.unsqueeze(-1)).sum(dim=1)
-
-    def _validate_router_stats(
-        self,
-        user_stats: torch.Tensor,
-        item_stats: torch.Tensor,
-    ) -> None:
-        expected_width = ROUTER_CTX_DIM + ROUTER_NUM_MODULES
-        expected_shapes = (
-            ("user_stats", user_stats, self.cfg.num_users),
-            ("item_stats", item_stats, self.cfg.num_items),
-        )
-        for name, stats, expected_rows in expected_shapes:
-            if stats.ndim != 2 or stats.shape != (expected_rows, expected_width):
-                raise ValueError(
-                    f"{name} must have shape "
-                    f"[{expected_rows}, {expected_width}], got {tuple(stats.shape)}."
-                )

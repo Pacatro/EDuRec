@@ -1,5 +1,4 @@
-from dataclasses import replace
-from datetime import datetime
+import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -7,14 +6,16 @@ import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
-from ..recsys import EDuRecConfig, RecSys, optimize_model, train_model
-from ..recsys.io import save_model
+from ..recsys import ModelConfig, RecSys, train_model
+from ..recsys.configs import monitor_topk, resolve_train_config
+from ..recsys.io import save_metrics, save_model
 from .utils import (
     build_config,
-    dataset_config_path,
-    dataset_run_name,
+    config_paths,
+    dataset_train_defaults,
     datasets_to_run,
     print_data_summary,
+    print_model_modules,
 )
 
 app = typer.Typer(no_args_is_help=True)
@@ -23,25 +24,56 @@ app = typer.Typer(no_args_is_help=True)
 @app.command(name="train", help="Train the model.")
 def train(
     dataset: Annotated[DatasetName | None, typer.Option("--dataset", "-d")] = None,
-    epochs: Annotated[int, typer.Option("--epochs", "-e")] = settings.EPOCHS,
-    lr: Annotated[float, typer.Option("--lr", "-l")] = settings.LR,
-    limit: Annotated[
+    epochs: Annotated[
         int | None,
         typer.Option(
-            "--limit",
+            "--epochs",
+            "-e",
             min=1,
-            help="Maximum number of interactions to use before splitting.",
+            help="Number of training epochs. Uses the saved training config if omitted.",
+        ),
+    ] = None,
+    lr: Annotated[
+        float | None,
+        typer.Option(
+            "--lr",
+            "-l",
+            min=0.0,
+            help="Learning rate. Uses the saved training config if omitted.",
         ),
     ] = None,
     batch_size: Annotated[
-        int, typer.Option("--batch_size", "-b")
-    ] = settings.BATCH_SIZE,
-    patience: Annotated[int, typer.Option("--patience", "-p")] = settings.PATIENCE,
+        int | None,
+        typer.Option(
+            "--batch_size",
+            "-b",
+            min=1,
+            help="Batch size. Uses the saved training config if omitted.",
+        ),
+    ] = None,
+    patience: Annotated[
+        int | None,
+        typer.Option(
+            "--patience",
+            "-p",
+            min=1,
+            help="Early stopping patience. Uses the saved training config if omitted.",
+        ),
+    ] = None,
     val_size: Annotated[float, typer.Option("--val_size", "-v")] = settings.VAL_RATIO,
     test_size: Annotated[
         float, typer.Option("--test_size", "-t")
     ] = settings.TEST_RATIO,
-    top_k: Annotated[int, typer.Option("--top_k", "-k")] = settings.TOP_K,
+    top_k: Annotated[
+        int | None,
+        typer.Option(
+            "--top_k",
+            "-k",
+            min=1,
+            help="Validation cutoff for early stopping. "
+            "Defaults to the maximum saved top-k.",
+        ),
+    ] = None,
     remove_sparse: Annotated[
         bool, typer.Option("--remove_sparse", "-R")
     ] = settings.REMOVE_SPARSE,
@@ -49,87 +81,85 @@ def train(
         int, typer.Option("--min_interactions", "-i")
     ] = settings.MIN_INTERACTIONS,
     adaptive_k: Annotated[
-        bool, typer.Option("--adaptive_k", "-a")
-    ] = settings.ADAPTIVE_K,
+        bool | None,
+        typer.Option(
+            "--adaptive_k",
+            "-a",
+            help="Use adaptive k. Uses the saved training config if omitted.",
+        ),
+    ] = None,
+    compile: Annotated[
+        bool,
+        typer.Option("--compile", help="Compile the model before training."),
+    ] = settings.COMPILE_MODEL,
     debug: Annotated[bool, typer.Option("--debug", "-D")] = False,
     save: Annotated[bool, typer.Option("--save_model", "-S")] = False,
-    optimize: Annotated[
-        bool,
-        typer.Option(
-            "--optimize",
-            "-o",
-            help="Optimize hyperparameters before the final training run.",
-        ),
-    ] = False,
-    n_trials: Annotated[
-        int,
-        typer.Option(
-            "--trials",
-            "-n",
-            min=1,
-            help="Number of hyperparameter optimization trials.",
-        ),
-    ] = settings.OPTIM_N_TRIALS,
     use_processed_data: Annotated[
         bool, typer.Option("--use_processed", "-P")
     ] = settings.SAVE_DATA,
-    models_folder: Annotated[
-        str, typer.Option("--models-folder", "-M")
-    ] = settings.MODELS_FOLDER,
-    configs_folder: Annotated[
-        str, typer.Option("--configs-folder", "-C")
-    ] = settings.CONFIGS_FOLDER,
+    models_folder: Annotated[Path, typer.Option("--models-folder", "-M")] = Path(
+        settings.MODELS_FOLDER
+    ),
+    configs_folder: Annotated[Path, typer.Option("--configs-folder", "-C")] = Path(
+        settings.CONFIGS_FOLDER
+    ),
     experiment_name: Annotated[
         str | None, typer.Option("--experiment-name", "-E")
     ] = None,
 ) -> None:
-    started_at = datetime.now()
+    started_at = datetime.datetime.now(datetime.UTC)
     verbose = settings.state["verbose"]
-    monitor_metric = f"val/ndcg@{top_k}"
-    optimization_root = (
-        Path(settings.RESULTS_FOLDER)
-        / "optimization"
-        / started_at.strftime("%Y%m%d_%H%M%S")
-    )
+    training_root = Path(settings.RESULTS_FOLDER) / "training"
 
     datasets = datasets_to_run(dataset)
 
-    for dataset_idx, dataset in enumerate(datasets, start=1):
-        run_name = dataset_run_name(dataset, limit)
+    for dataset_idx, dataset_name in enumerate(datasets, start=1):
+        run_name = dataset_name.value
         dataset_experiment_name = (
             f"{experiment_name}_{run_name}" if experiment_name else None
         )
+        model_config_path, train_config_path = config_paths(configs_folder, run_name)
+        train_cfg = resolve_train_config(
+            cli={
+                "epochs": epochs,
+                "lr": lr,
+                "batch_size": batch_size,
+                "patience": patience,
+                "adaptive_k": adaptive_k,
+            },
+            saved_path=train_config_path,
+            defaults=dataset_train_defaults(dataset_name),
+        )
+        val_topk = monitor_topk(top_k, train_cfg)
+
         print("\n[TRAIN] Training run")
         print(f"[TRAIN] Dataset {dataset_idx}/{len(datasets)}: {run_name}")
         print("[TRAIN] Model: EDuRec")
-        print(f"[TRAIN] Monitor: {monitor_metric}")
+        print(f"[TRAIN] Monitor: val/ndcg@{val_topk}")
         print(f"[TRAIN] Save model: {save}")
-        print(f"[TRAIN] Optimize hyperparameters: {optimize}")
         print("[TRAIN] Preparing data...")
 
         if verbose:
             print(
                 "[TRAIN] Config: "
-                f"epochs={epochs}, lr={lr}, batch_size={batch_size}, "
-                f"patience={patience}, adaptive_k={adaptive_k}, debug={debug}, "
-                f"optimize={optimize}, trials={n_trials}"
+                f"epochs={train_cfg.epochs}, lr={train_cfg.lr}, "
+                f"batch_size={train_cfg.batch_size}, patience={train_cfg.patience}, "
+                f"adaptive_k={train_cfg.adaptive_k}, debug={debug}"
             )
 
             if dataset_experiment_name:
-                print(
-                    f"[TRAIN] Logger: WandB, experiment_name={dataset_experiment_name}"
-                )
+                print(f"[TRAIN] Logger: MLflow, run_name={dataset_experiment_name}")
 
             print(
                 "[TRAIN] Data config: "
                 f"use_processed={use_processed_data}, remove_sparse={remove_sparse}, "
                 f"min_interactions={min_interactions}, "
-                f"val_ratio={val_size}, test_ratio={test_size}, limit={limit}"
+                f"val_ratio={val_size}, test_ratio={test_size}"
             )
 
         dm = ElearningDataModule(
-            dataset=dataset,
-            batch_size=batch_size,
+            dataset=dataset_name,
+            batch_size=train_cfg.batch_size,
             test_ratio=test_size,
             val_ratio=val_size,
             use_processed_data=use_processed_data,
@@ -137,117 +167,79 @@ def train(
             min_interactions=min_interactions,
             remove_sparse=remove_sparse,
             save_atomic_files=True,
-            limit=limit,
         )
 
-        if verbose:
-            if use_processed_data and dm.is_processed:
-                print(
-                    f"[TRAIN] Using saved processed data from {settings.PROCESSED_FOLDER}"
-                )
-            else:
-                print(
-                    f"[TRAIN] Processing raw data from {settings.DATA_FOLDER}/raw/{dataset.value}"
-                )
-
+        dm.prepare_data()
         dm.setup()
 
         print_data_summary("TRAIN", dm)
 
-        config_path = dataset_config_path(configs_folder, dataset, limit)
-
-        base_cfg = build_config(
-            dm,
-            lr=lr,
-            adaptive_k=adaptive_k,
-            topks=settings.TOP_KS,
-        )
-
-        if optimize:
-            dataset_results_path = optimization_root / run_name
-            print(f"[TRAIN] Optimizing {n_trials} trials...")
-            study = optimize_model(
-                base_config=base_cfg,
-                dm=dm,
-                n_trials=n_trials,
-                epochs=epochs,
-                patience=patience,
-                val_topk=top_k,
-                verbose=verbose,
-                results_path=dataset_results_path,
-            )
-            cfg = EDuRecConfig(**study.best_trial.user_attrs["config"])
-            config_path.parent.mkdir(parents=True, exist_ok=True)
-            cfg.save(config_path)
-            print(
-                f"[TRAIN] Best optimization score: {study.best_value} "
-                f"(trial {study.best_trial.number})"
-            )
-            print(f"[TRAIN] Best parameters: {study.best_params}")
-            print(f"[TRAIN] Configuration saved: {config_path}")
-        elif config_path.exists():
-            cfg = replace(
-                EDuRecConfig.load(config_path),
-                num_users=dm.num_users,
-                num_items=dm.num_items,
-                num_ctx_feats=dm.train_ds.num_ctx_feats,
-                num_user_dense_feats=dm.num_user_dense_feats,
-                num_item_dense_feats=dm.num_item_dense_feats,
-                num_user_text_feats=dm.num_user_text_feats,
-                num_item_text_feats=dm.num_item_text_feats,
-                user_cat_cardinalities=dm.user_cat_cardinalities,
-                item_cat_cardinalities=dm.item_cat_cardinalities,
-                adaptive_k=adaptive_k,
-                topks=settings.TOP_KS,
-            )
-            print(f"[TRAIN] Using saved configuration: {config_path}")
+        if model_config_path.exists():
+            cfg = build_config(dm, base=ModelConfig.load(model_config_path))
+            print(f"[TRAIN] Using saved model config: {model_config_path}")
         else:
-            cfg = base_cfg
-            print("[TRAIN] No saved configuration found; using the full model.")
+            cfg = build_config(dm)
+            print("[TRAIN] No saved model config found; using the full model.")
+
+        if train_config_path.exists():
+            print(f"[TRAIN] Using saved training config: {train_config_path}")
+
+        print_model_modules("TRAIN", cfg)
 
         recsys = RecSys(
             cfg=cfg,
             inter_graph=dm.build_inter_graph(),
             u_static_feats=dm.u_static_feats,
             i_static_feats=dm.i_static_feats,
-            user_stats=dm.user_stats,
-            item_stats=dm.item_stats,
+            train_cfg=train_cfg,
+            val_topk=val_topk,
         )
 
         print("[TRAIN] Training EDuRec...")
 
-        trainer, best_model_path = train_model(
+        trainer, best_model_path, timer = train_model(
             model=recsys,
             dm=dm,
             debug=debug,
-            epochs=epochs,
-            patience=patience,
+            epochs=train_cfg.epochs,
+            patience=train_cfg.patience,
             experiment_name=dataset_experiment_name,
-            monitor=monitor_metric,
+            monitor=recsys.monitor,
+            compile=compile,
             verbose=verbose,
         )
 
         if debug:
-            elapsed = str(datetime.now() - started_at).split(".", maxsplit=1)[0]
+            elapsed = str(datetime.datetime.now(datetime.UTC) - started_at).split(
+                ".", maxsplit=1
+            )[0]
             print("[TRAIN] Debug mode: skipping evaluation")
-            print(f"[TRAIN] Finished {dataset.value} in {elapsed}\n")
+            print(f"[TRAIN] Finished {dataset_name.value} in {elapsed}\n")
             return
 
-        metrics = trainer.test(ckpt_path="best", datamodule=dm, weights_only=False)[0]
+        metrics = dict(
+            trainer.test(ckpt_path="best", datamodule=dm, weights_only=False)[0]
+        )
+        metrics["training_time_s"] = timer.time_elapsed("train")
+        metrics["inference_time_s"] = timer.time_elapsed("test")
+
+        print(f"[TRAIN] Training time: {metrics['training_time_s']}")
+        print(f"[TRAIN] Inference time: {metrics['inference_time_s']}")
         print(f"[TRAIN] Best checkpoint: {best_model_path}")
 
+        metrics_path = save_metrics(metrics, dataset_name.value, training_root)
+        print(f"[TRAIN] Metrics saved: {metrics_path}")
+
         if save and trainer.is_global_zero:
-            model_file_path, model_config_path, metrics_path = save_model(
+            model_file_path, model_config_path = save_model(
                 model_config=cfg,
                 dataset_name=run_name,
                 best_model_path=best_model_path,
                 models_folder=models_folder,
-                metrics=metrics,
             )
-
             print(f"[TRAIN] Model weights saved: {model_file_path}")
             print(f"[TRAIN] Model config saved: {model_config_path}")
-            print(f"[TRAIN] Metrics saved: {metrics_path}")
 
-        elapsed = str(datetime.now() - started_at).split(".", maxsplit=1)[0]
-        print(f"[TRAIN] Finished {dataset.value} in {elapsed}\n")
+        now = datetime.datetime.now(datetime.UTC)
+        elapsed = str(now - started_at).split(".", maxsplit=1)[0]
+        print(f"[TRAIN] Finished {dataset_name.value} in {elapsed}\n")

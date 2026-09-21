@@ -5,7 +5,7 @@ from typing import Annotated
 import typer
 
 from . import settings
-from .cli import ablation_app, dataset_app, eval_app, test_app, train_app, optim_app
+from .cli import ablation_app, dataset_app, eval_app, optim_app, test_app, train_app
 
 # Ignore pandas future warnings
 warnings.filterwarnings("ignore", category=FutureWarning)

@@ -32,7 +32,7 @@ cd EDuRec
 uv sync
 ```
 
-For development dependencies such as `pytest` and `wandb`, use:
+For development dependencies such as `pytest` and `mlflow`, use:
 
 ```bash
 uv sync --group dev
@@ -90,10 +90,10 @@ Common options:
 
 ```text
 -d, --dataset [explicit_mars|implicit_mars|itm|doris]
--e, --epochs INTEGER            Default: 150
--l, --lr FLOAT                  Default: 0.0002
--b, --batch_size INTEGER        Default: 128
--p, --patience INTEGER          Default: 5
+-e, --epochs INTEGER            Default: from saved train config
+-l, --lr FLOAT                  Default: from saved train config
+-b, --batch_size INTEGER        Default: from saved train config
+-p, --patience INTEGER          Default: from saved train config
 -v, --val_size FLOAT            Default: 0.1
 -t, --test_size FLOAT           Default: 0.2
 -k, --top_k INTEGER             Default: 20
@@ -102,18 +102,10 @@ Common options:
 -a, --adaptive_k                Use adaptive-k metrics where supported
 -D, --debug                     Fast debug run
 -S, --save_model                Save checkpoint, config, and metrics
--o, --optimize                  Run hyperparameter optimization first
--n, --trials INTEGER            Optimization trials, default: 30
 -P, --use_processed             Reuse cached processed data
 -M, --models-folder TEXT        Default: models
 -C, --configs-folder TEXT       Default: configs
 -E, --experiment-name TEXT      Optional logger experiment name
-```
-
-Example with optimization before the final training run:
-
-```bash
-uv run edurec train -d doris -P -S --optimize --trials 30
 ```
 
 ### Test a Saved Model
@@ -151,10 +143,10 @@ Useful options:
 
 ```text
 -d, --dataset [explicit_mars|implicit_mars|itm|doris]
--e, --epochs INTEGER            Default: 150
--l, --lr FLOAT                  Default: 0.0002
--b, --batch-size INTEGER        Default: 128
--p, --patience INTEGER          Default: 5
+-e, --epochs INTEGER            Default: from saved train config
+-l, --lr FLOAT                  Default: from saved train config
+-b, --batch-size INTEGER        Default: from saved train config
+-p, --patience INTEGER          Default: from saved train config
 -k, --top-k INTEGER             Repeat for multiple cutoffs
 -R, --remove-sparse / -K, --keep-sparse
 -I, --min-interactions INTEGER  Default: 3
@@ -164,8 +156,9 @@ Useful options:
 -a, --adaptive-k / -A, --fixed-k
 ```
 
-Results are written to `results/evaluations/<timestamp>/<dataset>/`, with one
-artifact CSV per model and an aggregate `final_results.csv`.
+Results are written to `results/evaluations/<dataset>/`, with one CSV per model
+and seed, the detailed `evaluation_results.csv`, and the aggregated
+`evaluation_summary.csv`.
 
 ### Optimize Hyperparameters
 
@@ -175,8 +168,27 @@ Run Optuna-based hyperparameter optimization for EDuRec.
 uv run edurec optim --dataset explicit_mars --trials 30 --use_processed
 ```
 
-The command saves the best configuration, trial log, and study database under
-`results/optimization/<timestamp>/`.
+The command saves the best model and training configurations, trial log, and
+study database under `results/optimization/<dataset>/`. It also writes the best
+configuration for each dataset to `configs/model/<dataset>.yaml` and
+`configs/train/<dataset>.yaml`, so they can be reused by training and
+evaluation. Use `--configs-folder` to choose a different folder.
+
+### Saved Configurations
+
+The `configs/` folder keeps one model configuration and one independent training
+configuration per evaluated dataset:
+
+```text
+configs/model/<dataset>.yaml   Model architecture hyperparameters
+configs/train/<dataset>.yaml   Training hyperparameters (epochs, lr, batch size,
+                               patience, weight decay, top-k, alpha, adaptive-k)
+```
+
+When a config file exists for the dataset being run, training, evaluation, and
+ablation commands load it. Explicit CLI flags always take precedence over the
+saved configurations, which in turn take precedence over the global defaults in
+`edurec/settings.py`.
 
 ### Run Ablations
 
@@ -191,11 +203,15 @@ Implemented main variants:
 - `base`: ID-only dot-product baseline.
 - `full`: full EDuRec architecture.
 - `no_graph`: removes LightGCN and graph contrastive learning.
-- `no_features`: removes user, item, and text feature encoders.
-- `no_sequence`: removes SASRec history encoding and context.
-- `no_context`: keeps sequence modeling but removes contextual history features.
-- `no_routers`: replaces routing networks with uniform module combination.
+- `no_features`: removes both user and item feature encoders.
+- `no_user_features` / `no_item_features`: removes one side-feature encoder.
+- `no_text`: removes the text embeddings from the user/item feature encoders.
+- `no_sequence`: removes SASRec history encoding.
+- `no_context`: removes the independent interaction-context representation.
+- `sum_fusion`: replaces `MaskedGatedFusion` with a direct sum of the module
+  representations.
 - `no_gcl`: removes graph contrastive learning.
+- `no_item_bias`: removes the learned item-popularity bias.
 - `dot_product`: replaces the MLP scorer with dot-product scoring.
 
 Aggregated outputs are saved to `results/ablations/<dataset>/`.
@@ -211,14 +227,27 @@ modules:
   graph produces collaborative user and item embeddings.
 - **Feature encoders**: MLP encoders transform dense and categorical user/item
   features into the shared embedding space.
-- **Text projection**: preprocessed item text embeddings are projected into the
-  same latent dimension as the other item modules.
+- **Text features**: preprocessed text embeddings are consumed by the user/item
+  feature encoders together with the other dense features.
 - **Sequential encoder**: a SASRec-style Transformer encodes each user's recent
-  item history, optionally enriched with interaction context features.
-- **Routers**: small routing networks weight and combine the available user
-  modules and item modules using user/item statistics.
+  item history.
+- **Gated fusion**: learned global gates weight and combine the available user
+  and item representations.
 - **Scorer**: the final user and item embeddings are scored with either an MLP
   scorer or a dot-product scorer. An optional item bias can be added.
+
+Module availability is inferred from each processed dataset when the model
+configuration is built. Feature encoders, the sequential encoder, contextual
+inputs, and their fusion slots are omitted when their required data is absent.
+Single-source representations also bypass the fusion layer, avoiding unused
+parameters and computation.
+
+Sequential history modules additionally require a real chronological
+interaction field. Datasets without one are split randomly and do not allocate
+history tensors; a synthetic row index is not considered a valid timestamp.
+Interaction context has an independent encoder and remains available without a
+sequential history. It is kept separate from the user representation: the final
+scorer consumes user, item, and context representations explicitly.
 
 Training uses cross-entropy over all candidate items. When enabled, graph
 contrastive learning applies edge dropout to create two graph views and adds an
@@ -234,23 +263,30 @@ configured top-k values.
 
 ### SOTA Benchmark Evaluation
 
-The same evaluation command exports RecBole atomic files and runs comparable
-baseline models with aligned split files, metrics, learning rate, epoch count,
-patience, batch size, and top-k settings.
+The same evaluation command exports RecBole atomic files and runs the baseline
+models with aligned split files, learning rate, epoch count, patience, batch
+size, and top-k settings. Sequential baselines receive prebuilt histories for
+the original train, validation, and test splits instead of asking RecBole to
+split the merged interaction file again.
+
+Final ranking metrics use one shared evaluator for every model. Each positive
+test interaction is one query with one target, and EDuRec and the RecBole
+baselines use the same full item catalog, seen-item mask, and TorchMetrics
+implementations for Precision, Recall, NDCG, Hit Rate, MAP, and MRR.
 
 ### Hyperparameter Optimization
 
-`uv run edurec optim` and `uv run edurec train --optimize` run Optuna studies for
-EDuRec and save the best model configuration as YAML for later training or
-ablation experiments.
+`uv run edurec optim` runs Optuna studies for EDuRec and saves the best model
+and training configurations as YAML for later training, evaluation, or ablation
+experiments.
 
 ### Ablation Study
 
 `uv run edurec ablation` evaluates architecture variants across configurable
 seeds and records metrics, parameter counts, and per-run configuration files.
 This is intended to isolate the contribution of graph modeling, side features,
-text features, sequential history, context, routing networks, graph contrastive
-learning, and the scoring function.
+text features, sequential history, context, gated fusion, graph contrastive
+learning, item bias, and the scoring function.
 
 ## Author
 

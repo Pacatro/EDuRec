@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import lightning as L
 
 # Global state
@@ -16,7 +18,8 @@ def seed_everything(seed: int | None) -> int | None:
 
     return seed
 
-# W&B
+
+# Logging
 EXPERIMENT_NAME: str = "TFM"
 
 # Filenames and Folders
@@ -24,10 +27,11 @@ DATA_FOLDER: str = "data"
 RESULTS_FOLDER: str = "results"
 MODELS_FOLDER: str = "models"
 MODEL_FILENAME = "model.pt"
-RECBOLE_INTER_FILES_FOLDER: str = f"{DATA_FOLDER}/inter"
 MODEL_METADATA_FILENAME = "metadata.json"
-METRICS_FILENAME = "metrics.csv"
+METRICS_FILENAME = "metrics"
 CONFIGS_FOLDER: str = "configs"
+MODEL_CONFIGS_FOLDER: str = f"{CONFIGS_FOLDER}/model"
+TRAIN_CONFIGS_FOLDER: str = f"{CONFIGS_FOLDER}/train"
 
 # Datasets
 ITEM_COL: str = "item_id"
@@ -37,6 +41,41 @@ RATING_COL: str = "rating"
 RELEVANT_COL: str = "relevant"
 MIN_INTERACTIONS: int = 3
 TRAIN_NEGATIVES_PER_POSITIVE: int = 4
+RAW_DATA_FOLDER = Path(DATA_FOLDER) / "raw"
+
+MARS_REQUIRED_FILES = (
+    "items_en.csv",
+    "items_fr.csv",
+    "users_en.csv",
+    "users_fr.csv",
+    "explicit_ratings_en.csv",
+    "explicit_ratings_fr.csv",
+    "implicit_ratings_en.csv",
+    "implicit_ratings_fr.csv",
+)
+MARS_ZIP_URL = (
+    "https://dataverse.harvard.edu/api/access/dataset/:persistentId/"
+    "?persistentId=doi:10.7910/DVN/BMY3UD"
+)
+DORIS_REQUIRED_FILES = (
+    "CourseInformationTable.xlsx",
+    "CourseSelectionTable.xlsx",
+    "StudentInformationTable.xlsx",
+)
+DORIS_ZIP_URL = "https://ndownloader.figstatic.com/files/41041415"
+MOOCCUBEX_BASE_URL = "https://lfs.aminer.cn/misc/moocdata/data/mooccube2"
+MOOCCUBEX_REQUIRED_FILES = ("entities/user.json", "entities/course.json")
+MOOCCUBEX_MAX_INTERACTIONS: int = 500_000
+ITM_REQUIRED_FILES = ("ratings.csv", "items.csv", "users.csv")
+KAGGLE_ITM_DATASET = "irecsys/itmrec"
+COCO_REQUIRED_FILES = (
+    "course_latest.csv",
+    "curriculum_lesson_chapter_latest.csv",
+    "evaluate_latest.csv",
+    "instructor_latest.csv",
+    "teach_latest.csv",
+)
+COCO_MAX_INTERACTIONS: int = 100_000
 
 # Preprocessing
 PROCESSED_FOLDER: str = f"{DATA_FOLDER}/processed"
@@ -49,12 +88,10 @@ PREPROCESS_FEATURE_TYPES: tuple[str, ...] = (
     "list",
     "time",
 )
-PREPROCESS_CACHE_VERSION: int = 4
 TEXT_EMBEDDING_MODEL: str = "paraphrase-MiniLM-L3-v2"
 TEXT_EMBEDDING_DIM: int = 384
 TEXT_EMBEDDING_BATCH_SIZE: int = 32
 TEXT_MAX_TOKENS: int = 256
-TEXT_PREPROCESS_STRATEGY: str = "sentence-transformer"
 
 # GCL
 DROP_EDGES_P: float = 0.2
@@ -78,7 +115,6 @@ WEIGHT_DECAY: float = 1e-4
 BATCH_SIZE: int = 128
 PATIENCE: int = 5
 TOP_K: int = 20
-MONITOR_METRIC: str = f"val/ndcg@{TOP_K}"
 EPOCHS: int = 150
 DELTA: float = 0.001
 NUM_WORKERS: int = 4
@@ -105,6 +141,7 @@ SOTA_MODELS: list[str] = [
     "SASRec",
     "BERT4Rec",
 ]
+SOTA_GPU_ID: int = 1
 
 # Hyperparameter optimization
 OPTIM_N_TRIALS: int = 30

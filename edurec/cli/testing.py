@@ -1,4 +1,5 @@
-from typing import Annotated, cast
+from pathlib import Path
+from typing import Annotated
 
 import lightning as L
 import torch
@@ -6,9 +7,10 @@ import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
+from ..recsys.configs import TrainConfig
 from ..recsys.io import load_model, save_metrics
 from ..recsys.recsys import RecSys
-from .utils import dataset_run_name
+from .utils import print_data_summary, print_model_modules
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -22,15 +24,6 @@ def test_recsys(
         DatasetName,
         typer.Option("--dataset", "-d", help="Dataset to use"),
     ] = DatasetName.EXPLICIT_MARS,
-    limit: Annotated[
-        int | None,
-        typer.Option(
-            "--limit",
-            "-l",
-            min=1,
-            help="Maximum number of interactions to use before splitting.",
-        ),
-    ] = None,
     batch_size: Annotated[
         int, typer.Option("--batch_size", "-b", help="Batch size")
     ] = settings.BATCH_SIZE,
@@ -64,7 +57,7 @@ def test_recsys(
 ) -> None:
     model_path, cfg = load_model(
         models_folder=models_folder,
-        dataset_name=dataset_run_name(dataset, limit),
+        dataset_name=dataset.value,
     )
 
     dm = ElearningDataModule(
@@ -75,10 +68,12 @@ def test_recsys(
         use_processed_data=use_processed_data,
         random_state=settings.state["random_state"],
         remove_sparse=remove_sparse,
-        limit=limit,
     )
+    dm.prepare_data()
     dm.setup()
     test_graph = dm.build_inter_graph()
+    print_data_summary("TEST", dm)
+    print_model_modules("TEST", cfg)
 
     model = RecSys.load_from_checkpoint(
         checkpoint_path=str(model_path),
@@ -86,10 +81,12 @@ def test_recsys(
         inter_graph=test_graph,
         u_static_feats=dm.u_static_feats,
         i_static_feats=dm.i_static_feats,
-        user_stats=dm.user_stats,
-        item_stats=dm.item_stats,
+        train_cfg=TrainConfig(
+            batch_size=batch_size,
+            topks=[top_k],
+            adaptive_k=adaptive_k,
+        ),
         val_topk=top_k,
-        adaptive_k=adaptive_k,
         map_location=torch.device("cpu"),
         weights_only=False,
         strict=False,
@@ -102,4 +99,4 @@ def test_recsys(
     )
     test_results = trainer.test(model=model, datamodule=dm, weights_only=False)[0]
 
-    save_metrics(cast(dict[str, float], test_results), model_path.parent)
+    save_metrics(test_results, dataset.value, Path(models_folder))

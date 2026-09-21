@@ -2,58 +2,52 @@ import lightning.pytorch as L
 import torch
 import torch.nn.functional as F
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
-from torch_geometric.utils import dropout_edge
 from torch_geometric.data import Data
+from torch_geometric.utils import dropout_edge
 from torchmetrics import MetricCollection
-from torchmetrics.retrieval import (
-    RetrievalHitRate,
-    RetrievalMAP,
-    RetrievalMRR,
-    RetrievalNormalizedDCG,
-    RetrievalPrecision,
-    RetrievalRecall,
-)
+from torchmetrics.retrieval import RetrievalNormalizedDCG
 
 from .. import settings
 from ..datasets import RecSysQuery
-from .architecture import EDuRec, EDuRecConfig
+from .architecture.model import EDuRec
+from .configs import ModelConfig, TrainConfig
 from .losses import InfoNCELoss, LossReduction
+from .ranking import build_ranking_metrics, update_ranking_metrics
 
 
 class RecSys(L.LightningModule):
     def __init__(
         self,
-        cfg: EDuRecConfig,
+        cfg: ModelConfig,
         inter_graph: Data,
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
-        user_stats: torch.Tensor,
-        item_stats: torch.Tensor,
+        train_cfg: TrainConfig | None = None,
         val_topk: int = settings.TOP_K,
-    ):
+    ) -> None:
         super().__init__()
         self.save_hyperparameters(
             ignore=[
                 "inter_graph",
                 "u_static_feats",
                 "i_static_feats",
-                "user_stats",
-                "item_stats",
             ]
         )
+
         self.cfg = cfg
-        self.lr = cfg.lr
-        self.weight_decay = cfg.weight_decay
-        self.alpha = cfg.alpha
-        self.val_topk = val_topk
-        self.topks = cfg.topks if cfg.topks else [settings.TOP_K]
-        self.monitor = f"val/ndcg@{val_topk}"
+        self.train_cfg = train_cfg or TrainConfig()
+        self.lr = self.train_cfg.lr
+        self.weight_decay = self.train_cfg.weight_decay
+        self.alpha = self.train_cfg.alpha
+        self.val_topk = int(val_topk)
+        self.topks = sorted(set(self.train_cfg.topks or [settings.TOP_K]))
+        self.monitor = f"val/ndcg@{self.val_topk}"
+
+        self._validate_topks()
 
         self.register_buffer("edge_index", inter_graph.edge_index, persistent=False)
         self.register_buffer("u_static_feats", u_static_feats, persistent=False)
         self.register_buffer("i_static_feats", i_static_feats, persistent=False)
-        self.register_buffer("user_stats", user_stats, persistent=False)
-        self.register_buffer("item_stats", item_stats, persistent=False)
 
         self.gcl_loss = InfoNCELoss(
             tau=cfg.temperature,
@@ -63,69 +57,74 @@ class RecSys(L.LightningModule):
         self.val_ranking_metrics = MetricCollection(
             {
                 f"ndcg@{self.val_topk}": RetrievalNormalizedDCG(
-                    top_k=self.val_topk, empty_target_action="neg"
+                    top_k=self.val_topk,
+                    empty_target_action="neg",
+                    aggregation="mean",
                 )
             },
             prefix="val/",
         )
-
-        if self.topks:
-            metrics = {
-                "precision": (RetrievalPrecision, {"adaptive_k": cfg.adaptive_k}),
-                "recall": (RetrievalRecall, {}),
-                "ndcg": (RetrievalNormalizedDCG, {}),
-                "hit": (RetrievalHitRate, {}),
-                "map": (RetrievalMAP, {}),
-                "mrr": (RetrievalMRR, {}),
-            }
-
-            self.test_ranking_metrics = MetricCollection(
-                {
-                    f"{name}@{k}": cls(top_k=k, empty_target_action="neg", **kwargs)
-                    for k in cfg.topks
-                    for name, (cls, kwargs) in metrics.items()
-                },
-                prefix="test/",
-            )
+        self.test_ranking_metrics = build_ranking_metrics(
+            self.topks,
+            "test/",
+            adaptive_k=self.train_cfg.adaptive_k,
+        )
 
         self.model = EDuRec(cfg)
         self.model_name = self.__class__.__name__
 
-    def forward(self, batch: RecSysQuery) -> torch.Tensor:
+    def forward(
+        self,
+        batch: RecSysQuery,
+        candidate_item_ids: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Score a batch, optionally restricting scoring to candidate items.
+
+        Candidate scoring ``[batch, 1 + num_negatives]`` avoids materializing
+        scores for the full catalog during training. When ``candidate_item_ids``
+        is ``None`` the full ``[batch, num_items]`` score matrix is returned.
+        """
         scores = self.model(
             u_ids=batch.user_id,
             h_ids=batch.history_items,
-            h_ctx=batch.history_ctx,
             h_mask=batch.history_valid_mask,
             edge_index=self.edge_index,
             u_static_feats=self.u_static_feats,
             i_static_feats=self.i_static_feats,
-            user_stats=self.user_stats,
-            item_stats=self.item_stats,
+            context=batch.context,
+            candidate_item_ids=candidate_item_ids,
         )
 
         if scores.ndim == 3:
             if scores.size(-1) != 1:
                 raise RuntimeError("RecSys must return a single logit per candidate.")
-            return scores.squeeze(-1)
+            scores = scores.squeeze(-1)
+
+        if scores.ndim != 2:
+            raise RuntimeError(
+                "RecSys must return scores with shape [batch, num_items], "
+                f"got {tuple(scores.shape)}."
+            )
 
         return scores
 
     def training_step(self, batch: RecSysQuery) -> torch.Tensor:
-        return self._step(batch, "train")
+        return self._step(batch, prefix="train")
 
-    def validation_step(self, batch: RecSysQuery):
+    def validation_step(self, batch: RecSysQuery) -> None:
         self._step(
             batch,
-            "val",
+            prefix="val",
             ranking_metrics=self.val_ranking_metrics,
+            metric_topks=[self.val_topk],
         )
 
-    def test_step(self, batch: RecSysQuery):
+    def test_step(self, batch: RecSysQuery) -> None:
         self._step(
             batch,
-            "test",
+            prefix="test",
             ranking_metrics=self.test_ranking_metrics,
+            metric_topks=self.topks,
         )
 
     def _step(
@@ -133,66 +132,97 @@ class RecSys(L.LightningModule):
         batch: RecSysQuery,
         prefix: str,
         ranking_metrics: MetricCollection | None = None,
+        metric_topks: list[int] | None = None,
     ) -> torch.Tensor:
-        scores = self(batch)
-        query_ids = batch.query_id
-        target_item_ids = batch.target_item_id.long()
+        negative_item_ids = batch.negative_item_ids if prefix == "train" else None
+        use_candidates = negative_item_ids is not None and negative_item_ids.size(1) > 0
+
+        if use_candidates:
+            assert negative_item_ids is not None
+            candidate_item_ids = torch.cat(
+                [batch.target_item_id.reshape(-1, 1).long(), negative_item_ids],
+                dim=1,
+            )
+            scores = self(batch, candidate_item_ids=candidate_item_ids)
+        else:
+            scores = self(batch)
 
         rank_loss = self._compute_rec_loss(
             scores=scores,
-            target_item_ids=target_item_ids,
-            negative_item_ids=(
-                batch.negative_item_ids if prefix == "train" else None
-            ),
+            target_item_ids=batch.target_item_id,
+            negative_item_ids=negative_item_ids,
+            use_candidates=use_candidates,
         )
+
         use_gcl = (
             prefix == "train" and self.cfg.use_gcl and self.cfg.graph_mode == "lightgcn"
         )
-
         gcl_loss = self._compute_gcl_loss(batch) if use_gcl else rank_loss.new_zeros(())
-
         loss = rank_loss + self.alpha * gcl_loss
 
         if prefix == "train":
             self.log(
-                f"{prefix}/RankLoss",
+                "train/RankLoss",
                 rank_loss.detach(),
+                on_step=True,
+                on_epoch=False,
                 prog_bar=True,
                 logger=True,
                 sync_dist=True,
             )
             self.log(
-                f"{prefix}/GclLoss",
+                "train/GclLoss",
                 gcl_loss.detach(),
+                on_step=True,
+                on_epoch=False,
                 prog_bar=True,
                 logger=True,
                 sync_dist=True,
             )
             self.log(
-                f"{prefix}/Loss",
+                "train/Loss",
                 loss.detach(),
                 on_step=True,
+                on_epoch=False,
                 prog_bar=True,
                 logger=True,
                 sync_dist=True,
+            )
+        else:
+            self.log(
+                f"{prefix}/Loss",
+                rank_loss.detach(),
+                on_step=False,
+                on_epoch=True,
+                prog_bar=False,
+                logger=True,
+                sync_dist=True,
+                batch_size=scores.size(0),
             )
 
         if ranking_metrics is not None:
-            targets = torch.zeros_like(scores, dtype=torch.bool)
-            targets.scatter_(1, target_item_ids.unsqueeze(1), True)
-            preds = scores.reshape(-1).float()
-            target = targets.reshape(-1)
+            if not metric_topks:
+                raise ValueError("metric_topks must be provided with ranking_metrics.")
 
-            num_items = scores.size(1)
-            indexes = query_ids.reshape(-1).long().repeat_interleave(num_items)
+            update_ranking_metrics(
+                metrics=ranking_metrics,
+                scores=scores,
+                target_item_ids=batch.target_item_id,
+                query_ids=batch.query_id,
+                history_items=batch.history_items,
+                history_mask=batch.history_valid_mask,
+                max_k=max(metric_topks),
+            )
 
-            if preds.numel() != target.numel() or preds.numel() != indexes.numel():
-                raise RuntimeError(
-                    f"preds, target and indexes must have same length: "
-                    f"{preds.numel()}, {target.numel()}, {indexes.numel()}"
-                )
-
-            ranking_metrics.update(preds=preds, target=target, indexes=indexes)
+            self.log_dict(
+                ranking_metrics,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=False,
+                logger=True,
+                sync_dist=True,
+                batch_size=scores.size(0),
+            )
 
         return loss
 
@@ -201,7 +231,15 @@ class RecSys(L.LightningModule):
         scores: torch.Tensor,
         target_item_ids: torch.Tensor,
         negative_item_ids: torch.Tensor | None = None,
+        use_candidates: bool = False,
     ) -> torch.Tensor:
+        """Compute the cross-entropy ranking loss.
+
+        With ``use_candidates=True`` the ``scores`` tensor contains exactly one
+        column per candidate (target followed by negatives), so each row is a
+        small softmax over that candidate set. Otherwise ``scores`` covers the
+        full catalog and candidate columns are gathered from it.
+        """
         if scores.ndim != 2:
             raise RuntimeError(
                 f"RecSys must return [batch, num_items] scores, got {scores.shape}."
@@ -211,14 +249,56 @@ class RecSys(L.LightningModule):
 
         if target_item_ids.numel() != scores.size(0):
             raise RuntimeError(
-                "target_item_ids must have one target item per batch row."
+                "target_item_ids must have exactly one target item per batch row."
             )
+
+        if use_candidates:
+            if negative_item_ids is None or negative_item_ids.size(1) == 0:
+                raise RuntimeError(
+                    "Candidate-based scoring requires at least one negative per row."
+                )
+            if negative_item_ids.ndim != 2 or negative_item_ids.size(0) != scores.size(
+                0
+            ):
+                raise RuntimeError(
+                    "negative_item_ids must have shape [batch, num_negatives]."
+                )
+
+            num_candidates = 1 + negative_item_ids.size(1)
+            if scores.size(1) != num_candidates:
+                raise RuntimeError(
+                    "Candidate scores must have one column per target plus "
+                    f"negative, expected {num_candidates}, got {scores.size(1)}."
+                )
+
+            candidate_ids = torch.cat(
+                [target_item_ids.unsqueeze(1), negative_item_ids.long()],
+                dim=1,
+            )
+            self._validate_target_ids(candidate_ids, self.cfg.num_items)
+            positive_labels = torch.zeros(
+                scores.size(0),
+                dtype=torch.long,
+                device=scores.device,
+            )
+            return F.cross_entropy(scores, positive_labels)
+
+        self._validate_target_ids(target_item_ids, scores.size(1))
 
         if negative_item_ids is None or negative_item_ids.size(1) == 0:
             return F.cross_entropy(scores, target_item_ids)
 
+        if negative_item_ids.ndim != 2 or negative_item_ids.size(0) != scores.size(0):
+            raise RuntimeError(
+                "negative_item_ids must have shape [batch, num_negatives]."
+            )
+
+        negative_item_ids = negative_item_ids.long()
+        if negative_item_ids.numel() > 0:
+            self._validate_target_ids(negative_item_ids.reshape(-1), scores.size(1))
+
         candidate_ids = torch.cat(
-            [target_item_ids.unsqueeze(1), negative_item_ids.long()],
+            [target_item_ids.unsqueeze(1), negative_item_ids],
             dim=1,
         )
         candidate_scores = scores.gather(1, candidate_ids)
@@ -243,14 +323,12 @@ class RecSys(L.LightningModule):
         u_emb2, i_emb2 = self.model.gnn(edge_index_2)
 
         user_ids, item_ids = self._contrastive_batch_ids(batch)
-        gcl_loss = self.gcl_loss(
+        return self.gcl_loss(
             u_emb1[user_ids],
             i_emb1[item_ids],
             u_emb2[user_ids],
             i_emb2[item_ids],
         )
-
-        return gcl_loss
 
     @staticmethod
     def _contrastive_batch_ids(batch: RecSysQuery) -> tuple[torch.Tensor, torch.Tensor]:
@@ -264,26 +342,42 @@ class RecSys(L.LightningModule):
 
         return user_ids, item_ids
 
-    def on_validation_epoch_start(self):
-        self.val_ranking_metrics.reset()
+    def _validate_topks(self) -> None:
+        requested_topks = [self.val_topk, *self.topks]
 
-    def on_validation_epoch_end(self):
-        self.log_dict(self.val_ranking_metrics.compute(), sync_dist=True)
+        if any(k <= 0 for k in requested_topks):
+            raise ValueError(
+                f"All top-k values must be positive, got {requested_topks}."
+            )
 
-    def on_test_epoch_start(self):
-        if self.test_ranking_metrics:
-            self.test_ranking_metrics.reset()
+        invalid = [k for k in requested_topks if k > self.cfg.num_items]
+        if invalid:
+            raise ValueError(
+                "Top-k values cannot exceed the item catalog size "
+                f"({self.cfg.num_items}), got {invalid}."
+            )
 
-    def on_test_epoch_end(self):
-        if self.test_ranking_metrics:
-            self.log_dict(self.test_ranking_metrics.compute(), sync_dist=True)
+    @staticmethod
+    def _validate_target_ids(item_ids: torch.Tensor, num_items: int) -> None:
+        if item_ids.numel() == 0:
+            return
+
+        min_id = int(item_ids.min().item())
+        max_id = int(item_ids.max().item())
+        if min_id < 0 or max_id >= num_items:
+            raise ValueError(
+                "Item IDs must be in the range "
+                f"[0, {num_items - 1}], got [{min_id}, {max_id}]."
+            )
 
     def predict_step(self, batch: RecSysQuery) -> torch.Tensor:
         return self(batch)
 
     def configure_optimizers(self) -> OptimizerLRScheduler:
         optimizer = torch.optim.AdamW(
-            self.parameters(), lr=self.lr, weight_decay=self.weight_decay
+            self.parameters(),
+            lr=self.lr,
+            weight_decay=self.weight_decay,
         )
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,

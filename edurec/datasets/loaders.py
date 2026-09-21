@@ -1,14 +1,14 @@
+import ast
+import warnings
+from collections.abc import Callable
 from enum import StrEnum
-from functools import wraps
 from pathlib import Path
-from typing import Callable, NamedTuple, Literal
+from typing import Literal, NamedTuple
 
 import numpy as np
 import pandas as pd
 
 from .. import settings
-
-RAW_DATA_FOLDER = Path(settings.DATA_FOLDER) / "raw"
 
 
 class DatasetName(StrEnum):
@@ -16,6 +16,8 @@ class DatasetName(StrEnum):
     IMPLICIT_MARS = "implicit_mars"
     ITM = "itm"
     DORIS = "doris"
+    MOOCCUBEX = "mooccubex"
+    COCO = "coco"
 
 
 type Schema = dict[str, dict[str, list[str]]]
@@ -54,27 +56,27 @@ def register_dataset(ds_name: DatasetName) -> Callable[[ExportFn], ExportFn]:
     """
 
     def decorator(fn: ExportFn) -> ExportFn:
-        @wraps(fn)
-        def wrapper() -> RawData:
-            return fn()
-
-        dataset_loaders[ds_name] = wrapper
-        return wrapper
+        dataset_loaders[ds_name] = fn
+        return fn
 
     return decorator
+
+
+def _to_epoch_seconds(values: pd.Series) -> pd.Series:
+    """Convert a datetime-like column to integer seconds, using NaN for NaT."""
+    parsed = pd.to_datetime(values, errors="coerce", utc=True)
+    seconds = parsed.astype("int64") // 10**9
+    return seconds.where(parsed.notna())
 
 
 def load_mars(data_type: Literal["explicit", "implicit"]) -> RawData:
     """Load the MARS dataset.
 
-    This loader combines English and French rating files and merges them with
-    item metadata. Dataset-wide cleaning and filtering happen later in the
+    Combines the English and French rating files and merges them with item
+    metadata. Dataset-wide cleaning and filtering happen later in the
     datamodule preprocessing phase.
-
-    Returns:
-        pd.DataFrame: The MARS dataset.
     """
-    mars_folder = RAW_DATA_FOLDER / "mars"
+    mars_folder = settings.RAW_DATA_FOLDER / "mars"
     items_en = pd.read_csv(mars_folder / "items_en.csv")
     items_fr = pd.read_csv(mars_folder / "items_fr.csv")
     users_en = pd.read_csv(mars_folder / "users_en.csv")
@@ -95,6 +97,22 @@ def load_mars(data_type: Literal["explicit", "implicit"]) -> RawData:
         },
         inplace=True,
     )
+
+    if settings.TIME_COL in interactions.columns:
+        timestamp_seconds = _to_epoch_seconds(interactions[settings.TIME_COL])
+        valid_timestamps = timestamp_seconds.notna() & timestamp_seconds.ge(0)
+        num_invalid = int((~valid_timestamps).sum())
+        if num_invalid:
+            warnings.warn(
+                f"Dropping {num_invalid} MARS interactions with invalid "
+                "created_at timestamps.",
+                stacklevel=2,
+            )
+        interactions = interactions.loc[valid_timestamps].copy()
+        interactions[settings.TIME_COL] = timestamp_seconds.loc[
+            valid_timestamps
+        ].astype(np.int64)
+        interactions = interactions.reset_index(drop=True)
 
     items.rename(
         columns={"item_id": settings.ITEM_COL, "type": "item_type"},
@@ -149,14 +167,11 @@ def load_implicit_mars() -> RawData:
 def load_itm() -> RawData:
     """Load the ITM dataset.
 
-    This loader merges ratings, items, and user information into a unified
-    DataFrame. Dataset-wide cleaning and filtering happen later in the
-    datamodule preprocessing phase.
-
-    Returns:
-        pd.DataFrame: The ITM dataset.
+    Merges ratings, items, and user information into a unified structure.
+    Dataset-wide cleaning and filtering happen later in the datamodule
+    preprocessing phase.
     """
-    itm_folder = RAW_DATA_FOLDER / DatasetName.ITM.value
+    itm_folder = settings.RAW_DATA_FOLDER / DatasetName.ITM.value
     ratings_df = pd.read_csv(itm_folder / "ratings.csv")
     items_df = pd.read_csv(itm_folder / "items.csv")
     users_df = pd.read_csv(itm_folder / "users.csv")
@@ -169,8 +184,10 @@ def load_itm() -> RawData:
         },
         inplace=True,
     )
-    # We add a time column to ensure that the data works for sequential models
-    ratings_df[settings.TIME_COL] = np.arange(len(ratings_df), dtype=np.int64)
+    # App, Data and Ease are post-interaction multi-criteria ratings, not
+    # contextual variables available when producing a recommendation. Remove
+    # them at the data boundary to prevent target leakage downstream.
+    ratings_df = ratings_df.drop(columns=["App", "Data", "Ease"])
     items_df.rename(columns={"Item": settings.ITEM_COL}, inplace=True)
     users_df.rename(columns={"UserID": settings.USER_COL}, inplace=True)
 
@@ -193,7 +210,7 @@ def load_itm() -> RawData:
         },
         "inter": {
             "bin": [],
-            "num": ["app", "data", "ease"],
+            "num": [],
             "cat": ["class", "semester", "lockdown"],
             "text": [],
             "list": [],
@@ -210,7 +227,7 @@ def load_itm() -> RawData:
 
 @register_dataset(DatasetName.DORIS)
 def load_doris() -> RawData:
-    doris_folder = RAW_DATA_FOLDER / DatasetName.DORIS.value
+    doris_folder = settings.RAW_DATA_FOLDER / DatasetName.DORIS.value
     ratings_df = pd.read_excel(doris_folder / "CourseSelectionTable.xlsx")
     items_df = pd.read_excel(doris_folder / "CourseInformationTable.xlsx")
     users_df = pd.read_excel(doris_folder / "StudentInformationTable.xlsx")
@@ -277,20 +294,285 @@ def load_doris() -> RawData:
     )
 
 
+@register_dataset(DatasetName.MOOCCUBEX)
+def load_mooccubex() -> RawData:
+    """Load MOOCubeX course enrollments as implicit interactions.
+
+    Both source files are JSON Lines files.  The much larger user file is read
+    in chunks so that the nested enrollment arrays can be expanded without
+    first loading the complete JSON document into memory.
+    """
+    entities_folder = (
+        settings.RAW_DATA_FOLDER / DatasetName.MOOCCUBEX.value / "entities"
+    )
+
+    items = pd.read_json(entities_folder / "course.json", lines=True)
+    items.rename(columns={"id": settings.ITEM_COL}, inplace=True)
+    items["resource_count"] = items["resource"].map(len)
+    items = items.drop(columns=["resource"])
+
+    user_frames: list[pd.DataFrame] = []
+    interaction_frames: list[pd.DataFrame] = []
+    num_interactions = 0
+    user_columns = ["id", "gender", "school", "year_of_birth"]
+
+    for chunk in pd.read_json(
+        entities_folder / "user.json",
+        lines=True,
+        chunksize=10_000,
+    ):
+        user_frames.append(
+            chunk[user_columns].rename(columns={"id": settings.USER_COL}).copy()
+        )
+
+        matching_enrollments = (
+            chunk["course_order"].map(len).eq(chunk["enroll_time"].map(len))
+        )
+        enrollments = chunk.loc[
+            matching_enrollments, ["id", "course_order", "enroll_time"]
+        ].explode(["course_order", "enroll_time"], ignore_index=True)
+        enrollments = enrollments.dropna(subset=["course_order", "enroll_time"])
+        enrollments.rename(
+            columns={
+                "id": settings.USER_COL,
+                "course_order": settings.ITEM_COL,
+                "enroll_time": settings.TIME_COL,
+            },
+            inplace=True,
+        )
+        enrollments[settings.ITEM_COL] = "C_" + enrollments[settings.ITEM_COL].astype(
+            "string"
+        )
+        timestamps = pd.to_datetime(
+            enrollments[settings.TIME_COL], errors="coerce", utc=True
+        )
+        enrollments = enrollments.loc[timestamps.notna()].copy()
+        enrollments[settings.TIME_COL] = (
+            timestamps.loc[timestamps.notna()].astype("int64") // 10**9
+        )
+        enrollments = enrollments.loc[
+            enrollments[settings.ITEM_COL].isin(items[settings.ITEM_COL])
+        ]
+        interaction_frames.append(enrollments)
+        num_interactions += len(enrollments)
+
+        if num_interactions >= settings.MOOCCUBEX_MAX_INTERACTIONS:
+            break
+
+    users = pd.concat(user_frames, ignore_index=True)
+    interactions = pd.concat(interaction_frames, ignore_index=True).head(
+        settings.MOOCCUBEX_MAX_INTERACTIONS
+    )
+    interactions = interactions.reset_index(drop=True)
+
+    schema = {
+        "users": {
+            "bin": [],
+            "num": ["year_of_birth"],
+            "cat": ["gender", "school"],
+            "text": [],
+            "list": [],
+        },
+        "items": {
+            "bin": [],
+            "num": ["resource_count"],
+            "cat": [],
+            "text": ["name", "prerequisites", "about"],
+            "list": ["field"],
+        },
+        "inter": {
+            "bin": [],
+            "num": [],
+            "cat": [],
+            "text": [],
+            "list": [],
+        },
+    }
+
+    return RawData(
+        interactions=interactions,
+        item_features=items,
+        user_features=users,
+        schema=schema,
+    )
+
+
+COCO_TEXT_COLS = (
+    "short_description",
+    "objectives",
+    "requirements",
+    "target_audience",
+    "long_description",
+)
+COCO_LESSON_CLASSES = {
+    "lecture": "num_lectures",
+    "chapter": "num_chapters",
+    "quiz": "num_quizzes",
+    "practice": "num_practices",
+}
+COCO_INSTRUCTOR_COLS = (
+    "num_instructors",
+    "instructor_enrollments",
+    "instructor_reviews",
+)
+
+
+def _coco_instructor_features(coco_folder: Path) -> pd.DataFrame:
+    """Aggregate instructor statistics per course."""
+    teach = pd.read_csv(
+        coco_folder / "teach_latest.csv",
+        usecols=["course_id", "instructor_id"],
+    )
+    instructors = pd.read_csv(coco_folder / "instructor_latest.csv")
+    merged = teach.merge(instructors, on="instructor_id", how="left")
+
+    return merged.groupby("course_id").agg(
+        num_instructors=("instructor_id", "nunique"),
+        instructor_enrollments=("total_enrollments", "sum"),
+        instructor_reviews=("total_reviews", "sum"),
+    )
+
+
+def _coco_curriculum_features(coco_folder: Path) -> pd.DataFrame:
+    """Count lessons, chapters, quizzes, and practices per course."""
+    curriculum = pd.read_csv(
+        coco_folder / "curriculum_lesson_chapter_latest.csv",
+        usecols=["course_id", "class"],
+    )
+    counts = curriculum.groupby("course_id")["class"].value_counts().unstack()
+    counts = counts.reindex(columns=list(COCO_LESSON_CLASSES), fill_value=0)
+    counts.rename(columns=COCO_LESSON_CLASSES, inplace=True)
+
+    return counts
+
+
+def _flatten_list_text(value: object) -> object:
+    """Turn stringified lists into plain text for the embedding model."""
+    if not isinstance(value, str):
+        return value
+
+    stripped = value.strip()
+    if not (stripped.startswith("[") and stripped.endswith("]")):
+        return value
+
+    try:
+        parsed = ast.literal_eval(stripped)
+    except (SyntaxError, ValueError):
+        return value
+
+    if isinstance(parsed, (list, tuple)):
+        return " ".join(str(item).strip() for item in parsed if str(item).strip())
+
+    return value
+
+
+@register_dataset(DatasetName.COCO)
+def load_coco() -> RawData:
+    """Load the COCO course-review dataset.
+
+    Ratings live in ``evaluate_latest.csv``; the free-text reviewer comment is
+    dropped because it is written after the rating and would leak the relevance
+    target. Course metadata is enriched with curriculum and instructor
+    aggregates so the item encoder receives course-level signals.
+    """
+    coco_folder = settings.RAW_DATA_FOLDER / DatasetName.COCO.value
+
+    interactions = pd.read_csv(
+        coco_folder / "evaluate_latest.csv",
+        usecols=["learner_id", "course_id", "learner_rating", "learner_timestamp"],
+        nrows=settings.COCO_MAX_INTERACTIONS,
+    )
+    interactions.dropna(inplace=True)
+    interactions.rename(
+        columns={
+            "learner_id": settings.USER_COL,
+            "course_id": settings.ITEM_COL,
+            "learner_rating": settings.RATING_COL,
+            "learner_timestamp": settings.TIME_COL,
+        },
+        inplace=True,
+    )
+    interactions[settings.ITEM_COL] = interactions[settings.ITEM_COL].astype(np.int64)
+    interactions[settings.RATING_COL] = interactions[settings.RATING_COL].astype(
+        np.float32
+    )
+
+    timestamps = pd.to_datetime(
+        interactions[settings.TIME_COL], errors="coerce", utc=True
+    )
+    interactions = interactions.loc[timestamps.notna()].copy()
+    interactions[settings.TIME_COL] = (
+        timestamps.loc[timestamps.notna()].astype("int64") // 10**9
+    )
+    interactions = interactions.reset_index(drop=True)
+
+    items = pd.read_csv(coco_folder / "course_latest.csv")
+    items.rename(columns={"course_id": settings.ITEM_COL}, inplace=True)
+    items = items.drop(columns=["short_url"], errors="ignore")
+    for col in COCO_TEXT_COLS:
+        if col in items:
+            items[col] = items[col].map(_flatten_list_text)
+
+    items = items.merge(
+        _coco_instructor_features(coco_folder),
+        left_on=settings.ITEM_COL,
+        right_index=True,
+        how="left",
+    )
+    items = items.merge(
+        _coco_curriculum_features(coco_folder),
+        left_on=settings.ITEM_COL,
+        right_index=True,
+        how="left",
+    )
+    numeric_cols = [
+        *COCO_INSTRUCTOR_COLS,
+        *COCO_LESSON_CLASSES.values(),
+    ]
+    items[numeric_cols] = items[numeric_cols].fillna(0).astype(np.float32)
+    items = items.reset_index(drop=True)
+
+    users = interactions[[settings.USER_COL]].drop_duplicates().reset_index(drop=True)
+
+    schema = {
+        "users": {
+            "bin": [],
+            "num": [],
+            "cat": [],
+            "text": [],
+            "list": [],
+        },
+        "items": {
+            "bin": [],
+            "num": list(numeric_cols),
+            "cat": [
+                "language",
+                "first_level_category",
+                "second_level_category",
+                "instructional_level",
+            ],
+            "text": list(COCO_TEXT_COLS),
+            "list": ["subtitles"],
+        },
+        "inter": {
+            "bin": [],
+            "num": [],
+            "cat": [],
+            "text": [],
+            "list": [],
+        },
+    }
+
+    return RawData(
+        interactions=interactions,
+        item_features=items,
+        user_features=users,
+        schema=schema,
+    )
+
+
 def load_raw_data(dataset_name: DatasetName) -> RawData:
-    """
-    Load the specified dataset. If data was processed before, laod the data from disk.
-
-    Args:
-        dataset_name (DatasetName): The name of the dataset to load.
-
-    Raises:
-        ValueError: If the dataset name is not supported.
-
-    Returns:
-        pd.DataFrame: The loaded dataset as a pandas DataFrame.
-    """
-
+    """Load the specified dataset through its registered loader."""
     loader = dataset_loaders.get(dataset_name)
 
     if loader is None:

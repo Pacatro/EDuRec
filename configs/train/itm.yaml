@@ -1,0 +1,11 @@
+adaptive_k: false
+alpha: 0.01
+batch_size: 128
+epochs: 150
+lr: 0.001
+patience: 5
+topks:
+- 5
+- 10
+- 20
+weight_decay: 0.0001

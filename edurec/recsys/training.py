@@ -3,9 +3,9 @@ from pathlib import Path
 from typing import cast
 
 import lightning as L
-from lightning.pytorch.callbacks import Callback, EarlyStopping, ModelCheckpoint
-from lightning.pytorch.loggers import WandbLogger
 import torch
+from lightning.pytorch.callbacks import Callback, EarlyStopping, ModelCheckpoint, Timer
+from lightning.pytorch.loggers import MLFlowLogger
 
 from .. import settings
 from ..datasets import ElearningDataModule
@@ -23,7 +23,7 @@ def train_model(
     verbose: bool = False,
     callbacks: Sequence[Callback] = (),
     default_root_dir: Path | str | None = None,
-) -> tuple[L.Trainer, Path]:
+) -> tuple[L.Trainer, Path, Timer]:
     model_name = model.model_name
 
     if compile:
@@ -45,18 +45,25 @@ def train_model(
     )
 
     logger = (
-        WandbLogger(project=settings.EXPERIMENT_NAME, name=experiment_name)
+        MLFlowLogger(
+            experiment_name=settings.EXPERIMENT_NAME,
+            run_name=experiment_name,
+            tracking_uri="sqlite:///mlflow.db",
+        )
         if experiment_name is not None and not debug
         else None
     )
 
+    timer = Timer()
+
     trainer = L.Trainer(
         logger=logger,
+        # profiler="simple",
         max_epochs=epochs,
         accelerator=settings.state["device"],
         devices="auto",
         log_every_n_steps=10,
-        callbacks=[early_stopping, checkpoint, *callbacks],
+        callbacks=[early_stopping, checkpoint, timer, *callbacks],
         fast_dev_run=debug,
         enable_progress_bar=verbose,
         default_root_dir=default_root_dir,
@@ -64,4 +71,4 @@ def train_model(
 
     trainer.fit(model, datamodule=dm)
 
-    return trainer, Path(checkpoint.best_model_path)
+    return trainer, Path(checkpoint.best_model_path), timer

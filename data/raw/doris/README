@@ -1,9 +1,0 @@
-dataset in English is translate from dataset in Chinese:
-1. StudentInformationTable:
-StudentInformationTable records all information of 4568 students. Each student has the characteristics of student number, year of enrollment, education background, and major.
-
-2. CourseInformationTable:
-CourseInformationTable records all information of 5591 Courses. Each course has the characteristics of course number, course name, college, course type, grade, prerequisite and introduction.
-
-3. CourseSelectionTable:
-CourseSelectionTable presents 208949 course selection records. Each course selection record has the characteristics of Student number, academic year, semester, course number, course name, course college, score. 

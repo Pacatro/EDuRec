@@ -1,6 +1,8 @@
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Self
+from typing import Any, Self
 
 import pandas as pd
 import torch
@@ -8,26 +10,41 @@ from safetensors.torch import load_file, save_file
 
 from .dataprocessor import DataProcessor
 
+# Bump whenever the preprocessing logic changes in a way that invalidates
+# existing caches (e.g. deduplication or timestamp parsing changes).
+CACHE_VERSION = 2
+MANIFEST_FILENAME = "manifest.json"
+
 CACHE_FILES = (
     "train.feather",
     "val.feather",
     "test.feather",
     "static_feats.safetensors",
     "processor.joblib",
+    MANIFEST_FILENAME,
 )
 
 
 def processed_cache_exists(folder: Path) -> bool:
+    """Whether a complete, format-compatible cache is available in ``folder``.
+
+    The manifest parameters are informational only: when the caller opts in to
+    reusing processed data, whatever is on disk is loaded as-is. Callers that
+    want fresh data must reprocess, which overwrites this folder.
+    """
     if not all((folder / name).exists() for name in CACHE_FILES):
         return False
 
+    try:
+        manifest = json.loads((folder / MANIFEST_FILENAME).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    if manifest.get("version") != CACHE_VERSION:
+        return False
+
     tensors = load_file(folder / "static_feats.safetensors")
-    return {
-        "u_static_feats",
-        "i_static_feats",
-        "user_stats",
-        "item_stats",
-    }.issubset(tensors)
+    return {"u_static_feats", "i_static_feats"}.issubset(tensors)
 
 
 @dataclass
@@ -37,8 +54,6 @@ class ProcessedData:
     test: pd.DataFrame | None = None
     u_static_feats: torch.Tensor | None = None
     i_static_feats: torch.Tensor | None = None
-    user_stats: torch.Tensor | None = None
-    item_stats: torch.Tensor | None = None
     data_processor: DataProcessor | None = None
 
     @property
@@ -51,8 +66,6 @@ class ProcessedData:
                 self.test,
                 self.u_static_feats,
                 self.i_static_feats,
-                self.user_stats,
-                self.item_stats,
                 self.data_processor,
             )
         )
@@ -67,26 +80,23 @@ class ProcessedData:
             "test": self.test,
         }
 
-    def save(self, folder: Path) -> None:
+    def save(
+        self,
+        folder: Path,
+        manifest: Mapping[str, Any] | None = None,
+    ) -> None:
         folder.mkdir(parents=True, exist_ok=True)
 
         for split, df in self.splits().items():
             df.to_feather(folder / f"{split}.feather")
 
-        if (
-            self.u_static_feats is None
-            or self.i_static_feats is None
-            or self.user_stats is None
-            or self.item_stats is None
-        ):
-            raise RuntimeError("Static features or router stats are not available.")
+        if self.u_static_feats is None or self.i_static_feats is None:
+            raise RuntimeError("Static features are not available.")
 
         save_file(
             {
                 "u_static_feats": self.u_static_feats.contiguous(),
                 "i_static_feats": self.i_static_feats.contiguous(),
-                "user_stats": self.user_stats.contiguous(),
-                "item_stats": self.item_stats.contiguous(),
             },
             folder / "static_feats.safetensors",
         )
@@ -95,6 +105,11 @@ class ProcessedData:
             raise RuntimeError("Data processor is not available.")
 
         self.data_processor.save(folder / "processor.joblib")
+
+        (folder / MANIFEST_FILENAME).write_text(
+            json.dumps(dict(manifest or {}), indent=2, sort_keys=True, default=str),
+            encoding="utf-8",
+        )
 
     @classmethod
     def load(cls, folder: Path) -> Self:
@@ -106,7 +121,5 @@ class ProcessedData:
             test=pd.read_feather(folder / "test.feather"),
             u_static_feats=tensors["u_static_feats"],
             i_static_feats=tensors["i_static_feats"],
-            user_stats=tensors["user_stats"],
-            item_stats=tensors["item_stats"],
             data_processor=DataProcessor.load(folder / "processor.joblib"),
         )
