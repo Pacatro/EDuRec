@@ -12,7 +12,6 @@ BASE_ABLATION: dict[str, Any] = {
     "use_item_bias": False,
     "scorer_type": "dot",
     "fusion_type": "sum",
-    "hidden_dims": [],
 }
 
 FULL_ABLATION: dict[str, Any] = {
@@ -30,11 +29,7 @@ FULL_ABLATION: dict[str, Any] = {
 ABLATIONS: dict[str, dict[str, Any]] = {
     "base": dict(BASE_ABLATION),
     "full": dict(FULL_ABLATION),
-    "no_graph": {
-        **FULL_ABLATION,
-        "graph_mode": "id",
-        "use_gcl": False,
-    },
+    "no_graph": {**FULL_ABLATION, "graph_mode": "id"},
     "no_text": {**FULL_ABLATION, "use_text_features": False},
     "no_sequence": {
         **FULL_ABLATION,
@@ -44,7 +39,7 @@ ABLATIONS: dict[str, dict[str, Any]] = {
     "sum_fusion": {**FULL_ABLATION, "fusion_type": "sum"},
     "no_gcl": {**FULL_ABLATION, "use_gcl": False},
     "no_item_bias": {**FULL_ABLATION, "use_item_bias": False},
-    "dot_product": {**FULL_ABLATION, "scorer_type": "dot", "hidden_dims": []},
+    "dot_product": {**FULL_ABLATION, "scorer_type": "dot"},
 }
 
 
@@ -77,7 +72,9 @@ def ablation_applicable(base_cfg: ModelConfig, variant: str) -> bool:
     if variant == "no_gcl":
         return full.use_gcl and full.graph_mode == "kg"
     if variant == "sum_fusion":
-        return sum(full.available_modules.values()) >= 2
+        # Fusion only combines the graph and sequence user sources; context is
+        # consumed by the scorer and is never a fusion source.
+        return full.available_modules["graph"] and full.available_modules["sequence"]
     if variant == "no_item_bias":
         return full.use_item_bias
     if variant == "no_text":

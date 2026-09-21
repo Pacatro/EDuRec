@@ -202,17 +202,21 @@ Implemented main variants:
 
 - `base`: ID-only dot-product baseline without knowledge-graph structure.
 - `full`: full EDuRec architecture.
-- `no_graph`: replaces the knowledge graph with plain ID embeddings.
+- `no_graph`: drops the knowledge-graph structure (attribute nodes and
+  message passing), keeping only ID embeddings and feature projections.
 - `no_text`: removes the text embeddings from the user/item node features.
 - `no_sequence`: removes the GRU history encoding.
 - `no_context`: removes the independent interaction-context representation.
-- `sum_fusion`: replaces `MaskedGatedFusion` with a direct sum of the module
-  representations.
+- `sum_fusion`: replaces the gated fusion of the graph and sequence user
+  representations with a direct sum.
 - `no_gcl`: removes graph contrastive learning.
 - `no_item_bias`: removes the learned item-popularity bias.
 - `dot_product`: replaces the MLP scorer with dot-product scoring.
 
-Aggregated outputs are saved to `results/ablations/<dataset>/`.
+Variants that disable a module the dataset does not provide (for example
+`no_sequence` on a dataset without history, or `sum_fusion` when there is no
+sequence source to fuse) are marked as not applicable and excluded from the
+plots. Aggregated outputs are saved to `results/ablations/<dataset>/`.
 
 ## Model Architecture
 
