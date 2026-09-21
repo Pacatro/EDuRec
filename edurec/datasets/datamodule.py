@@ -68,9 +68,10 @@ class ElearningDataModule(L.LightningDataModule):
         self.save_atomic_files = save_atomic_files
         self.random_state = random_state
         self.data_variant = dataset.value
-        # The processed cache lives in a single folder per dataset variant. Its
-        # manifest records every parameter and setting that changes its content,
-        # so stale caches are detected and never reused silently.
+        # The processed cache lives in a single folder per dataset variant. With
+        # use_processed_data the cached artifacts are loaded as-is; otherwise the
+        # dataset is reprocessed and the cache folder is overwritten. This
+        # parameter record is kept in the manifest for traceability.
         self.cache_params = {
             "version": CACHE_VERSION,
             "dataset": dataset.value,
@@ -93,16 +94,14 @@ class ElearningDataModule(L.LightningDataModule):
     def prepare_data(self) -> None:
         # Only skip the download when the cache will actually be reused;
         # otherwise the raw files are still required by _process_raw_data.
-        if self.use_processed_data and processed_cache_exists(
-            self.processed_folder, self.cache_params
-        ):
+        if self.use_processed_data and processed_cache_exists(self.processed_folder):
             return
         download_raw_data(self.dataset_name)
 
     def setup(self, stage: str | None = None):
         if not self.is_processed:
             if self.use_processed_data and processed_cache_exists(
-                self.processed_folder, self.cache_params
+                self.processed_folder
             ):
                 self.artifacts = ProcessedData.load(self.processed_folder)
             else:
