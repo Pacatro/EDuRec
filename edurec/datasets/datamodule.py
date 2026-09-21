@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader
+from torch_geometric.data import HeteroData
 
 from .. import settings
 from .atomic_files import save_atomic_files
@@ -12,8 +13,8 @@ from .cache import CACHE_VERSION, ProcessedData, processed_cache_exists
 from .dataprocessor import DataProcessor
 from .downloaders import download_raw_data
 from .knowledge_graph import (
-    KnowledgeGraph,
-    build_knowledge_graph,
+    add_attribute_edges,
+    add_interaction_edges,
     knowledge_graph_metadata,
 )
 from .loaders import DatasetName, RawData, load_raw_data
@@ -212,11 +213,26 @@ class ElearningDataModule(L.LightningDataModule):
     def _context_cols(interactions: pd.DataFrame) -> list[str]:
         return [col for col in interactions.columns if col not in EXCLUDED_CONTEXT_COLS]
 
-    def build_knowledge_graph(self) -> KnowledgeGraph:
-        # The graph is built from the processing metadata (categorical codes and
-        # list one-hot columns) plus the training interactions, so it only uses
-        # information available at recommendation time.
-        return build_knowledge_graph(self.artifacts, self.data_processor)
+    def build_knowledge_graph(self) -> HeteroData:
+        if (
+            self.artifacts.train is None
+            or self.artifacts.u_static_feats is None
+            or self.artifacts.i_static_feats is None
+        ):
+            raise RuntimeError("Data must be processed before building the graph.")
+
+        graph = HeteroData()
+        graph["user"].num_nodes = self.artifacts.u_static_feats.shape[0]
+        graph["item"].num_nodes = self.artifacts.i_static_feats.shape[0]
+
+        add_interaction_edges(graph, self.artifacts.train)
+        for prefix, node_prefix, feats in (
+            ("users", "user", self.artifacts.u_static_feats),
+            ("items", "item", self.artifacts.i_static_feats),
+        ):
+            add_attribute_edges(graph, self.data_processor, prefix, node_prefix, feats)
+
+        return graph
 
     @property
     def kg_node_counts(self) -> dict[str, int]:

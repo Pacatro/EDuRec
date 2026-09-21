@@ -8,9 +8,10 @@ from typing import Any
 
 import optuna
 from lightning.pytorch.callbacks import ModelCheckpoint
+from torch_geometric.data import HeteroData
 
 from .. import settings
-from ..datasets import ElearningDataModule, KnowledgeGraph
+from ..datasets import ElearningDataModule
 from .configs import ModelConfig, TrainConfig
 from .recsys import RecSys
 from .training import train_model
@@ -48,7 +49,7 @@ def objective(
     base_config: ModelConfig,
     base_train_config: TrainConfig,
     datamodule: ElearningDataModule,
-    knowledge_graph: KnowledgeGraph,
+    knowledge_graph: HeteroData,
     epochs: int,
     patience: int,
     val_topk: int = settings.TOP_K,

@@ -2,12 +2,13 @@ import lightning.pytorch as L
 import torch
 import torch.nn.functional as F
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
+from torch_geometric.data import HeteroData
 from torch_geometric.utils import dropout_edge
 from torchmetrics import MetricCollection
 from torchmetrics.retrieval import RetrievalNormalizedDCG
 
 from .. import settings
-from ..datasets import KnowledgeGraph, RecSysQuery
+from ..datasets import RecSysQuery
 from .architecture.model import EDuRec
 from .configs import ModelConfig, TrainConfig
 from .losses import InfoNCELoss, LossReduction
@@ -18,7 +19,7 @@ class RecSys(L.LightningModule):
     def __init__(
         self,
         cfg: ModelConfig,
-        knowledge_graph: KnowledgeGraph,
+        knowledge_graph: HeteroData,
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
         train_cfg: TrainConfig | None = None,
@@ -44,11 +45,11 @@ class RecSys(L.LightningModule):
 
         self._validate_topks()
 
-        self._edge_types = list(knowledge_graph.edge_index)
+        self._edge_types = list(knowledge_graph.edge_types)
         for idx, edge_type in enumerate(self._edge_types):
             self.register_buffer(
                 f"edge_index_{idx}",
-                knowledge_graph.edge_index[edge_type],
+                knowledge_graph[edge_type].edge_index,
                 persistent=False,
             )
         self.register_buffer("u_static_feats", u_static_feats, persistent=False)
