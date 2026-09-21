@@ -20,11 +20,7 @@ def build_ranking_metrics(
     """Build the full-catalog retrieval metric set for every top-k."""
     metrics = {}
     for k in topks:
-        common = {
-            "top_k": k,
-            "empty_target_action": "neg",
-            "aggregation": "mean",
-        }
+        common = {"top_k": k, "empty_target_action": "neg", "aggregation": "mean"}
         metrics[f"precision@{k}"] = RetrievalPrecision(
             **common,
             adaptive_k=adaptive_k,
