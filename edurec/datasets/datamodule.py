@@ -5,22 +5,18 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader
-from torch_geometric.data import Data
 
 from .. import settings
 from .atomic_files import save_atomic_files
-from .cache import (
-    CACHE_VERSION,
-    ProcessedData,
-    processed_cache_exists,
-)
+from .cache import CACHE_VERSION, ProcessedData, processed_cache_exists
 from .dataprocessor import DataProcessor
 from .downloaders import download_raw_data
-from .loaders import (
-    DatasetName,
-    RawData,
-    load_raw_data,
+from .knowledge_graph import (
+    KnowledgeGraph,
+    build_knowledge_graph,
+    knowledge_graph_metadata,
 )
+from .loaders import DatasetName, RawData, load_raw_data
 from .preprocessing import (
     add_relevance,
     clean_cols,
@@ -216,46 +212,23 @@ class ElearningDataModule(L.LightningDataModule):
     def _context_cols(interactions: pd.DataFrame) -> list[str]:
         return [col for col in interactions.columns if col not in EXCLUDED_CONTEXT_COLS]
 
-    def build_inter_graph(self) -> Data:
-        # We only build the graph based on the training interactions.
-        interactions = self.artifacts.train
+    def build_knowledge_graph(self) -> KnowledgeGraph:
+        # The graph is built from the processing metadata (categorical codes and
+        # list one-hot columns) plus the training interactions, so it only uses
+        # information available at recommendation time.
+        return build_knowledge_graph(self.artifacts, self.data_processor)
 
-        assert interactions is not None, (
-            "Data must be processed before creating the graph"
-        )
-        interactions = interactions[interactions[settings.RELEVANT_COL] > 0]
+    @property
+    def kg_node_counts(self) -> dict[str, int]:
+        """Attribute node counts implied by the dataset schema."""
+        node_counts, _ = knowledge_graph_metadata(self.data_processor)
+        return node_counts
 
-        user_idx = torch.as_tensor(
-            interactions[settings.USER_COL].to_numpy(copy=True),
-            dtype=torch.long,
-        )
-        item_idx = (
-            torch.as_tensor(
-                interactions[settings.ITEM_COL].to_numpy(copy=True),
-                dtype=torch.long,
-            )
-            + self.num_users
-        )
-
-        edge_index = torch.cat(
-            [
-                torch.stack([user_idx, item_idx], dim=0),
-                torch.stack([item_idx, user_idx], dim=0),
-            ],
-            dim=1,
-        ).contiguous()
-
-        graph = Data(edge_index=edge_index, num_nodes=self.num_users + self.num_items)
-
-        graph.num_users = self.num_users
-        graph.num_items = self.num_items
-        graph.node_type = torch.cat(
-            [
-                torch.zeros(self.num_users, dtype=torch.long),
-                torch.ones(self.num_items, dtype=torch.long),
-            ]
-        )
-        return graph
+    @property
+    def kg_edge_types(self) -> list[tuple[str, str, str]]:
+        """Typed edges implied by the dataset schema."""
+        _, edge_types = knowledge_graph_metadata(self.data_processor)
+        return edge_types
 
     def _data_generator(self) -> torch.Generator | None:
         if self.random_state is None:

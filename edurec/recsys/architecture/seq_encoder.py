@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 import torch
 from torch import nn
+from torch.nn.utils.rnn import pack_padded_sequence
 
 from ... import settings
 
@@ -9,36 +10,28 @@ from ... import settings
 @dataclass
 class SeqEncoderConfig:
     emb_dim: int
-    n_heads: int
-    n_blocks: int
-    ff_dim: int
+    hidden_dim: int = settings.GRU_HIDDEN_DIM
+    num_layers: int = settings.GRU_LAYERS
     dropout: float = 0.1
-    norm_first: bool = True
     max_history_len: int = settings.MAX_HISTORY_LEN
 
 
 class SeqEncoder(nn.Module):
+    """GRU encoder over a user's chronological item history."""
+
     def __init__(self, cfg: SeqEncoderConfig):
         super().__init__()
         self.cfg = cfg
-        self.pos_emb = nn.Embedding(cfg.max_history_len, cfg.emb_dim)
-        self.input_norm = nn.LayerNorm(cfg.emb_dim)
 
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=cfg.emb_dim,
-            nhead=cfg.n_heads,
-            dim_feedforward=cfg.ff_dim,
-            dropout=cfg.dropout,
-            activation="gelu",
+        self.gru = nn.GRU(
+            input_size=cfg.emb_dim,
+            hidden_size=cfg.hidden_dim,
+            num_layers=cfg.num_layers,
             batch_first=True,
-            norm_first=cfg.norm_first,
+            dropout=cfg.dropout if cfg.num_layers > 1 else 0.0,
         )
-        self.transformer = nn.TransformerEncoder(
-            encoder_layer,
-            num_layers=cfg.n_blocks,
-            norm=nn.LayerNorm(cfg.emb_dim),
-            enable_nested_tensor=not cfg.norm_first,
-        )
+        self.proj = nn.Linear(cfg.hidden_dim, cfg.emb_dim)
+        self.norm = nn.LayerNorm(cfg.emb_dim)
 
     def forward(
         self,
@@ -81,46 +74,26 @@ class SeqEncoder(nn.Module):
             )
 
         history_mask = history_mask.bool()
-        has_history = history_mask.any(dim=1)
+        lengths = history_mask.sum(dim=1)
+        has_history = lengths > 0
 
-        # PyTorch attention cannot process a row where every token is masked.
-        safe_mask = history_mask.clone()
-        safe_mask[~has_history, 0] = True
+        # pack_padded_sequence requires at least one step per row, so empty
+        # histories are encoded with a length of one and masked out afterwards.
+        safe_lengths = lengths.clamp(min=1)
+        sorted_lengths, order = safe_lengths.sort(descending=True)
 
-        # Positions 0, 1, ..., L - 1 for valid interactions, independent
-        # of whether padding is placed on the left or right.
-        position_ids = history_mask.long().cumsum(dim=1) - 1
-        position_ids = position_ids.clamp(min=0, max=self.cfg.max_history_len - 1)
-
-        tokens = history_emb + self.pos_emb(position_ids)
-
-        tokens = self.input_norm(tokens)
-        tokens = tokens.masked_fill(~safe_mask.unsqueeze(-1), 0.0)
-
-        # Boolean masks must match the type of src_key_padding_mask to avoid
-        # PyTorch's deprecated mixed-mask behaviour.
-        causal_mask = nn.Transformer.generate_square_subsequent_mask(
-            history_len, device=tokens.device
-        ).bool()
-
-        encoded = self.transformer(
-            tokens,
-            mask=causal_mask,
-            src_key_padding_mask=~safe_mask,
+        packed = pack_padded_sequence(
+            history_emb[order],
+            sorted_lengths.cpu(),
+            batch_first=True,
+            enforce_sorted=True,
         )
+        _, hidden = self.gru(packed)
 
-        # Find the actual final valid position instead of assuming right padding.
-        sequence_positions = torch.arange(history_len, device=history_emb.device)
-        sequence_positions = sequence_positions.unsqueeze(0).expand(batch_size, -1)
+        # `hidden` follows the sorted batch order, so restore the input order.
+        sorted_last = hidden[-1]
+        last = sorted_last.new_empty(sorted_last.shape)
+        last[order] = sorted_last
 
-        last_indices = sequence_positions.masked_fill(~history_mask, -1).amax(dim=1)
-        last_indices = last_indices.clamp_min(0)
-
-        seq_user_emb = encoded[
-            torch.arange(batch_size, device=encoded.device),
-            last_indices,
-        ]
-
-        # Zero is appropriate here as long as the fusion layer also receives
-        # an explicit availability mask for the sequence source.
+        seq_user_emb = self.norm(self.proj(last))
         return seq_user_emb * has_history.unsqueeze(-1)

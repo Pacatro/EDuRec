@@ -100,9 +100,8 @@ LOSS_REDUCTION: str = "mean"
 GNN_LAYERS: int = 2
 
 # RecSys
-NUM_HEADS: int = 4
-NUM_BLOCKS: int = 2
-FF_DIM: int = 512
+GRU_HIDDEN_DIM: int = 128
+GRU_LAYERS: int = 1
 DROPOUT: float = 0.15
 MAX_HISTORY_LEN: int = 50
 

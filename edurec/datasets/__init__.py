@@ -1,16 +1,18 @@
 from .datamodule import ElearningDataModule
 from .dataprocessor import DataProcessor, FeatureMetadata
-from .loaders import DatasetName, RawData, load_raw_data, dataset_loaders
+from .knowledge_graph import KnowledgeGraph
+from .loaders import DatasetName, RawData, dataset_loaders, load_raw_data
 from .recsys_dataset import RecSysDataset, RecSysQuery
 
 __all__ = [
-    "DatasetName",
-    "RawData",
-    "load_raw_data",
-    "dataset_loaders",
     "DataProcessor",
-    "FeatureMetadata",
+    "DatasetName",
     "ElearningDataModule",
+    "FeatureMetadata",
+    "KnowledgeGraph",
+    "RawData",
     "RecSysDataset",
     "RecSysQuery",
+    "dataset_loaders",
+    "load_raw_data",
 ]

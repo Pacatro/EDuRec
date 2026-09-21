@@ -2,13 +2,12 @@ import lightning.pytorch as L
 import torch
 import torch.nn.functional as F
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
-from torch_geometric.data import Data
 from torch_geometric.utils import dropout_edge
 from torchmetrics import MetricCollection
 from torchmetrics.retrieval import RetrievalNormalizedDCG
 
 from .. import settings
-from ..datasets import RecSysQuery
+from ..datasets import KnowledgeGraph, RecSysQuery
 from .architecture.model import EDuRec
 from .configs import ModelConfig, TrainConfig
 from .losses import InfoNCELoss, LossReduction
@@ -19,7 +18,7 @@ class RecSys(L.LightningModule):
     def __init__(
         self,
         cfg: ModelConfig,
-        inter_graph: Data,
+        knowledge_graph: KnowledgeGraph,
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
         train_cfg: TrainConfig | None = None,
@@ -28,7 +27,7 @@ class RecSys(L.LightningModule):
         super().__init__()
         self.save_hyperparameters(
             ignore=[
-                "inter_graph",
+                "knowledge_graph",
                 "u_static_feats",
                 "i_static_feats",
             ]
@@ -45,7 +44,13 @@ class RecSys(L.LightningModule):
 
         self._validate_topks()
 
-        self.register_buffer("edge_index", inter_graph.edge_index, persistent=False)
+        self._edge_types = list(knowledge_graph.edge_index)
+        for idx, edge_type in enumerate(self._edge_types):
+            self.register_buffer(
+                f"edge_index_{idx}",
+                knowledge_graph.edge_index[edge_type],
+                persistent=False,
+            )
         self.register_buffer("u_static_feats", u_static_feats, persistent=False)
         self.register_buffer("i_static_feats", i_static_feats, persistent=False)
 
@@ -88,7 +93,7 @@ class RecSys(L.LightningModule):
             u_ids=batch.user_id,
             h_ids=batch.history_items,
             h_mask=batch.history_valid_mask,
-            edge_index=self.edge_index,
+            edge_index=self._edge_index_dict(),
             u_static_feats=self.u_static_feats,
             i_static_feats=self.i_static_feats,
             context=batch.context,
@@ -154,9 +159,7 @@ class RecSys(L.LightningModule):
             use_candidates=use_candidates,
         )
 
-        use_gcl = (
-            prefix == "train" and self.cfg.use_gcl and self.cfg.graph_mode == "lightgcn"
-        )
+        use_gcl = prefix == "train" and self.cfg.use_gcl and self.cfg.graph_mode == "kg"
         gcl_loss = self._compute_gcl_loss(batch) if use_gcl else rank_loss.new_zeros(())
         loss = rank_loss + self.alpha * gcl_loss
 
@@ -309,18 +312,35 @@ class RecSys(L.LightningModule):
         )
         return F.cross_entropy(candidate_scores, positive_labels)
 
+    def _edge_index_dict(self) -> dict[tuple[str, str, str], torch.Tensor]:
+        return {
+            edge_type: getattr(self, f"edge_index_{idx}")
+            for idx, edge_type in enumerate(self._edge_types)
+        }
+
     def _compute_gcl_loss(self, batch: RecSysQuery) -> torch.Tensor:
-        if self.model.gnn is None:
-            raise RuntimeError("GCL requires an active graph encoder.")
+        if self.model.kg is None:
+            raise RuntimeError("GCL requires an active knowledge-graph encoder.")
 
         p = self.cfg.edge_dropout
+        edge_index = self._edge_index_dict()
 
-        assert isinstance(self.edge_index, torch.Tensor)
-        edge_index_1, _ = dropout_edge(self.edge_index, p=p, force_undirected=True)
-        edge_index_2, _ = dropout_edge(self.edge_index, p=p, force_undirected=True)
+        edge_index_1 = {
+            edge_type: dropout_edge(edges, p=p)[0]
+            for edge_type, edges in edge_index.items()
+        }
+        edge_index_2 = {
+            edge_type: dropout_edge(edges, p=p)[0]
+            for edge_type, edges in edge_index.items()
+        }
 
-        u_emb1, i_emb1 = self.model.gnn(edge_index_1)
-        u_emb2, i_emb2 = self.model.gnn(edge_index_2)
+        assert isinstance(self.u_static_feats, torch.Tensor)
+        assert isinstance(self.i_static_feats, torch.Tensor)
+        user_feats = self.u_static_feats[:, : self.cfg.effective_user_dense_feats]
+        item_feats = self.i_static_feats[:, : self.cfg.effective_item_dense_feats]
+
+        u_emb1, i_emb1 = self.model.kg(edge_index_1, user_feats, item_feats)
+        u_emb2, i_emb2 = self.model.kg(edge_index_2, user_feats, item_feats)
 
         user_ids, item_ids = self._contrastive_batch_ids(batch)
         return self.gcl_loss(

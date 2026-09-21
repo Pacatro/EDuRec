@@ -126,7 +126,7 @@ def run_ablation(
             dm.prepare_data()
             dm.setup()
             print_data_summary("ABLATION", dm)
-            inter_graph = dm.build_inter_graph()
+            knowledge_graph = dm.build_knowledge_graph()
 
             if model_config_path.exists():
                 print("[ABLATION] Using existing model config file:", model_config_path)
@@ -157,7 +157,7 @@ def run_ablation(
 
                 model = RecSys(
                     cfg=cfg,
-                    inter_graph=inter_graph,
+                    knowledge_graph=knowledge_graph,
                     u_static_feats=dm.u_static_feats,
                     i_static_feats=dm.i_static_feats,
                     train_cfg=train_cfg,

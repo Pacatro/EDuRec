@@ -1,8 +1,8 @@
 # EDuRec
 
 EDuRec is a PyTorch Lightning recommendation system for e-learning datasets. It
-combines collaborative graph signals, user and item side information, item text
-representations, and sequential user history to recommend educational resources.
+combines a schema-derived knowledge graph, item text representations, and
+sequential user history to recommend educational resources.
 
 This repository is part of the Master's Thesis by Francisco de Paula Algar
 Munoz at the Menendez Pelayo International University.
@@ -200,13 +200,11 @@ uv run edurec ablation --dataset doris --seeds 13,42,77,101,2026 --use_processed
 
 Implemented main variants:
 
-- `base`: ID-only dot-product baseline.
+- `base`: ID-only dot-product baseline without knowledge-graph structure.
 - `full`: full EDuRec architecture.
-- `no_graph`: removes LightGCN and graph contrastive learning.
-- `no_features`: removes both user and item feature encoders.
-- `no_user_features` / `no_item_features`: removes one side-feature encoder.
-- `no_text`: removes the text embeddings from the user/item feature encoders.
-- `no_sequence`: removes SASRec history encoding.
+- `no_graph`: replaces the knowledge graph with plain ID embeddings.
+- `no_text`: removes the text embeddings from the user/item node features.
+- `no_sequence`: removes the GRU history encoding.
 - `no_context`: removes the independent interaction-context representation.
 - `sum_fusion`: replaces `MaskedGatedFusion` with a direct sum of the module
   representations.
@@ -220,27 +218,29 @@ Aggregated outputs are saved to `results/ablations/<dataset>/`.
 
 ![EDuRec model architecture](model-diagram.png)
 
-EDuRec builds user and item representations from multiple complementary
-modules:
+EDuRec builds user and item representations from a knowledge graph and a
+sequential history encoder:
 
-- **Graph encoder**: a LightGCN-style encoder over the user-item interaction
-  graph produces collaborative user and item embeddings.
-- **Feature encoders**: MLP encoders transform dense and categorical user/item
-  features into the shared embedding space.
-- **Text features**: preprocessed text embeddings are consumed by the user/item
-  feature encoders together with the other dense features.
-- **Sequential encoder**: a SASRec-style Transformer encodes each user's recent
-  item history.
-- **Gated fusion**: learned global gates weight and combine the available user
-  and item representations.
+- **Knowledge-graph encoder**: a heterogeneous graph is derived from each
+  dataset schema. Users and items are nodes, and every categorical or
+  list-valued metadata field becomes an attribute node type, connected through
+  typed edges (interaction, `has::<field>` and their reverses). A stack of
+  `HeteroConv` layers with per-relation `SAGEConv` propagates information
+  across the graph and produces the collaborative user and item embeddings.
+  Numeric and text embeddings initialize the user and item nodes, so no
+  separate user/item feature encoders are needed.
+- **Sequential encoder**: a GRU encodes each user's recent item history.
+- **Interaction context**: interaction-level metadata is encoded
+  independently and consumed by the scorer.
+- **Gated fusion**: learned global gates weight and combine the user sources
+  (graph and sequence).
 - **Scorer**: the final user and item embeddings are scored with either an MLP
   scorer or a dot-product scorer. An optional item bias can be added.
 
 Module availability is inferred from each processed dataset when the model
-configuration is built. Feature encoders, the sequential encoder, contextual
-inputs, and their fusion slots are omitted when their required data is absent.
-Single-source representations also bypass the fusion layer, avoiding unused
-parameters and computation.
+configuration is built. The sequential encoder and context inputs are omitted
+when their required data is absent, and the knowledge graph automatically
+reflects the fields declared by each dataset schema.
 
 Sequential history modules additionally require a real chronological
 interaction field. Datasets without one are split randomly and do not allocate
@@ -284,7 +284,7 @@ experiments.
 
 `uv run edurec ablation` evaluates architecture variants across configurable
 seeds and records metrics, parameter counts, and per-run configuration files.
-This is intended to isolate the contribution of graph modeling, side features,
+This is intended to isolate the contribution of the knowledge-graph structure,
 text features, sequential history, context, gated fusion, graph contrastive
 learning, item bias, and the scoring function.
 

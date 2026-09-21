@@ -1,12 +1,12 @@
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any, Literal, Self
 
 import yaml
 
 from .. import settings
-from .architecture.graph_encoder import GraphEncoderConfig
+from .architecture.kg_encoder import KGEncoderConfig
 from .architecture.mlp_encoder import MLPEncoderConfig
 from .architecture.scorer import ScorerConfig
 from .architecture.seq_encoder import SeqEncoderConfig
@@ -29,7 +29,11 @@ class BaseConfig:
             raise FileNotFoundError(f"Config file not found: {path}")
 
         with open(path, "r") as f:
-            return cls(**yaml.safe_load(f))
+            payload = yaml.safe_load(f) or {}
+
+        # Ignore fields left over from older config schemas instead of failing.
+        known = {item.name for item in fields(cls)}
+        return cls(**{key: value for key, value in payload.items() if key in known})
 
 
 @dataclass
@@ -57,17 +61,15 @@ class ModelConfig(BaseConfig):
     num_item_dense_feats: int
     num_user_text_feats: int
     num_item_text_feats: int
-    user_cat_cardinalities: list[int]
-    item_cat_cardinalities: list[int]
     has_history: bool = True
+    kg_node_counts: dict[str, int] = field(default_factory=dict)
+    kg_edge_types: list[list[str]] = field(default_factory=list)
     emb_dim: int = settings.EMB_DIM
     use_item_bias: bool = True
     dropout: float = settings.DROPOUT
 
     # Ablations
-    graph_mode: Literal["id", "lightgcn", "none"] = "lightgcn"
-    use_user_features: bool = True
-    use_item_features: bool = True
+    graph_mode: Literal["kg", "id"] = "kg"
     use_text_features: bool = True
     use_seq_encoder: bool = True
     use_context: bool = True
@@ -81,10 +83,9 @@ class ModelConfig(BaseConfig):
     loss_reduction: str = settings.LOSS_REDUCTION
     gnn_layers: int = settings.GNN_LAYERS
 
-    # SASRec Defaults
-    n_heads: int = settings.NUM_HEADS
-    n_blocks: int = settings.NUM_BLOCKS
-    ff_dim: int = settings.FF_DIM
+    # GRU Defaults
+    gru_hidden_dim: int = settings.GRU_HIDDEN_DIM
+    gru_layers: int = settings.GRU_LAYERS
 
     # Scorer defaults
     hidden_dims: list[int] = field(
@@ -93,74 +94,40 @@ class ModelConfig(BaseConfig):
 
     @property
     def effective_user_dense_feats(self) -> int:
-        """User dense features actually fed to the encoder after ablations."""
+        """User dense features actually fed to the graph after ablations."""
         if self.use_text_features:
             return self.num_user_dense_feats
         return self.num_user_dense_feats - self.num_user_text_feats
 
     @property
     def effective_item_dense_feats(self) -> int:
-        """Item dense features actually fed to the encoder after ablations."""
+        """Item dense features actually fed to the graph after ablations."""
         if self.use_text_features:
             return self.num_item_dense_feats
         return self.num_item_dense_feats - self.num_item_text_feats
 
     @property
-    def has_user_features(self) -> bool:
-        """Whether the dataset can feed the user feature encoder."""
-        return self.effective_user_dense_feats > 0 or bool(self.user_cat_cardinalities)
-
-    @property
-    def has_item_features(self) -> bool:
-        """Whether the dataset can feed the item feature encoder."""
-        return self.effective_item_dense_feats > 0 or bool(self.item_cat_cardinalities)
-
-    @property
     def available_modules(self) -> dict[str, bool]:
         """Effective modules after combining dataset availability and ablations."""
-        graph = self.graph_mode != "none"
-        sequence = self.use_seq_encoder and self.has_history
         return {
-            "graph": graph,
-            "user_features": self.use_user_features and self.has_user_features,
-            "item_features": self.use_item_features and self.has_item_features,
-            "sequence": sequence,
+            "graph": self.graph_mode in {"kg", "id"},
+            "sequence": self.use_seq_encoder and self.has_history,
             "context": self.use_context and self.num_ctx_feats > 0,
         }
 
     @property
-    def graph_encoder(self) -> GraphEncoderConfig:
-        return GraphEncoderConfig(
+    def kg_encoder(self) -> KGEncoderConfig:
+        use_kg = self.graph_mode == "kg"
+        return KGEncoderConfig(
             num_users=self.num_users,
             num_items=self.num_items,
             emb_dim=self.emb_dim,
-            num_layers=self.gnn_layers if self.graph_mode == "lightgcn" else 0,
-            num_user_dense_feats=self.num_user_dense_feats,
-            num_item_dense_feats=self.num_item_dense_feats,
-            user_cat_cardinalities=self.user_cat_cardinalities,
-            item_cat_cardinalities=self.item_cat_cardinalities,
-        )
-
-    @property
-    def user_encoder(self) -> MLPEncoderConfig:
-        return MLPEncoderConfig(
-            num_dense_features=self.num_user_dense_feats,
-            categorical_cardinalities=self.user_cat_cardinalities,
-            output_dim=self.emb_dim,
-            dropout=self.dropout,
-            num_text_features=self.num_user_text_feats,
-            use_text_features=self.use_text_features,
-        )
-
-    @property
-    def item_encoder(self) -> MLPEncoderConfig:
-        return MLPEncoderConfig(
-            num_dense_features=self.num_item_dense_feats,
-            categorical_cardinalities=self.item_cat_cardinalities,
-            output_dim=self.emb_dim,
-            dropout=self.dropout,
-            num_text_features=self.num_item_text_feats,
-            use_text_features=self.use_text_features,
+            user_feat_dim=self.effective_user_dense_feats,
+            item_feat_dim=self.effective_item_dense_feats,
+            num_layers=self.gnn_layers,
+            node_counts=dict(self.kg_node_counts) if use_kg else {},
+            edge_types=[tuple(edge) for edge in self.kg_edge_types] if use_kg else [],
+            graph_mode=self.graph_mode,
         )
 
     @property
@@ -175,9 +142,8 @@ class ModelConfig(BaseConfig):
     def seq_encoder(self) -> SeqEncoderConfig:
         return SeqEncoderConfig(
             emb_dim=self.emb_dim,
-            n_heads=self.n_heads,
-            n_blocks=self.n_blocks,
-            ff_dim=self.ff_dim,
+            hidden_dim=self.gru_hidden_dim,
+            num_layers=self.gru_layers,
             dropout=self.dropout,
         )
 

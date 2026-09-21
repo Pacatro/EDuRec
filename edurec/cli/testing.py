@@ -71,14 +71,14 @@ def test_recsys(
     )
     dm.prepare_data()
     dm.setup()
-    test_graph = dm.build_inter_graph()
+    test_graph = dm.build_knowledge_graph()
     print_data_summary("TEST", dm)
     print_model_modules("TEST", cfg)
 
     model = RecSys.load_from_checkpoint(
         checkpoint_path=str(model_path),
         cfg=cfg,
-        inter_graph=test_graph,
+        knowledge_graph=test_graph,
         u_static_feats=dm.u_static_feats,
         i_static_feats=dm.i_static_feats,
         train_cfg=TrainConfig(

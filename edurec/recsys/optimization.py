@@ -8,10 +8,9 @@ from typing import Any
 
 import optuna
 from lightning.pytorch.callbacks import ModelCheckpoint
-from torch_geometric.data import Data
 
 from .. import settings
-from ..datasets import ElearningDataModule
+from ..datasets import ElearningDataModule, KnowledgeGraph
 from .configs import ModelConfig, TrainConfig
 from .recsys import RecSys
 from .training import train_model
@@ -49,7 +48,7 @@ def objective(
     base_config: ModelConfig,
     base_train_config: TrainConfig,
     datamodule: ElearningDataModule,
-    inter_graph: Data,
+    knowledge_graph: KnowledgeGraph,
     epochs: int,
     patience: int,
     val_topk: int = settings.TOP_K,
@@ -67,25 +66,20 @@ def objective(
         "funnel": [2 * emb_dim, emb_dim],
     }[scorer]
 
-    default_ff_multiplier = settings.FF_DIM // settings.EMB_DIM
-
     config = replace(
         base_config,
         emb_dim=emb_dim,
-        # Graph encoder
+        # Knowledge-graph encoder
         gnn_layers=trial.suggest_categorical(
             "gnn_layers", sorted({1, settings.GNN_LAYERS, 3, 4})
         ),
-        # Sequence encoder
-        n_heads=trial.suggest_categorical(
-            "n_heads", sorted({2, settings.NUM_HEADS, 8, 16})
+        # GRU sequence encoder
+        gru_hidden_dim=trial.suggest_categorical(
+            "gru_hidden_dim",
+            sorted({64, settings.GRU_HIDDEN_DIM, 256, 2 * emb_dim}),
         ),
-        n_blocks=trial.suggest_categorical(
-            "n_blocks", sorted({1, settings.NUM_BLOCKS, 3, 4})
-        ),
-        ff_dim=emb_dim
-        * trial.suggest_categorical(
-            "ff_multiplier", sorted({2, default_ff_multiplier, 8, 16})
+        gru_layers=trial.suggest_categorical(
+            "gru_layers", sorted({1, settings.GRU_LAYERS, 2, 3})
         ),
         # Scorer
         hidden_dims=hidden_dims,
@@ -122,7 +116,7 @@ def objective(
 
     model = RecSys(
         cfg=config,
-        inter_graph=inter_graph,
+        knowledge_graph=knowledge_graph,
         u_static_feats=datamodule.u_static_feats,
         i_static_feats=datamodule.i_static_feats,
         train_cfg=train_config,
@@ -166,7 +160,7 @@ def optimize_model(
 ) -> optuna.Study:
     assert dm.is_processed, "Data must be processed before optimizing the model."
 
-    inter_graph = dm.build_inter_graph()
+    knowledge_graph = dm.build_knowledge_graph()
     storage = None
     callbacks = None
 
@@ -196,7 +190,7 @@ def optimize_model(
             base_config,
             base_train_config,
             dm,
-            inter_graph,
+            knowledge_graph,
             epochs,
             patience,
             val_topk=val_topk,

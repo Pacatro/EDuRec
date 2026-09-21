@@ -1,18 +1,19 @@
-from .graph_encoder import GraphEncoder
-from .mlp_encoder import MLPEncoder, MLPEncoderConfig
-from .seq_encoder import SeqEncoderConfig, SeqEncoder
-from .scorer import Scorer, ScorerConfig
 from .fusion import FusionConfig, MaskedGatedFusion, SumFusion
+from .kg_encoder import KGEncoder, KGEncoderConfig
+from .mlp_encoder import MLPEncoder, MLPEncoderConfig
+from .scorer import Scorer, ScorerConfig
+from .seq_encoder import SeqEncoder, SeqEncoderConfig
 
 __all__ = [
-    "GraphEncoder",
+    "FusionConfig",
+    "KGEncoder",
+    "KGEncoderConfig",
     "MLPEncoder",
     "MLPEncoderConfig",
-    "SeqEncoderConfig",
-    "SeqEncoder",
+    "MaskedGatedFusion",
     "Scorer",
     "ScorerConfig",
-    "MaskedGatedFusion",
+    "SeqEncoder",
+    "SeqEncoderConfig",
     "SumFusion",
-    "FusionConfig",
 ]

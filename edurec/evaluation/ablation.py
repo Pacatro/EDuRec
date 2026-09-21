@@ -5,8 +5,6 @@ from ..recsys.configs import ModelConfig
 
 BASE_ABLATION: dict[str, Any] = {
     "graph_mode": "id",
-    "use_user_features": False,
-    "use_item_features": False,
     "use_text_features": False,
     "use_seq_encoder": False,
     "use_context": False,
@@ -18,9 +16,7 @@ BASE_ABLATION: dict[str, Any] = {
 }
 
 FULL_ABLATION: dict[str, Any] = {
-    "graph_mode": "lightgcn",
-    "use_user_features": True,
-    "use_item_features": True,
+    "graph_mode": "kg",
     "use_text_features": True,
     "use_seq_encoder": True,
     "use_context": True,
@@ -36,17 +32,9 @@ ABLATIONS: dict[str, dict[str, Any]] = {
     "full": dict(FULL_ABLATION),
     "no_graph": {
         **FULL_ABLATION,
-        "graph_mode": "none",
+        "graph_mode": "id",
         "use_gcl": False,
     },
-    "no_features": {
-        **FULL_ABLATION,
-        "use_user_features": False,
-        "use_item_features": False,
-        "use_text_features": False,
-    },
-    "no_user_features": {**FULL_ABLATION, "use_user_features": False},
-    "no_item_features": {**FULL_ABLATION, "use_item_features": False},
     "no_text": {**FULL_ABLATION, "use_text_features": False},
     "no_sequence": {
         **FULL_ABLATION,
@@ -85,21 +73,15 @@ def ablation_applicable(base_cfg: ModelConfig, variant: str) -> bool:
     candidate = get_ablation_config(base_cfg, variant)
 
     if variant == "no_graph":
-        return full.available_modules["graph"]
+        return full.graph_mode == "kg"
     if variant == "no_gcl":
-        return full.use_gcl and full.graph_mode == "lightgcn"
+        return full.use_gcl and full.graph_mode == "kg"
     if variant == "sum_fusion":
         return sum(full.available_modules.values()) >= 2
     if variant == "no_item_bias":
         return full.use_item_bias
     if variant == "no_text":
         return full.num_user_text_feats > 0 or full.num_item_text_feats > 0
-    if variant == "no_features":
-        return full.has_user_features or full.has_item_features
-    if variant == "no_user_features":
-        return full.has_user_features
-    if variant == "no_item_features":
-        return full.has_item_features
     if variant == "no_sequence":
         return full.available_modules["sequence"]
     if variant == "no_context":

@@ -3,47 +3,41 @@ from torch import nn
 
 from ..configs import ModelConfig
 from .fusion import FusionConfig, MaskedGatedFusion, SumFusion
-from .graph_encoder import GraphEncoder
+from .kg_encoder import KGEncoder
 from .mlp_encoder import MLPEncoder
 from .scorer import Scorer
 from .seq_encoder import SeqEncoder
 
 
 class EDuRec(nn.Module):
+    """Knowledge-graph educational recommender.
+
+    User and item representations come from the knowledge-graph encoder and,
+    for users, the sequential history encoder. Interaction context is encoded
+    independently and consumed by the scorer.
+    """
+
     def __init__(self, cfg: ModelConfig):
         super().__init__()
         self.cfg = cfg
 
         available = cfg.available_modules
 
-        self.gnn = GraphEncoder(cfg.graph_encoder) if available["graph"] else None
-        self.user_encoder = (
-            MLPEncoder(cfg.user_encoder) if available["user_features"] else None
-        )
-        self.item_encoder = (
-            MLPEncoder(cfg.item_encoder) if available["item_features"] else None
+        self.kg = KGEncoder(cfg.kg_encoder) if available["graph"] else None
+        if self.kg is None:
+            raise ValueError("The knowledge-graph encoder must always be active.")
+        self.sequence_encoder = (
+            SeqEncoder(cfg.seq_encoder) if available["sequence"] else None
         )
         self.context_encoder = (
             MLPEncoder(cfg.context_encoder) if available["context"] else None
         )
-        item_sources = int(available["graph"]) + int(available["item_features"])
-        user_sources = (
-            int(available["graph"])
-            + int(available["user_features"])
-            + int(available["sequence"])
-        )
-        if item_sources == 0 or user_sources == 0:
-            raise ValueError(
-                "The effective configuration must provide at least one user and "
-                "one item representation module."
-            )
-        self.item_fusion = self._make_fusion(item_sources)
+
+        user_sources = 1 + int(self.sequence_encoder is not None)
         self.user_fusion = self._make_fusion(user_sources)
+
         self.item_bias = (
             nn.Parameter(torch.zeros(cfg.num_items)) if cfg.use_item_bias else None
-        )
-        self.sequence_encoder = (
-            SeqEncoder(cfg.seq_encoder) if available["sequence"] else None
         )
         self.scorer = Scorer(cfg.scorer)
 
@@ -93,36 +87,20 @@ class EDuRec(nn.Module):
         u_ids: torch.Tensor,
         h_ids: torch.Tensor,
         h_mask: torch.Tensor,
-        edge_index: torch.Tensor,
+        edge_index: dict[tuple[str, str, str], torch.Tensor],
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
         context: torch.Tensor | None = None,
         candidate_item_ids: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        user_sources = []
-        user_available: list[torch.Tensor | None] = []
-        item_sources = []
+        user_feats = u_static_feats[:, : self.cfg.effective_user_dense_feats]
+        item_feats = i_static_feats[:, : self.cfg.effective_item_dense_feats]
 
-        if self.gnn is not None:
-            user_graph, item_graph = self.gnn(edge_index)
-            user_sources.append(user_graph[u_ids])
-            user_available.append(None)
-            item_sources.append(item_graph)
+        assert self.kg is not None
+        user_graph, item_emb = self.kg(edge_index, user_feats, item_feats)
 
-        if self.user_encoder is not None:
-            user_sources.append(self.user_encoder(u_static_feats)[u_ids])
-            user_available.append(None)
-        if self.item_encoder is not None:
-            item_sources.append(self.item_encoder(i_static_feats))
-        context_emb = None
-        if self.context_encoder is not None:
-            if context is None:
-                raise ValueError(
-                    "context is required when the context module is active."
-                )
-            context_emb = self.context_encoder(context)
-
-        item_emb = self._fuse(item_sources, self.item_fusion)
+        user_sources = [user_graph[u_ids]]
+        user_available: list[torch.Tensor | None] = [None]
 
         if self.sequence_encoder is not None:
             padded = torch.cat([item_emb.new_zeros(1, item_emb.size(1)), item_emb])
@@ -130,6 +108,14 @@ class EDuRec(nn.Module):
             seq_user = self.sequence_encoder(hist, h_mask)
             user_sources.append(seq_user)
             user_available.append(h_mask.bool().any(dim=1))
+
+        context_emb = None
+        if self.context_encoder is not None:
+            if context is None:
+                raise ValueError(
+                    "context is required when the context module is active."
+                )
+            context_emb = self.context_encoder(context)
 
         user_emb = self._fuse(user_sources, self.user_fusion, user_available)
 

@@ -52,8 +52,8 @@ def build_config(
         "num_item_dense_feats": dm.num_item_dense_feats,
         "num_user_text_feats": dm.num_user_text_feats,
         "num_item_text_feats": dm.num_item_text_feats,
-        "user_cat_cardinalities": dm.user_cat_cardinalities,
-        "item_cat_cardinalities": dm.item_cat_cardinalities,
+        "kg_node_counts": dm.kg_node_counts,
+        "kg_edge_types": [list(edge) for edge in dm.kg_edge_types],
         "has_history": dm.has_history,
     }
     if base is not None:
