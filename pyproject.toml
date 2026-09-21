@@ -30,7 +30,9 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["wandb>=0.24.0"]
+dev = [
+    "mlflow>=3.16.1",
+]
 
 
 [tool.uv.sources]

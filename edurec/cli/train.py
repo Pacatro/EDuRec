@@ -148,9 +148,7 @@ def train(
             )
 
             if dataset_experiment_name:
-                print(
-                    f"[TRAIN] Logger: WandB, experiment_name={dataset_experiment_name}"
-                )
+                print(f"[TRAIN] Logger: MLflow, run_name={dataset_experiment_name}")
 
             print(
                 "[TRAIN] Data config: "

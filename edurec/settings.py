@@ -19,7 +19,7 @@ def seed_everything(seed: int | None) -> int | None:
     return seed
 
 
-# W&B
+# Logging
 EXPERIMENT_NAME: str = "TFM"
 
 # Filenames and Folders

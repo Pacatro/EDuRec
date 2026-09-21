@@ -5,7 +5,7 @@ from typing import cast
 import lightning as L
 import torch
 from lightning.pytorch.callbacks import Callback, EarlyStopping, ModelCheckpoint, Timer
-from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.loggers import MLFlowLogger
 
 from .. import settings
 from ..datasets import ElearningDataModule
@@ -45,7 +45,11 @@ def train_model(
     )
 
     logger = (
-        WandbLogger(project=settings.EXPERIMENT_NAME, name=experiment_name)
+        MLFlowLogger(
+            experiment_name=settings.EXPERIMENT_NAME,
+            run_name=experiment_name,
+            tracking_uri="sqlite:///mlflow.db",
+        )
         if experiment_name is not None and not debug
         else None
     )

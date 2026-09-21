@@ -32,7 +32,7 @@ cd EDuRec
 uv sync
 ```
 
-For development dependencies such as `pytest` and `wandb`, use:
+For development dependencies such as `pytest` and `mlflow`, use:
 
 ```bash
 uv sync --group dev
