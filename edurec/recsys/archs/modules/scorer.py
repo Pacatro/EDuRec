@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, cast
 
 import torch
 from torch import nn
@@ -63,18 +63,6 @@ class Scorer(nn.Module):
 
         self.mlp = nn.Sequential(*layers)
 
-    def _dot_scores(
-        self, user_emb: torch.Tensor, item_emb: torch.Tensor
-    ) -> torch.Tensor:
-        """Sum the dot product of each user source with the item embeddings.
-
-        ``user_emb`` concatenates ``num_user_sources`` representations of
-        ``emb_dim`` each, so the score is their total similarity with the item.
-        """
-        sources = user_emb.split(self.emb_dim, dim=-1)
-        scores = sum(source @ item_emb.T for source in sources)
-        return scores * self.logit_scale.clamp(min=1e-3)
-
     def forward(
         self,
         user_emb: torch.Tensor,
@@ -102,11 +90,6 @@ class Scorer(nn.Module):
         item_ids: torch.Tensor,
     ) -> torch.Tensor:
         """Score one candidate set per user: ``[batch, num_candidates]``."""
-        if item_ids.ndim != 2 or item_ids.size(0) != user_emb.size(0):
-            raise ValueError(
-                "item_ids must have shape [batch, num_candidates] matching the "
-                f"batch size, got {tuple(item_ids.shape)}."
-            )
         if item_ids.numel() == 0:
             return user_emb.new_empty((user_emb.size(0), 0))
 
@@ -120,15 +103,12 @@ class Scorer(nn.Module):
             )
             return scores * self.logit_scale.clamp(min=1e-3)
 
-        if self.mlp is None:
-            raise RuntimeError("MLP scorer is not initialized.")
-
+        mlp = cast(nn.Sequential, self.mlp)
         batch_size, num_candidates = item_ids.shape
-        parts = [
-            user_emb.unsqueeze(1).expand(batch_size, num_candidates, -1),
-            cand_emb,
-        ]
-        return self.mlp(torch.cat(parts, dim=-1)).squeeze(-1)
+        user_emb = user_emb.unsqueeze(1).expand(batch_size, num_candidates, -1)
+        input = torch.cat([user_emb, cand_emb], dim=-1)
+
+        return mlp(input).squeeze(-1)
 
     def _score_catalog(
         self,
@@ -137,11 +117,11 @@ class Scorer(nn.Module):
     ) -> torch.Tensor:
         """Score the full catalog in chunks: ``[batch, num_items]``."""
         if self.scorer_type == "dot":
-            return self._dot_scores(user_emb, item_emb)
+            sources = user_emb.split(self.emb_dim, dim=-1)
+            scores = sum(source @ item_emb.T for source in sources)
+            return scores * self.logit_scale.clamp(min=1e-3)
 
-        if self.mlp is None:
-            raise RuntimeError("MLP scorer is not initialized.")
-
+        mlp = cast(nn.Sequential, self.mlp)
         batch_size = user_emb.shape[0]
         num_items = item_emb.shape[0]
         chunk_size = self.chunk_size if self.chunk_size > 0 else num_items
@@ -153,5 +133,5 @@ class Scorer(nn.Module):
                 user_emb.unsqueeze(1).expand(batch_size, chunk_emb.size(0), -1),
                 chunk_emb.unsqueeze(0).expand(batch_size, -1, -1),
             ]
-            scores.append(self.mlp(torch.cat(parts, dim=-1)).squeeze(-1))
+            scores.append(mlp(torch.cat(parts, dim=-1)).squeeze(-1))
         return torch.cat(scores, dim=1)

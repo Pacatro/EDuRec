@@ -241,7 +241,7 @@ def _evaluate_common_queries(
     config: Config,
     adaptive_k: bool,
 ) -> dict[str, float]:
-    """Evaluate RecBole scores with EDuRec's one-target-per-query protocol."""
+    """Evaluate RecBole scores with KGRNN's one-target-per-query protocol."""
     device = cast(torch.device, config["device"])
     topks = list(cast(list[int], config["topk"]))
     metrics = build_ranking_metrics(topks, adaptive_k=adaptive_k).to(device)
@@ -300,7 +300,7 @@ def _token_lookup(
     size: int,
     device: torch.device,
 ) -> torch.Tensor:
-    """Map EDuRec's contiguous IDs to RecBole's internal token IDs."""
+    """Map KGRNN's contiguous IDs to RecBole's internal token IDs."""
     tokens = [str(idx) for idx in range(size)]
     try:
         internal_ids = dataset.token2id(field, tokens)

@@ -6,7 +6,7 @@ import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
-from ..recsys import EDuRecRecSys, ModelConfig, train_model
+from ..recsys import KGRNN, ModelConfig, RecSys, train_model
 from ..recsys.configs import monitor_topk, resolve_train_config
 from ..recsys.io import save_metrics, save_model
 from .utils import (
@@ -134,7 +134,7 @@ def train(
 
         print("\n[TRAIN] Training run")
         print(f"[TRAIN] Dataset {dataset_idx}/{len(datasets)}: {run_name}")
-        print("[TRAIN] Model: EDuRec")
+        print("[TRAIN] Model: KGRNN")
         print(f"[TRAIN] Monitor: val/ndcg@{val_topk}")
         print(f"[TRAIN] Save model: {save}")
         print("[TRAIN] Preparing data...")
@@ -186,8 +186,9 @@ def train(
 
         print_model_modules("TRAIN", cfg)
 
-        recsys = EDuRecRecSys(
+        recsys = RecSys(
             cfg=cfg,
+            model=KGRNN(cfg),
             knowledge_graph=dm.build_knowledge_graph(),
             u_static_feats=dm.u_static_feats,
             i_static_feats=dm.i_static_feats,
@@ -195,7 +196,7 @@ def train(
             val_topk=val_topk,
         )
 
-        print("[TRAIN] Training EDuRec...")
+        print("[TRAIN] Training KGRNN...")
 
         trainer, best_model_path, timer = train_model(
             model=recsys,

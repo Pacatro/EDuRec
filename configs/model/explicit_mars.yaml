@@ -24,3 +24,4 @@ use_gcl: true
 use_item_bias: false
 use_seq_encoder: true
 use_text_features: true
+seq_cell: lstm

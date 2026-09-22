@@ -2,18 +2,21 @@ import torch
 from torch import nn
 
 from ..configs import ModelConfig
-from .kg_encoder import KGEncoder
-from .scorer import Scorer
-from .seq_encoder import SeqEncoder
+from .modules.kg_encoder import KGEncoder
+from .modules.scorer import Scorer
+from .modules.seq_encoder import SeqEncoder
 
 
-class EDuRec(nn.Module):
+class KGRNN(nn.Module):
     """Knowledge-graph educational recommender.
 
     User representations come from the knowledge-graph encoder and, when
     history is available, from the sequential history encoder. Both
     representations are concatenated and scored against the item embeddings by
     a final MLP.
+
+    The sequential encoder uses a GRU or LSTM depending on
+    ``cfg.seq_encoder.cell_type`` (``seq_cell`` in ``ModelConfig``).
     """
 
     def __init__(self, cfg: ModelConfig):
@@ -26,6 +29,7 @@ class EDuRec(nn.Module):
         self.sequence_encoder = (
             SeqEncoder(cfg.seq_encoder) if available["sequence"] else None
         )
+
         self.item_bias = (
             nn.Parameter(torch.zeros(cfg.num_items)) if cfg.use_item_bias else None
         )

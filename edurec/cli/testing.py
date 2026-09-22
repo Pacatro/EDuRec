@@ -9,7 +9,7 @@ from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
 from ..recsys.configs import TrainConfig
 from ..recsys.io import load_model, save_metrics
-from ..recsys.recsys import EDuRecRecSys
+from ..recsys.recsys import RecSys
 from .utils import print_data_summary, print_model_modules
 
 app = typer.Typer(no_args_is_help=True)
@@ -75,7 +75,7 @@ def test_recsys(
     print_data_summary("TEST", dm)
     print_model_modules("TEST", cfg)
 
-    model = EDuRecRecSys.load_from_checkpoint(
+    model = RecSys.load_from_checkpoint(
         checkpoint_path=str(model_path),
         cfg=cfg,
         knowledge_graph=test_graph,

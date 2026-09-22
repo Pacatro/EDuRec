@@ -10,7 +10,7 @@ import typer
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
 from ..evaluation.ablation import ABLATIONS, ablation_applicable, get_ablation_config
-from ..recsys import EDuRecRecSys, ModelConfig, train_model
+from ..recsys import KGRNN, ModelConfig, RecSys, train_model
 from ..recsys.configs import resolve_train_config
 from .utils import (
     build_config,
@@ -25,7 +25,7 @@ from .utils import (
 app = typer.Typer(no_args_is_help=True)
 
 
-@app.command(name="ablation", help="Run EDuRec ablation variants.")
+@app.command(name="ablation", help="Run KGRNN ablation variants.")
 def run_ablation(
     dataset: Annotated[DatasetName | None, typer.Option("--dataset", "-d")] = None,
     seeds: Annotated[
@@ -83,7 +83,7 @@ def run_ablation(
 
     variants = list(ABLATIONS)
 
-    print("\n[ABLATION] EDuRec ablation run")
+    print("\n[ABLATION] KGRNN ablation run")
     print(f"[ABLATION] Datasets: {', '.join(ds.value for ds in datasets)}")
     print(f"[ABLATION] Variants: {', '.join(variants)}")
     print(f"[ABLATION] Seeds: {', '.join(str(seed) for seed in parsed_seeds)}")
@@ -155,8 +155,9 @@ def run_ablation(
                     )
                 print_model_modules("ABLATION", cfg)
 
-                model = EDuRecRecSys(
+                model = RecSys(
                     cfg=cfg,
+                    model=KGRNN(cfg),
                     knowledge_graph=knowledge_graph,
                     u_static_feats=dm.u_static_feats,
                     i_static_feats=dm.i_static_feats,

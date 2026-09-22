@@ -6,9 +6,9 @@ from typing import Any, Literal, Self
 import yaml
 
 from .. import settings
-from .architecture.kg_encoder import KGEncoderConfig
-from .architecture.scorer import ScorerConfig
-from .architecture.seq_encoder import SeqEncoderConfig
+from .archs.modules.kg_encoder import EdgeType, KGEncoderConfig
+from .archs.modules.scorer import ScorerConfig
+from .archs.modules.seq_encoder import SeqEncoderConfig
 
 
 @dataclass
@@ -51,7 +51,7 @@ class TrainConfig(BaseConfig):
 
 @dataclass
 class ModelConfig(BaseConfig):
-    """Model architecture configuration for EDuRec."""
+    """Model architecture configuration for KGRNN."""
 
     num_users: int
     num_items: int
@@ -82,6 +82,7 @@ class ModelConfig(BaseConfig):
     # GRU Defaults
     gru_hidden_dim: int = settings.GRU_HIDDEN_DIM
     gru_layers: int = settings.GRU_LAYERS
+    seq_cell: Literal["gru", "lstm"] = settings.SEQ_CELL
 
     # Scorer defaults
     hidden_dims: list[int] = field(
@@ -113,6 +114,11 @@ class ModelConfig(BaseConfig):
     @property
     def kg_encoder(self) -> KGEncoderConfig:
         use_kg = self.graph_mode == "kg"
+        edge_types: list[EdgeType] = (
+            [(edge[0], edge[1], edge[2]) for edge in self.kg_edge_types]
+            if use_kg
+            else []
+        )
         return KGEncoderConfig(
             num_users=self.num_users,
             num_items=self.num_items,
@@ -121,7 +127,7 @@ class ModelConfig(BaseConfig):
             item_feat_dim=self.effective_item_dense_feats,
             num_layers=self.gnn_layers,
             node_counts=dict(self.kg_node_counts) if use_kg else {},
-            edge_types=[tuple(edge) for edge in self.kg_edge_types] if use_kg else [],
+            edge_types=edge_types,
             graph_mode=self.graph_mode,
         )
 
@@ -132,6 +138,7 @@ class ModelConfig(BaseConfig):
             hidden_dim=self.gru_hidden_dim,
             num_layers=self.gru_layers,
             dropout=self.dropout,
+            cell_type=self.seq_cell,
         )
 
     @property

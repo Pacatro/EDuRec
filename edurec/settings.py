@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 import lightning as L
 
@@ -100,6 +101,7 @@ LOSS_REDUCTION: str = "mean"
 GNN_LAYERS: int = 2
 
 # RecSys
+SEQ_CELL: Literal["gru", "lstm"] = "gru"
 GRU_HIDDEN_DIM: int = 128
 GRU_LAYERS: int = 1
 DROPOUT: float = 0.15

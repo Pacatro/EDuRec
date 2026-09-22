@@ -5,7 +5,7 @@ import torch
 from torch import nn
 from torch_geometric.nn import HeteroConv, SAGEConv
 
-from ... import settings
+from .... import settings
 
 EdgeType = tuple[str, str, str]
 

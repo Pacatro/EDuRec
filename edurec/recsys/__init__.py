@@ -1,12 +1,13 @@
+from .archs.kg_rnn import KGRNN
 from .configs import ModelConfig, TrainConfig
 from .optimization import optimize_model
+from .recsys import RecSys
 from .training import train_model
-from .recsys import EDuRecRecSys, RecSys
 
 __all__ = [
-    "RecSys",
-    "EDuRecRecSys",
+    "KGRNN",
     "ModelConfig",
+    "RecSys",
     "TrainConfig",
     "optimize_model",
     "train_model",

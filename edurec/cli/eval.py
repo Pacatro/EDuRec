@@ -41,7 +41,7 @@ def _save_seed_results(results: pd.DataFrame, dataset_root: Path, seed: int) -> 
 
 
 def _target_models(sota_models: list[str]) -> list[str]:
-    return list(dict.fromkeys(["EDuRec", *sota_models]))
+    return list(dict.fromkeys(["KGRNN", *sota_models]))
 
 
 def _load_seed_result(
@@ -121,7 +121,7 @@ def _summarize_seed_results(results: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(summary_rows, columns=["model", *metric_cols])
 
 
-@app.command(name="eval", help="Evaluate EDuRec against RecBole SOTA models.")
+@app.command(name="eval", help="Evaluate KGRNN against RecBole SOTA models.")
 def eval_models(
     dataset: Annotated[
         DatasetName | None,
@@ -155,7 +155,7 @@ def eval_models(
             "--batch-size",
             "-b",
             min=1,
-            help="Batch size used by EDuRec and RecBole. "
+            help="Batch size used by KGRNN and RecBole. "
             "Uses the saved training config if omitted.",
         ),
     ] = None,
@@ -227,7 +227,7 @@ def eval_models(
         bool,
         typer.Option(
             "--only-proposed",
-            help="Only evaluate the proposed EDuRec model, skipping SOTA models.",
+            help="Only evaluate the proposed KGRNN model, skipping SOTA models.",
         ),
     ] = False,
     adaptive_k: Annotated[
@@ -241,7 +241,7 @@ def eval_models(
     ] = None,
     compile: Annotated[
         bool,
-        typer.Option("--compile", help="Compile EDuRec before training."),
+        typer.Option("--compile", help="Compile KGRNN before training."),
     ] = settings.COMPILE_MODEL,
     output_dir: Annotated[
         Path,
@@ -252,7 +252,7 @@ def eval_models(
         typer.Option(
             "--configs-folder",
             "-C",
-            help="Folder containing saved EDuRec configurations.",
+            help="Folder containing saved KGRNN configurations.",
         ),
     ] = Path(settings.CONFIGS_FOLDER),
 ) -> None:
@@ -269,7 +269,7 @@ def eval_models(
 
     print("\n[EVAL] Evaluation run")
     print(f"[EVAL] Datasets: {', '.join(ds.value for ds in datasets)}")
-    print(f"[EVAL] Models: EDuRec + {len(sota_models)} SOTA")
+    print(f"[EVAL] Models: KGRNN + {len(sota_models)} SOTA")
     print(f"[EVAL] Seeds: {', '.join(str(seed) for seed in parsed_seeds)}")
     print(f"[EVAL] Results folder: {output_dir}")
     print(f"[EVAL] Configs folder: {configs_folder}\n")
@@ -294,19 +294,19 @@ def eval_models(
         )
         val_topk = monitor_topk(None, train_cfg)
         pending_by_seed = _pending_models_by_seed(dataset_root, models, parsed_seeds)
-        needs_edurec = any(
-            "EDuRec" in pending_models for pending_models in pending_by_seed.values()
+        needs_kgru = any(
+            "KGRNN" in pending_models for pending_models in pending_by_seed.values()
         )
         saved_cfg = (
             ModelConfig.load(model_config_path)
-            if needs_edurec and model_config_path.exists()
+            if needs_kgru and model_config_path.exists()
             else None
         )
 
         print(f"[EVAL] [{dataset_idx}/{len(datasets)}] Dataset: {run_name}")
         print(f"[EVAL] Top-k: {train_cfg.topks} | val@{val_topk}")
         print(
-            f"[EVAL] Models: EDuRec, {', '.join(sota_models) if sota_models else 'none'}"
+            f"[EVAL] Models: KGRNN, {', '.join(sota_models) if sota_models else 'none'}"
         )
         if not pending_by_seed:
             print("[EVAL] All requested seeds are already evaluated. Skipping runs.")
@@ -355,11 +355,11 @@ def eval_models(
 
             print_data_summary("EVAL", dm)
 
-            if "EDuRec" in pending_models:
+            if "KGRNN" in pending_models:
                 cfg = build_config(dm, base=saved_cfg)
                 print_model_modules("EVAL", cfg)
                 settings.seed_everything(seed)
-                print(f"[EVAL] Running EDuRec | seed={seed}")
+                print(f"[EVAL] Running KGRNN | seed={seed}")
                 proposed_results = eval_model(
                     dm=dm,
                     cfg=cfg,

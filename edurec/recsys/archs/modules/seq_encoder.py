@@ -1,10 +1,11 @@
 from dataclasses import dataclass
+from typing import Literal
 
 import torch
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence
 
-from ... import settings
+from .... import settings
 
 
 @dataclass
@@ -13,17 +14,20 @@ class SeqEncoderConfig:
     hidden_dim: int = settings.GRU_HIDDEN_DIM
     num_layers: int = settings.GRU_LAYERS
     dropout: float = 0.1
-    max_history_len: int = settings.MAX_HISTORY_LEN
+    cell_type: Literal["gru", "lstm"] = settings.SEQ_CELL
 
 
 class SeqEncoder(nn.Module):
-    """GRU encoder over a user's chronological item history."""
+    """Recurrent encoder over a user's chronological item history.
+
+    Supports GRU and LSTM cells, selected via ``cfg.cell_type``.
+    """
 
     def __init__(self, cfg: SeqEncoderConfig):
         super().__init__()
-        self.cfg = cfg
 
-        self.gru = nn.GRU(
+        rnn_cls = {"gru": nn.GRU, "lstm": nn.LSTM}[cfg.cell_type]
+        self.rnn = rnn_cls(
             input_size=cfg.emb_dim,
             hidden_size=cfg.hidden_dim,
             num_layers=cfg.num_layers,
@@ -50,29 +54,6 @@ class SeqEncoder(nn.Module):
             Sequential user state with shape ``[batch_size, emb_dim]``.
             Users without history receive a zero vector.
         """
-        if history_emb.ndim != 3:
-            raise ValueError(
-                "history_emb must have shape [batch_size, history_len, emb_dim]."
-            )
-
-        batch_size, history_len, emb_dim = history_emb.shape
-
-        if emb_dim != self.cfg.emb_dim:
-            raise ValueError(
-                f"Expected embedding dimension {self.cfg.emb_dim}, got {emb_dim}."
-            )
-
-        if history_len > self.cfg.max_history_len:
-            raise ValueError(
-                f"History length {history_len} exceeds "
-                f"max_history_len={self.cfg.max_history_len}."
-            )
-
-        if history_mask.shape != (batch_size, history_len):
-            raise ValueError(
-                f"history_mask must have shape [{batch_size}, {history_len}]."
-            )
-
         history_mask = history_mask.bool()
         lengths = history_mask.sum(dim=1)
         has_history = lengths > 0
@@ -88,7 +69,11 @@ class SeqEncoder(nn.Module):
             batch_first=True,
             enforce_sorted=True,
         )
-        _, hidden = self.gru(packed)
+        _, hidden = self.rnn(packed)
+
+        # LSTM returns ``(h_n, c_n)`` while GRU returns ``h_n`` directly.
+        if isinstance(hidden, tuple):
+            hidden = hidden[0]
 
         # `hidden` follows the sorted batch order, so restore the input order.
         sorted_last = hidden[-1]

@@ -12,8 +12,9 @@ from torch_geometric.data import HeteroData
 
 from .. import settings
 from ..datasets import ElearningDataModule
+from .archs.kg_rnn import KGRNN
 from .configs import ModelConfig, TrainConfig
-from .recsys import EDuRecRecSys
+from .recsys import RecSys
 from .training import train_model
 
 # Bump whenever the search space or the objective changes so old studies are
@@ -74,7 +75,8 @@ def objective(
         gnn_layers=trial.suggest_categorical(
             "gnn_layers", sorted({1, settings.GNN_LAYERS, 3, 4})
         ),
-        # GRU sequence encoder
+        # Recurrent sequence encoder
+        seq_cell=trial.suggest_categorical("seq_cell", ["gru", "lstm"]),
         gru_hidden_dim=trial.suggest_categorical(
             "gru_hidden_dim",
             sorted({64, settings.GRU_HIDDEN_DIM, 256, 2 * emb_dim}),
@@ -115,8 +117,9 @@ def objective(
     trial.set_user_attr("config", asdict(config))
     trial.set_user_attr("train_config", asdict(train_config))
 
-    model = EDuRecRecSys(
+    model = RecSys(
         cfg=config,
+        model=KGRNN(config),
         knowledge_graph=knowledge_graph,
         u_static_feats=datamodule.u_static_feats,
         i_static_feats=datamodule.i_static_feats,

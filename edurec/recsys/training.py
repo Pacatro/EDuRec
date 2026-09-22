@@ -24,7 +24,7 @@ def train_model(
     callbacks: Sequence[Callback] = (),
     default_root_dir: Path | str | None = None,
 ) -> tuple[L.Trainer, Path, Timer]:
-    model_name = model.model_name
+    model_name = type(model).__name__
 
     if compile:
         model = cast(L.LightningModule, torch.compile(model))
