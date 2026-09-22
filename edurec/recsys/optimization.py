@@ -13,7 +13,7 @@ from torch_geometric.data import HeteroData
 from .. import settings
 from ..datasets import ElearningDataModule
 from .configs import ModelConfig, TrainConfig
-from .recsys import RecSys
+from .recsys import EDuRecRecSys
 from .training import train_model
 
 # Bump whenever the search space or the objective changes so old studies are
@@ -115,7 +115,7 @@ def objective(
     trial.set_user_attr("config", asdict(config))
     trial.set_user_attr("train_config", asdict(train_config))
 
-    model = RecSys(
+    model = EDuRecRecSys(
         cfg=config,
         knowledge_graph=knowledge_graph,
         u_static_feats=datamodule.u_static_feats,

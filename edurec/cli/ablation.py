@@ -10,7 +10,7 @@ import typer
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
 from ..evaluation.ablation import ABLATIONS, ablation_applicable, get_ablation_config
-from ..recsys import ModelConfig, RecSys, train_model
+from ..recsys import EDuRecRecSys, ModelConfig, train_model
 from ..recsys.configs import resolve_train_config
 from .utils import (
     build_config,
@@ -155,7 +155,7 @@ def run_ablation(
                     )
                 print_model_modules("ABLATION", cfg)
 
-                model = RecSys(
+                model = EDuRecRecSys(
                     cfg=cfg,
                     knowledge_graph=knowledge_graph,
                     u_static_feats=dm.u_static_feats,

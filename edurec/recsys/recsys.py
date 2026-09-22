@@ -1,7 +1,10 @@
+from typing import cast
+
 import lightning.pytorch as L
 import torch
 import torch.nn.functional as F
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
+from torch import nn
 from torch_geometric.data import HeteroData
 from torch_geometric.utils import dropout_edge
 from torchmetrics import MetricCollection
@@ -16,6 +19,18 @@ from .ranking import build_ranking_metrics, update_ranking_metrics
 
 
 class RecSys(L.LightningModule):
+    """Base LightningModule that trains and evaluates a recommender.
+
+    This class owns everything that is shared across architectures (data
+    buffers, losses, ranking metrics, optimizer and the train/val/test loops).
+    A concrete architecture only has to subclass ``RecSys`` and implement
+    :meth:`build_model`, returning any ``nn.Module`` that follows the scoring
+    contract used by :meth:`forward`.
+
+    To enable graph-contrastive learning an architecture overrides
+    :attr:`supports_gcl` and :meth:`graph_embeddings`.
+    """
+
     def __init__(
         self,
         cfg: ModelConfig,
@@ -76,8 +91,30 @@ class RecSys(L.LightningModule):
             adaptive_k=self.train_cfg.adaptive_k,
         )
 
-        self.model = EDuRec(cfg)
+        self.model = self.build_model(cfg)
         self.model_name = self.__class__.__name__
+
+    def build_model(self, cfg: ModelConfig) -> nn.Module:
+        """Build the architecture to be trained.
+
+        Subclasses must return an ``nn.Module`` whose ``forward`` accepts the
+        keyword arguments used in :meth:`forward`.
+        """
+        raise NotImplementedError
+
+    @property
+    def supports_gcl(self) -> bool:
+        """Whether the architecture can produce graph embeddings for GCL."""
+        return False
+
+    def graph_embeddings(
+        self,
+        edge_index: dict[tuple[str, str, str], torch.Tensor],
+        user_feats: torch.Tensor,
+        item_feats: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return ``(user_emb, item_emb)`` for the graph-contrastive loss."""
+        raise NotImplementedError
 
     def forward(
         self,
@@ -159,7 +196,7 @@ class RecSys(L.LightningModule):
             use_candidates=use_candidates,
         )
 
-        use_gcl = prefix == "train" and self.cfg.use_gcl and self.cfg.graph_mode == "kg"
+        use_gcl = prefix == "train" and self.cfg.use_gcl and self.supports_gcl
         gcl_loss = self._compute_gcl_loss(batch) if use_gcl else rank_loss.new_zeros(())
         loss = rank_loss + self.alpha * gcl_loss
 
@@ -319,8 +356,10 @@ class RecSys(L.LightningModule):
         }
 
     def _compute_gcl_loss(self, batch: RecSysQuery) -> torch.Tensor:
-        if self.model.kg is None:
-            raise RuntimeError("GCL requires an active knowledge-graph encoder.")
+        if not self.supports_gcl:
+            raise RuntimeError(
+                f"{self.model_name} does not support graph-contrastive learning."
+            )
 
         p = self.cfg.edge_dropout
         edge_index = self._edge_index_dict()
@@ -339,8 +378,8 @@ class RecSys(L.LightningModule):
         user_feats = self.u_static_feats[:, : self.cfg.effective_user_dense_feats]
         item_feats = self.i_static_feats[:, : self.cfg.effective_item_dense_feats]
 
-        u_emb1, i_emb1 = self.model.kg(edge_index_1, user_feats, item_feats)
-        u_emb2, i_emb2 = self.model.kg(edge_index_2, user_feats, item_feats)
+        u_emb1, i_emb1 = self.graph_embeddings(edge_index_1, user_feats, item_feats)
+        u_emb2, i_emb2 = self.graph_embeddings(edge_index_2, user_feats, item_feats)
 
         user_ids, item_ids = self._contrastive_batch_ids(batch)
         return self.gcl_loss(
@@ -409,3 +448,25 @@ class RecSys(L.LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": {"scheduler": scheduler, "monitor": self.monitor},
         }
+
+
+class EDuRecRecSys(RecSys):
+    """Concrete :class:`RecSys` harness for the EDuRec knowledge-graph model."""
+
+    def build_model(self, cfg: ModelConfig) -> nn.Module:
+        return EDuRec(cfg)
+
+    @property
+    def supports_gcl(self) -> bool:
+        return self.cfg.graph_mode == "kg"
+
+    def graph_embeddings(
+        self,
+        edge_index: dict[tuple[str, str, str], torch.Tensor],
+        user_feats: torch.Tensor,
+        item_feats: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        model = cast(EDuRec, self.model)
+        if model.kg is None:
+            raise RuntimeError("GCL requires an active knowledge-graph encoder.")
+        return model.kg(edge_index, user_feats, item_feats)

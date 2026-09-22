@@ -6,7 +6,7 @@ import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
-from ..recsys import ModelConfig, RecSys, train_model
+from ..recsys import EDuRecRecSys, ModelConfig, train_model
 from ..recsys.configs import monitor_topk, resolve_train_config
 from ..recsys.io import save_metrics, save_model
 from .utils import (
@@ -186,7 +186,7 @@ def train(
 
         print_model_modules("TRAIN", cfg)
 
-        recsys = RecSys(
+        recsys = EDuRecRecSys(
             cfg=cfg,
             knowledge_graph=dm.build_knowledge_graph(),
             u_static_feats=dm.u_static_feats,

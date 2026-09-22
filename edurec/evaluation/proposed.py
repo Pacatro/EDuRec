@@ -4,7 +4,7 @@ import pandas as pd
 
 from .. import settings
 from ..datasets import ElearningDataModule
-from ..recsys import ModelConfig, RecSys, train_model
+from ..recsys import EDuRecRecSys, ModelConfig, train_model
 from ..recsys.configs import TrainConfig
 
 
@@ -17,7 +17,7 @@ def eval_model(
     results_path: Path | None = None,
     verbose: bool = False,
 ) -> pd.DataFrame:
-    recsys = RecSys(
+    recsys = EDuRecRecSys(
         cfg=cfg,
         knowledge_graph=dm.build_knowledge_graph(),
         u_static_feats=dm.u_static_feats,
