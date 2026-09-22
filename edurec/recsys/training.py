@@ -55,6 +55,8 @@ def train_model(
     )
 
     timer = Timer()
+    if logger is not None and default_root_dir is None:
+        default_root_dir = Path("mlflow_checkpoints")
 
     trainer = L.Trainer(
         logger=logger,
