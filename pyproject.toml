@@ -30,7 +30,10 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["mlflow>=3.16.1"]
+dev = [
+    "mlflow>=3.16.1",
+    "pyright>=1.1.414",
+]
 
 [tool.uv.sources]
 torch = [
