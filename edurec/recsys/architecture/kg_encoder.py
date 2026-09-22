@@ -81,10 +81,12 @@ class KGEncoder(nn.Module):
             "user": self.user_emb.weight,
             "item": self.item_emb.weight,
         }
-        if self.user_proj is not None:
-            x["user"] = x["user"] + self.user_proj(user_feats)
-        if self.item_proj is not None:
-            x["item"] = x["item"] + self.item_proj(item_feats)
+        for node_type, projection, features in (
+            ("user", self.user_proj, user_feats),
+            ("item", self.item_proj, item_feats),
+        ):
+            if projection is not None:
+                x[node_type] = x[node_type] + projection(features)
         for node_type, embedding in self.attr_embs.items():
             x[node_type] = cast(torch.Tensor, embedding.weight)
 
