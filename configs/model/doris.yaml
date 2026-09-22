@@ -11,7 +11,6 @@ hidden_dims:
 kg_edge_types: []
 kg_node_counts: {}
 loss_reduction: mean
-num_ctx_feats: 386
 num_item_dense_feats: 384
 num_item_text_feats: 384
 num_items: 2746
@@ -20,7 +19,6 @@ num_user_text_feats: 0
 num_users: 3951
 scorer_type: mlp
 temperature: 0.15
-use_context: true
 use_gcl: true
 use_item_bias: true
 use_seq_encoder: true

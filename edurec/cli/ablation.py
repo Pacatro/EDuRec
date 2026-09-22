@@ -203,7 +203,6 @@ def run_ablation(
                         for name, enabled in cfg.available_modules.items()
                     },
                     "graph_mode": cfg.graph_mode,
-                    "fusion_type": cfg.fusion_type,
                     "scorer_type": cfg.scorer_type,
                     "use_text_features": int(cfg.use_text_features),
                     "use_gcl": int(cfg.use_gcl),

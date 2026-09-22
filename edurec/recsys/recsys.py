@@ -97,7 +97,6 @@ class RecSys(L.LightningModule):
             edge_index=self._edge_index_dict(),
             u_static_feats=self.u_static_feats,
             i_static_feats=self.i_static_feats,
-            context=batch.context,
             candidate_item_ids=candidate_item_ids,
         )
 

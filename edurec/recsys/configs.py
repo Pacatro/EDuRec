@@ -7,7 +7,6 @@ import yaml
 
 from .. import settings
 from .architecture.kg_encoder import KGEncoderConfig
-from .architecture.mlp_encoder import MLPEncoderConfig
 from .architecture.scorer import ScorerConfig
 from .architecture.seq_encoder import SeqEncoderConfig
 
@@ -56,7 +55,6 @@ class ModelConfig(BaseConfig):
 
     num_users: int
     num_items: int
-    num_ctx_feats: int
     num_user_dense_feats: int
     num_item_dense_feats: int
     num_user_text_feats: int
@@ -72,10 +70,8 @@ class ModelConfig(BaseConfig):
     graph_mode: Literal["kg", "id"] = "kg"
     use_text_features: bool = True
     use_seq_encoder: bool = True
-    use_context: bool = True
     use_gcl: bool = True
     scorer_type: Literal["mlp", "dot"] = "mlp"
-    fusion_type: Literal["masked_gated", "sum"] = "masked_gated"
 
     # GCL Defaults
     edge_dropout: float = settings.DROP_EDGES_P
@@ -112,7 +108,6 @@ class ModelConfig(BaseConfig):
         return {
             "graph": self.graph_mode in {"kg", "id"},
             "sequence": self.use_seq_encoder and self.has_history,
-            "context": self.use_context and self.num_ctx_feats > 0,
         }
 
     @property
@@ -131,14 +126,6 @@ class ModelConfig(BaseConfig):
         )
 
     @property
-    def context_encoder(self) -> MLPEncoderConfig:
-        return MLPEncoderConfig(
-            num_dense_features=self.num_ctx_feats,
-            output_dim=self.emb_dim,
-            dropout=self.dropout,
-        )
-
-    @property
     def seq_encoder(self) -> SeqEncoderConfig:
         return SeqEncoderConfig(
             emb_dim=self.emb_dim,
@@ -151,10 +138,10 @@ class ModelConfig(BaseConfig):
     def scorer(self) -> ScorerConfig:
         return ScorerConfig(
             emb_dim=self.emb_dim,
+            num_user_sources=1 + int(self.available_modules["sequence"]),
             hidden_dims=self.hidden_dims,
             dropout=self.dropout,
             scorer_type=self.scorer_type,
-            use_context=self.available_modules["context"],
         )
 
 

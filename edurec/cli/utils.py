@@ -47,7 +47,6 @@ def build_config(
     dataset_config = {
         "num_users": dm.num_users,
         "num_items": dm.num_items,
-        "num_ctx_feats": dm.train_ds.num_ctx_feats,
         "num_user_dense_feats": dm.num_user_dense_feats,
         "num_item_dense_feats": dm.num_item_dense_feats,
         "num_user_text_feats": dm.num_user_text_feats,
@@ -70,7 +69,7 @@ def print_model_modules(prefix: str, cfg: ModelConfig) -> None:
     )
     options = (
         f"text={'ON' if cfg.use_text_features else 'OFF'}, "
-        f"fusion={cfg.fusion_type}, scorer={cfg.scorer_type}, "
+        f"scorer={cfg.scorer_type}, "
         f"gcl={'ON' if cfg.use_gcl else 'OFF'}, "
         f"item_bias={'ON' if cfg.use_item_bias else 'OFF'}"
     )
