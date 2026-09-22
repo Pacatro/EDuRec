@@ -1,3 +1,4 @@
+import re
 from collections.abc import Iterator
 
 import pandas as pd
@@ -11,6 +12,16 @@ EdgeType = tuple[str, str, str]
 
 _INTERACTION_EDGE: EdgeType = ("user", "interacts", "item")
 _NODE_PREFIXES = (("users", "user"), ("items", "item"))
+
+# Characters allowed in MLflow parameter keys. Runs of any other character
+# (including ``%`` and ``_``) collapse into a single underscore, which also
+# keeps node types free of the double underscores PyG warns about.
+_INVALID_NAME_CHARS = re.compile(r"[^0-9A-Za-z.:/-]+")
+
+
+def _escape_attribute_name(col: str) -> str:
+    """Sanitize an attribute column name for use as a PyG/MLflow type name."""
+    return _INVALID_NAME_CHARS.sub("_", col)
 
 
 def _edge_pair(edge: EdgeType) -> tuple[EdgeType, EdgeType]:
@@ -69,7 +80,7 @@ def _attribute_nodes(
         count = metadata.categorical_cardinalities.get(col, 0) - 1
         if count <= 0:
             continue
-        name = col.replace("%", "%25").replace("__", "%5F%5F")
+        name = _escape_attribute_name(col)
         yield (
             f"{node_prefix}::{name}",
             f"has::{name}",
@@ -86,7 +97,7 @@ def _attribute_nodes(
         )
         if not columns:
             continue
-        name = col.replace("%", "%25").replace("__", "%5F%5F")
+        name = _escape_attribute_name(col)
         yield (
             f"{node_prefix}::list::{name}",
             f"has::{name}",
