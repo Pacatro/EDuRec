@@ -10,8 +10,23 @@ from .dataprocessor import DataProcessor
 EdgeType = tuple[str, str, str]
 
 _INTERACTION_EDGE: EdgeType = ("user", "interacts", "item")
-_REVERSE_INTERACTION_EDGE: EdgeType = ("item", "rev_interacts", "user")
 _NODE_PREFIXES = (("users", "user"), ("items", "item"))
+
+
+def _edge_pair(edge: EdgeType) -> tuple[EdgeType, EdgeType]:
+    source, relation, target = edge
+    return edge, (target, f"rev_{relation}", source)
+
+
+def _add_edge_pair(
+    graph: HeteroData,
+    edge: EdgeType,
+    sources: torch.Tensor,
+    targets: torch.Tensor,
+) -> None:
+    forward, reverse = _edge_pair(edge)
+    graph[forward].edge_index = torch.stack([sources, targets])
+    graph[reverse].edge_index = torch.stack([targets, sources])
 
 
 def knowledge_graph_metadata(
@@ -23,15 +38,14 @@ def knowledge_graph_metadata(
     model configuration without materializing the graph tensors.
     """
     node_counts: dict[str, int] = {}
-    edge_types: list[EdgeType] = [_INTERACTION_EDGE, _REVERSE_INTERACTION_EDGE]
+    edge_types: list[EdgeType] = list(_edge_pair(_INTERACTION_EDGE))
 
     for prefix, node_prefix in _NODE_PREFIXES:
         for node_type, relation, count, _, _ in _attribute_nodes(
             processor, prefix, node_prefix
         ):
             node_counts[node_type] = count
-            edge_types.append((node_prefix, relation, node_type))
-            edge_types.append((node_type, f"rev_{relation}", node_prefix))
+            edge_types.extend(_edge_pair((node_prefix, relation, node_type)))
 
     return node_counts, edge_types
 
@@ -55,9 +69,10 @@ def _attribute_nodes(
         count = metadata.categorical_cardinalities.get(col, 0) - 1
         if count <= 0:
             continue
+        name = col.replace("%", "%25").replace("__", "%5F%5F")
         yield (
-            f"{node_prefix}::{col}",
-            f"has::{col}",
+            f"{node_prefix}::{name}",
+            f"has::{name}",
             count,
             (cat_offset + local_idx,),
             False,
@@ -71,7 +86,14 @@ def _attribute_nodes(
         )
         if not columns:
             continue
-        yield f"{node_prefix}::list::{col}", f"has::{col}", len(columns), columns, True
+        name = col.replace("%", "%25").replace("__", "%5F%5F")
+        yield (
+            f"{node_prefix}::list::{name}",
+            f"has::{name}",
+            len(columns),
+            columns,
+            True,
+        )
 
 
 def add_interaction_edges(
@@ -90,8 +112,7 @@ def add_interaction_edges(
     valid = (user_ids >= 0) & (item_ids >= 0)
     user_ids, item_ids = user_ids[valid], item_ids[valid]
 
-    graph[_INTERACTION_EDGE].edge_index = torch.stack([user_ids, item_ids])
-    graph[_REVERSE_INTERACTION_EDGE].edge_index = torch.stack([item_ids, user_ids])
+    _add_edge_pair(graph, _INTERACTION_EDGE, user_ids, item_ids)
 
 
 def add_attribute_edges(
@@ -116,9 +137,4 @@ def add_attribute_edges(
             valid = targets >= 0
             sources, targets = rows[valid], targets[valid]
 
-        graph[node_prefix, relation, node_type].edge_index = torch.stack(
-            [sources, targets]
-        )
-        graph[node_type, f"rev_{relation}", node_prefix].edge_index = torch.stack(
-            [targets, sources]
-        )
+        _add_edge_pair(graph, (node_prefix, relation, node_type), sources, targets)
