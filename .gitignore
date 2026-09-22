@@ -16,6 +16,7 @@ wheels/
 # Model training metadata
 lightning_logs/
 mlruns/
+mlflow_checkpoints/
 mlflow.db
 TFM/
 wandb/
