@@ -3,7 +3,7 @@ import warnings
 from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal, NamedTuple
+from typing import Any, Literal, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -20,7 +20,7 @@ class DatasetName(StrEnum):
     COCO = "coco"
 
 
-type Schema = dict[str, dict[str, list[str]]]
+type Schema = dict[str, dict[str, Any]]
 
 
 class RawData(NamedTuple):
@@ -258,7 +258,7 @@ def load_doris() -> RawData:
     ratings_df = ratings_df.dropna(subset=[settings.TIME_COL]).reset_index(drop=True)
     ratings_df[settings.TIME_COL] = ratings_df[settings.TIME_COL].astype(np.int64)
     items_df.rename(
-        columns={"CourseId": settings.ITEM_COL, "type": "item_type"}, inplace=True
+        columns={"CourseId": settings.ITEM_COL, "Type": "item_type"}, inplace=True
     )
     users_df.rename(columns={"StudentId": settings.USER_COL}, inplace=True)
 
@@ -273,9 +273,10 @@ def load_doris() -> RawData:
         "items": {
             "bin": [],
             "num": [],
-            "cat": ["item_type", "grade", "prerequisite"],
+            "cat": ["item_type", "grade"],
             "text": ["introduction"],
             "list": [],
+            "refs": {"prerequisite": "coursename"},
         },
         "inter": {
             "bin": [],
@@ -379,6 +380,7 @@ def load_mooccubex() -> RawData:
             "cat": [],
             "text": ["name", "prerequisites", "about"],
             "list": ["field"],
+            "refs": {"prerequisites": "name"},
         },
         "inter": {
             "bin": [],
@@ -553,6 +555,9 @@ def load_coco() -> RawData:
             ],
             "text": list(COCO_TEXT_COLS),
             "list": ["subtitles"],
+            "cooc": [
+                ("second_level_category", "first_level_category"),
+            ],
         },
         "inter": {
             "bin": [],

@@ -32,7 +32,7 @@ class ProcessedFeatures:
 
 @dataclass
 class FeatureMetadata:
-    dense_cols: list[str] = field(default_factory=list)
+    numeric_cols: list[str] = field(default_factory=list)
     categorical_cols: list[str] = field(default_factory=list)
     categorical_cardinalities: dict[str, int] = field(default_factory=dict)
     text_embedding_cols: list[str] = field(default_factory=list)
@@ -130,7 +130,6 @@ class DataProcessor:
             preprocessor,
             dense_cols,
             categorical_cols,
-            list_cols,
             text_cols,
         )
 
@@ -217,13 +216,12 @@ class DataProcessor:
         self,
         groups: dict[str, list[str]],
         preprocessor: ColumnTransformer | None,
-        dense_cols: list[str],
+        numeric_cols: list[str],
         categorical_cols: list[str],
-        list_cols: list[str],
         text_cols: list[str],
     ) -> FeatureMetadata:
         metadata = FeatureMetadata(
-            dense_cols=[*dense_cols, *list_cols],
+            numeric_cols=list(numeric_cols),
             categorical_cols=categorical_cols,
             text_embedding_cols=text_cols,
         )

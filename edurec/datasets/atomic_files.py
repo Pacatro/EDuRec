@@ -3,7 +3,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import torch
 
 from .. import settings
 from .cache import ProcessedData
@@ -85,11 +84,8 @@ def save_atomic_files(
         )
         atomic_split.to_csv(atomic_files[f"{split_name}.inter"], sep="\t", index=False)
 
-    user_df = static_feature_frame(
-        artifacts.u_static_feats,
-        processor.feature_metadata.get("users"),
-        prefix="users",
-        id_col=settings.USER_COL,
+    user_df = _id_feature_frame(
+        artifacts.user_features, processor.user_id_map, settings.USER_COL
     )
     atomic_user, _ = format_atomic_frame(
         user_df,
@@ -99,11 +95,8 @@ def save_atomic_files(
     atomic_files["user"] = output_dir / f"{dataset_name}.user"
     atomic_user.to_csv(atomic_files["user"], sep="\t", index=False)
 
-    item_df = static_feature_frame(
-        artifacts.i_static_feats,
-        processor.feature_metadata.get("items"),
-        prefix="items",
-        id_col=settings.ITEM_COL,
+    item_df = _id_feature_frame(
+        artifacts.item_features, processor.item_id_map, settings.ITEM_COL
     )
     atomic_item, _ = format_atomic_frame(
         item_df,
@@ -219,30 +212,17 @@ def infer_field_type(col: str, categorical_cols: set[str]) -> str:
     return "float"
 
 
-def static_feature_frame(
-    tensor: torch.Tensor | None,
-    metadata: FeatureMetadata | None,
-    prefix: str,
+def _id_feature_frame(
+    frame: pd.DataFrame | None,
+    id_map: dict[object, int],
     id_col: str,
 ) -> pd.DataFrame:
-    if tensor is None:
-        raise RuntimeError(f"{prefix} static features are not available.")
-    if metadata is None:
-        raise RuntimeError(f"{prefix} feature metadata is not available.")
+    if frame is None:
+        raise RuntimeError(f"{id_col} features are not available.")
 
-    feature_cols = (
-        metadata.dense_cols + metadata.text_embedding_cols + metadata.categorical_cols
-    )
+    features = frame.copy()
+    features[id_col] = features[id_col].map(id_map)
+    features = features.dropna(subset=[id_col])
+    features[id_col] = features[id_col].astype(np.int64)
 
-    values = tensor.detach().cpu().numpy()
-
-    if values.shape[1] != len(feature_cols):
-        raise RuntimeError(
-            f"Expected {len(feature_cols)} {prefix} feature columns, "
-            f"got tensor with shape {values.shape}."
-        )
-
-    id_df = pd.DataFrame({id_col: np.arange(values.shape[0], dtype=np.int64)})
-    feature_df = pd.DataFrame(values, columns=feature_cols)
-
-    return pd.concat([id_df, feature_df], axis=1)
+    return features.sort_values(id_col).reset_index(drop=True)

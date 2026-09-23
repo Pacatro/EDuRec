@@ -126,7 +126,7 @@ def run_ablation(
             dm.prepare_data()
             dm.setup()
             print_data_summary("ABLATION", dm)
-            knowledge_graph = dm.build_knowledge_graph()
+            knowledge_graph = dm.knowledge_graph
 
             if model_config_path.exists():
                 print("[ABLATION] Using existing model config file:", model_config_path)

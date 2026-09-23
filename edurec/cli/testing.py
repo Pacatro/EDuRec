@@ -71,7 +71,7 @@ def test_recsys(
     )
     dm.prepare_data()
     dm.setup()
-    test_graph = dm.build_knowledge_graph()
+    test_graph = dm.knowledge_graph
     print_data_summary("TEST", dm)
     print_model_modules("TEST", cfg)
 

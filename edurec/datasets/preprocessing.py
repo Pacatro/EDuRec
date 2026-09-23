@@ -267,11 +267,7 @@ def preprocess(
         ("items", item_frame, "items", settings.ITEM_COL),
     ):
         metadata = processor.feature_metadata[prefix]
-        cols = (
-            metadata.dense_cols
-            + metadata.text_embedding_cols
-            + metadata.categorical_cols
-        )
+        cols = metadata.numeric_cols + metadata.text_embedding_cols
         static_feats[name] = torch.as_tensor(
             df.sort_values(id_col)[cols].to_numpy(dtype=np.float32),
             dtype=torch.float32,
@@ -283,5 +279,7 @@ def preprocess(
         test=split_dfs["test"],
         u_static_feats=static_feats["users"],
         i_static_feats=static_feats["items"],
+        user_features=users.reset_index(drop=True),
+        item_features=items.reset_index(drop=True),
         data_processor=processor,
     )

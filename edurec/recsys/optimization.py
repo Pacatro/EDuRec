@@ -164,7 +164,7 @@ def optimize_model(
 ) -> optuna.Study:
     assert dm.is_processed, "Data must be processed before optimizing the model."
 
-    knowledge_graph = dm.build_knowledge_graph()
+    knowledge_graph = dm.knowledge_graph
     storage = None
     callbacks = None
 

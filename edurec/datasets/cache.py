@@ -12,13 +12,15 @@ from .dataprocessor import DataProcessor
 
 # Bump whenever the preprocessing logic changes in a way that invalidates
 # existing caches (e.g. deduplication or timestamp parsing changes).
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 MANIFEST_FILENAME = "manifest.json"
 
 CACHE_FILES = (
     "train.feather",
     "val.feather",
     "test.feather",
+    "users.feather",
+    "items.feather",
     "static_feats.safetensors",
     "processor.joblib",
     MANIFEST_FILENAME,
@@ -54,6 +56,8 @@ class ProcessedData:
     test: pd.DataFrame | None = None
     u_static_feats: torch.Tensor | None = None
     i_static_feats: torch.Tensor | None = None
+    user_features: pd.DataFrame | None = None
+    item_features: pd.DataFrame | None = None
     data_processor: DataProcessor | None = None
 
     @property
@@ -66,6 +70,8 @@ class ProcessedData:
                 self.test,
                 self.u_static_feats,
                 self.i_static_feats,
+                self.user_features,
+                self.item_features,
                 self.data_processor,
             )
         )
@@ -89,6 +95,12 @@ class ProcessedData:
 
         for split, df in self.splits().items():
             df.to_feather(folder / f"{split}.feather")
+
+        if self.user_features is None or self.item_features is None:
+            raise RuntimeError("User/item features are not available.")
+
+        self.user_features.reset_index(drop=True).to_feather(folder / "users.feather")
+        self.item_features.reset_index(drop=True).to_feather(folder / "items.feather")
 
         if self.u_static_feats is None or self.i_static_feats is None:
             raise RuntimeError("Static features are not available.")
@@ -121,5 +133,7 @@ class ProcessedData:
             test=pd.read_feather(folder / "test.feather"),
             u_static_feats=tensors["u_static_feats"],
             i_static_feats=tensors["i_static_feats"],
+            user_features=pd.read_feather(folder / "users.feather"),
+            item_features=pd.read_feather(folder / "items.feather"),
             data_processor=DataProcessor.load(folder / "processor.joblib"),
         )

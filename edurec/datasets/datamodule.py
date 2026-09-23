@@ -12,11 +12,7 @@ from .atomic_files import save_atomic_files
 from .cache import CACHE_VERSION, ProcessedData, processed_cache_exists
 from .dataprocessor import DataProcessor
 from .downloaders import download_raw_data
-from .knowledge_graph import (
-    add_attribute_edges,
-    add_interaction_edges,
-    knowledge_graph_metadata,
-)
+from .knowledge_graph import build_knowledge_graph
 from .loaders import DatasetName, RawData, load_raw_data
 from .preprocessing import (
     add_relevance,
@@ -65,10 +61,7 @@ class ElearningDataModule(L.LightningDataModule):
         self.save_atomic_files = save_atomic_files
         self.random_state = random_state
         self.data_variant = dataset.value
-        # The processed cache lives in a single folder per dataset variant. With
-        # use_processed_data the cached artifacts are loaded as-is; otherwise the
-        # dataset is reprocessed and the cache folder is overwritten. This
-        # parameter record is kept in the manifest for traceability.
+
         self.cache_params = {
             "version": CACHE_VERSION,
             "dataset": dataset.value,
@@ -83,16 +76,18 @@ class ElearningDataModule(L.LightningDataModule):
             "text_max_tokens": settings.TEXT_MAX_TOKENS,
             "max_history_len": settings.MAX_HISTORY_LEN,
         }
+
         self.processed_folder = Path(settings.PROCESSED_FOLDER) / self.data_variant
         self.atomic_folder = Path(settings.ATOMICFILES_FOLDER) / self.data_variant
+
         self.raw_dataset: RawData | None = None
         self.artifacts = ProcessedData()
+        self._knowledge_graph: HeteroData | None = None
 
     def prepare_data(self) -> None:
-        # Only skip the download when the cache will actually be reused;
-        # otherwise the raw files are still required by _process_raw_data.
         if self.use_processed_data and processed_cache_exists(self.processed_folder):
             return
+
         download_raw_data(self.dataset_name)
 
     def setup(self, stage: str | None = None):
@@ -111,7 +106,6 @@ class ElearningDataModule(L.LightningDataModule):
                 output_dir=self.atomic_folder,
             )
 
-        # Build sequential histories using only relevant (positive) interactions.
         relevant_splits = {
             split: df.loc[df[settings.RELEVANT_COL] > 0].reset_index(drop=True)
             for split, df in self.artifacts.splits().items()
@@ -121,9 +115,14 @@ class ElearningDataModule(L.LightningDataModule):
 
         if stage in ("fit", None):
             train_negatives = None
+
             if not self.is_explicit:
                 train_interactions = relevant_splits["train"]
-                all_observed = pd.concat(relevant_splits.values(), ignore_index=True)
+                all_observed = pd.concat(
+                    relevant_splits.values(),
+                    ignore_index=True,
+                )
+
                 train_negatives = generate_negative_samples(
                     interactions=train_interactions,
                     item_ids=np.arange(self.num_items),
@@ -137,10 +136,13 @@ class ElearningDataModule(L.LightningDataModule):
                 histories["train"],
                 negative_item_ids=train_negatives,
             )
+
             self.val_ds = self._make_dataset(relevant_splits["val"], histories["val"])
+
         elif stage == "test":
             self.test_ds = self._make_dataset(
-                relevant_splits["test"], histories["test"]
+                relevant_splits["test"],
+                histories["test"],
             )
 
     def _make_dataset(
@@ -149,7 +151,6 @@ class ElearningDataModule(L.LightningDataModule):
         history: tuple[torch.Tensor, torch.Tensor],
         negative_item_ids: np.ndarray | None = None,
     ) -> RecSysDataset:
-        # The precomputed tensors align row-by-row with positive interactions.
         history_items, history_valid_mask = history
 
         return RecSysDataset(
@@ -164,6 +165,7 @@ class ElearningDataModule(L.LightningDataModule):
     def _process_raw_data(self) -> None:
         raw = load_raw_data(self.dataset_name)
         interactions = clean_cols(raw.interactions)
+
         self.raw_dataset = RawData(
             interactions=interactions,
             user_features=clean_cols(raw.user_features),
@@ -174,14 +176,19 @@ class ElearningDataModule(L.LightningDataModule):
         users = self.raw_dataset.user_features
         items = self.raw_dataset.item_features
         interactions = self.raw_dataset.interactions
+
         if self.remove_sparse:
             users, items, interactions = filter_sparse(
-                users, items, interactions, min_interactions=self.min_interactions
+                users,
+                items,
+                interactions,
+                min_interactions=self.min_interactions,
             )
 
         self.artifacts.train, self.artifacts.val, self.artifacts.test = (
             self._split_with_relevance(interactions)
         )
+
         self.artifacts = preprocess(
             processor=DataProcessor(schema=raw.schema),
             users=users,
@@ -190,10 +197,15 @@ class ElearningDataModule(L.LightningDataModule):
             val=self.artifacts.val,
             test=self.artifacts.test,
         )
-        self.artifacts.save(self.processed_folder, manifest=self.cache_params)
+
+        self.artifacts.save(
+            self.processed_folder,
+            manifest=self.cache_params,
+        )
 
     def _split_with_relevance(
-        self, interactions: pd.DataFrame
+        self,
+        interactions: pd.DataFrame,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         train, val, test = split_data(
             interactions,
@@ -202,7 +214,9 @@ class ElearningDataModule(L.LightningDataModule):
             min_interactions=self.min_interactions,
             random_state=self.random_state,
         )
+
         thresholds = get_relevance_threshold(train)
+
         return (
             add_relevance(train, thresholds),
             add_relevance(val, thresholds),
@@ -210,41 +224,47 @@ class ElearningDataModule(L.LightningDataModule):
         )
 
     @staticmethod
-    def _context_cols(interactions: pd.DataFrame) -> list[str]:
+    def _context_cols(
+        interactions: pd.DataFrame,
+    ) -> list[str]:
         return [col for col in interactions.columns if col not in EXCLUDED_CONTEXT_COLS]
 
-    def build_knowledge_graph(self) -> HeteroData:
-        if (
-            self.artifacts.train is None
-            or self.artifacts.u_static_feats is None
-            or self.artifacts.i_static_feats is None
-        ):
-            raise RuntimeError("Data must be processed before building the graph.")
+    @property
+    def knowledge_graph(self) -> HeteroData:
+        if self._knowledge_graph is None:
+            artifacts = self.artifacts
 
-        graph = HeteroData()
-        graph["user"].num_nodes = self.artifacts.u_static_feats.shape[0]
-        graph["item"].num_nodes = self.artifacts.i_static_feats.shape[0]
+            if (
+                artifacts.train is None
+                or artifacts.u_static_feats is None
+                or artifacts.i_static_feats is None
+                or artifacts.user_features is None
+                or artifacts.item_features is None
+            ):
+                raise RuntimeError("Knowledge graph requires training data.")
 
-        add_interaction_edges(graph, self.artifacts.train)
-        for prefix, node_prefix, feats in (
-            ("users", "user", self.artifacts.u_static_feats),
-            ("items", "item", self.artifacts.i_static_feats),
-        ):
-            add_attribute_edges(graph, self.data_processor, prefix, node_prefix, feats)
+            self._knowledge_graph = build_knowledge_graph(
+                artifacts.train,
+                artifacts.user_features,
+                artifacts.item_features,
+                artifacts.u_static_feats,
+                artifacts.i_static_feats,
+                self.data_processor,
+            )
 
-        return graph
+        return self._knowledge_graph
 
     @property
     def kg_node_counts(self) -> dict[str, int]:
-        """Attribute node counts implied by the dataset schema."""
-        node_counts, _ = knowledge_graph_metadata(self.data_processor)
-        return node_counts
+        return {
+            node: self.knowledge_graph[node].num_nodes
+            for node in self.knowledge_graph.node_types
+            if node not in {"user", "item"}
+        }
 
     @property
     def kg_edge_types(self) -> list[tuple[str, str, str]]:
-        """Typed edges implied by the dataset schema."""
-        _, edge_types = knowledge_graph_metadata(self.data_processor)
-        return edge_types
+        return list(self.knowledge_graph.edge_types)
 
     def _data_generator(self) -> torch.Generator | None:
         if self.random_state is None:
@@ -252,9 +272,14 @@ class ElearningDataModule(L.LightningDataModule):
 
         generator = torch.Generator()
         generator.manual_seed(int(self.random_state))
+
         return generator
 
-    def _dataloader(self, dataset: RecSysDataset, shuffle: bool) -> DataLoader:
+    def _dataloader(
+        self,
+        dataset: RecSysDataset,
+        shuffle: bool,
+    ) -> DataLoader:
         return DataLoader(
             dataset,
             batch_size=self.batch_size,
@@ -288,14 +313,17 @@ class ElearningDataModule(L.LightningDataModule):
             if self.raw_dataset is not None
             else self.artifacts.train
         )
+
         if interactions is None:
             raise RuntimeError("Interactions are not available.")
+
         return settings.RATING_COL in interactions.columns
 
     @property
     def data_processor(self) -> DataProcessor:
         if self.artifacts.data_processor is None:
             raise RuntimeError("Data processor is not available.")
+
         return self.artifacts.data_processor
 
     @property
@@ -316,12 +344,14 @@ class ElearningDataModule(L.LightningDataModule):
     def num_users(self) -> int:
         if self.artifacts.u_static_feats is not None:
             return self.artifacts.u_static_feats.shape[0]
+
         return 0 if self.raw_dataset is None else len(self.raw_dataset.user_features)
 
     @property
     def num_items(self) -> int:
         if self.artifacts.i_static_feats is not None:
             return self.artifacts.i_static_feats.shape[0]
+
         return 0 if self.raw_dataset is None else len(self.raw_dataset.item_features)
 
     @property
@@ -336,20 +366,23 @@ class ElearningDataModule(L.LightningDataModule):
                 )
                 if df is not None
             )
+
         return 0 if self.raw_dataset is None else len(self.raw_dataset.interactions)
 
     @property
     def num_ctx_feats(self) -> int:
         if self.artifacts.train is not None:
             return len(self._context_cols(self.artifacts.train))
+
         if self.raw_dataset is not None:
             return len(self._context_cols(self.raw_dataset.interactions))
+
         return 0
 
     @property
     def has_history(self) -> bool:
-        """Return whether training provides at least one usable history event."""
         train_ds = getattr(self, "train_ds", None)
+
         return bool(
             self.has_temporal_order
             and train_ds is not None
@@ -359,12 +392,12 @@ class ElearningDataModule(L.LightningDataModule):
 
     @property
     def has_temporal_order(self) -> bool:
-        """Whether interactions have a meaningful chronological ordering."""
         interactions = (
             self.raw_dataset.interactions
             if self.raw_dataset is not None
             else self.artifacts.train
         )
+
         return interactions is not None and settings.TIME_COL in interactions.columns
 
     @property
@@ -373,21 +406,22 @@ class ElearningDataModule(L.LightningDataModule):
 
     @property
     def sparsity(self) -> float:
-        return (
-            0.0
-            if self.num_users == 0 or self.num_items == 0
-            else 1 - self.num_interactions / (self.num_users * self.num_items)
-        )
+        if self.num_users == 0 or self.num_items == 0:
+            return 0.0
+
+        return 1 - (self.num_interactions / (self.num_users * self.num_items))
 
     @property
     def num_user_feats(self) -> int:
-        metadata = self.data_processor.feature_metadata.get("users")
+        metadata = self.data_processor.feature_metadata["users"]
+
         if metadata is not None:
             return (
-                len(metadata.dense_cols)
+                len(metadata.numeric_cols)
                 + len(metadata.text_embedding_cols)
                 + len(metadata.categorical_cols)
             )
+
         if self.raw_dataset is not None:
             return len(
                 [
@@ -396,17 +430,20 @@ class ElearningDataModule(L.LightningDataModule):
                     if col != settings.USER_COL
                 ]
             )
+
         return 0
 
     @property
     def num_item_feats(self) -> int:
-        metadata = self.data_processor.feature_metadata.get("items")
+        metadata = self.data_processor.feature_metadata["items"]
+
         if metadata is not None:
             return (
-                len(metadata.dense_cols)
+                len(metadata.numeric_cols)
                 + len(metadata.text_embedding_cols)
                 + len(metadata.categorical_cols)
             )
+
         if self.raw_dataset is not None:
             return len(
                 [
@@ -415,50 +452,59 @@ class ElearningDataModule(L.LightningDataModule):
                     if col != settings.ITEM_COL
                 ]
             )
+
         return 0
 
     @property
     def num_user_dense_feats(self) -> int:
-        metadata = self.data_processor.feature_metadata.get("users")
+        metadata = self.data_processor.feature_metadata["users"]
+
         return (
             0
             if metadata is None
-            else len(metadata.dense_cols) + len(metadata.text_embedding_cols)
+            else (len(metadata.numeric_cols) + len(metadata.text_embedding_cols))
         )
 
     @property
     def num_item_dense_feats(self) -> int:
-        metadata = self.data_processor.feature_metadata.get("items")
+        metadata = self.data_processor.feature_metadata["items"]
+
         return (
             0
             if metadata is None
-            else len(metadata.dense_cols) + len(metadata.text_embedding_cols)
+            else (len(metadata.numeric_cols) + len(metadata.text_embedding_cols))
         )
 
     @property
     def num_user_text_feats(self) -> int:
-        metadata = self.data_processor.feature_metadata.get("users")
+        metadata = self.data_processor.feature_metadata["users"]
+
         return 0 if metadata is None else len(metadata.text_embedding_cols)
 
     @property
     def num_item_text_feats(self) -> int:
-        metadata = self.data_processor.feature_metadata.get("items")
+        metadata = self.data_processor.feature_metadata["items"]
+
         return 0 if metadata is None else len(metadata.text_embedding_cols)
 
     @property
     def user_cat_cardinalities(self) -> list[int]:
-        metadata = self.data_processor.feature_metadata.get("users")
+        metadata = self.data_processor.feature_metadata["users"]
+
         if metadata is None:
             return []
+
         return [
             metadata.categorical_cardinalities[col] for col in metadata.categorical_cols
         ]
 
     @property
     def item_cat_cardinalities(self) -> list[int]:
-        metadata = self.data_processor.feature_metadata.get("items")
+        metadata = self.data_processor.feature_metadata["items"]
+
         if metadata is None:
             return []
+
         return [
             metadata.categorical_cardinalities[col] for col in metadata.categorical_cols
         ]

@@ -1,151 +1,233 @@
-import re
-from collections.abc import Iterator
-
+import numpy as np
 import pandas as pd
 import torch
 from torch_geometric.data import HeteroData
+from torch_geometric.transforms import ToUndirected
+from torch_geometric.utils import coalesce, remove_self_loops
 
 from .. import settings
-from .dataprocessor import DataProcessor
+from .dataprocessor import DataProcessor, _coerce_list_tokens, _is_missing
 
 EdgeType = tuple[str, str, str]
 
-_INTERACTION_EDGE: EdgeType = ("user", "interacts", "item")
-_NODE_PREFIXES = (("users", "user"), ("items", "item"))
-
-# Characters allowed in MLflow parameter keys. Runs of any other character
-# (including ``%`` and ``_``) collapse into a single underscore, which also
-# keeps node types free of the double underscores PyG warns about.
-_INVALID_NAME_CHARS = re.compile(r"[^0-9A-Za-z.:/-]+")
+_ENTITIES = (
+    ("users", "user", settings.USER_COL),
+    ("items", "item", settings.ITEM_COL),
+)
 
 
-def _escape_attribute_name(col: str) -> str:
-    """Sanitize an attribute column name for use as a PyG/MLflow type name."""
-    return _INVALID_NAME_CHARS.sub("_", col)
-
-
-def _edge_pair(edge: EdgeType) -> tuple[EdgeType, EdgeType]:
-    source, relation, target = edge
-    return edge, (target, f"rev_{relation}", source)
-
-
-def _add_edge_pair(
-    graph: HeteroData,
-    edge: EdgeType,
-    sources: torch.Tensor,
-    targets: torch.Tensor,
-) -> None:
-    forward, reverse = _edge_pair(edge)
-    graph[forward].edge_index = torch.stack([sources, targets])
-    graph[reverse].edge_index = torch.stack([targets, sources])
-
-
-def knowledge_graph_metadata(
-    processor: DataProcessor,
-) -> tuple[dict[str, int], list[EdgeType]]:
-    """Return attribute node counts and typed edges for a fitted processor.
-
-    This only inspects the preprocessing metadata, so it can be used to build a
-    model configuration without materializing the graph tensors.
-    """
-    node_counts: dict[str, int] = {}
-    edge_types: list[EdgeType] = list(_edge_pair(_INTERACTION_EDGE))
-
-    for prefix, node_prefix in _NODE_PREFIXES:
-        for node_type, relation, count, _, _ in _attribute_nodes(
-            processor, prefix, node_prefix
-        ):
-            node_counts[node_type] = count
-            edge_types.extend(_edge_pair((node_prefix, relation, node_type)))
-
-    return node_counts, edge_types
-
-
-def _attribute_nodes(
-    processor: DataProcessor,
-    prefix: str,
-    node_prefix: str,
-) -> Iterator[tuple[str, str, int, tuple[int, ...], bool]]:
-    """Yield ``(node_type, relation, count, columns, is_list)`` per attribute.
-
-    ``columns`` indexes the static feature tensor: a single ordinal-code column
-    for categorical attributes and the one-hot columns for list attributes.
-    """
-    metadata = processor.feature_metadata.get(prefix)
-    if metadata is None:
-        return
-
-    cat_offset = len(metadata.dense_cols) + len(metadata.text_embedding_cols)
-    for local_idx, col in enumerate(metadata.categorical_cols):
-        count = metadata.categorical_cardinalities.get(col, 0) - 1
-        if count <= 0:
-            continue
-        name = _escape_attribute_name(col)
-        yield (
-            f"{node_prefix}::{name}",
-            f"has::{name}",
-            count,
-            (cat_offset + local_idx,),
-            False,
-        )
-
-    for col in processor.column_groups.get(prefix, {}).get("list", []):
-        columns = tuple(
-            idx
-            for idx, name in enumerate(metadata.dense_cols)
-            if name.startswith(f"list__{col}__")
-        )
-        if not columns:
-            continue
-        name = _escape_attribute_name(col)
-        yield (
-            f"{node_prefix}::list::{name}",
-            f"has::{name}",
-            len(columns),
-            columns,
-            True,
-        )
-
-
-def add_interaction_edges(
-    graph: HeteroData,
+def build_knowledge_graph(
     interactions: pd.DataFrame,
-) -> None:
+    user_frame: pd.DataFrame,
+    item_frame: pd.DataFrame,
+    user_feats: torch.Tensor,
+    item_feats: torch.Tensor,
+    processor: DataProcessor,
+) -> HeteroData:
+    """Build the heterogeneous knowledge graph from already-processed data.
+
+    Nodes are users, items and one attribute node type per categorical or
+    list-valued field (``attr::<field>``). Attribute node types are shared
+    across users and items when the field name matches. Extra relations are
+    declared in the dataset schema (``refs`` and ``cooc``) and resolved by the
+    same row-wise primitive. PyG handles reverse edges and edge cleanup.
+    """
+    data = HeteroData()
+    data["user"].x = user_feats
+    data["item"].x = item_feats
+
+    frames = {"users": user_frame, "items": item_frame}
+    node_ids = _node_ids(frames, processor)
+
+    _add_interaction_edges(data, interactions)
+    vocab = _add_attribute_edges(data, frames, node_ids, processor)
+    _add_reference_edges(data, frames, node_ids, processor)
+    _add_cooccurrence_edges(data, frames, node_ids, processor, vocab)
+
+    _clean_edges(data)
+    return ToUndirected()(data)
+
+
+def _node_ids(
+    frames: dict[str, pd.DataFrame],
+    processor: DataProcessor,
+) -> dict[str, pd.Series]:
+    id_cols = {"users": settings.USER_COL, "items": settings.ITEM_COL}
+    id_maps = {"users": processor.user_id_map, "items": processor.item_id_map}
+    return {
+        prefix: frames[prefix][id_cols[prefix]].map(id_maps[prefix])
+        for prefix in frames
+    }
+
+
+def _add_interaction_edges(data: HeteroData, interactions: pd.DataFrame) -> None:
     if settings.RELEVANT_COL in interactions.columns:
         interactions = interactions.loc[interactions[settings.RELEVANT_COL] > 0]
 
-    user_ids = torch.as_tensor(
-        interactions[settings.USER_COL].to_numpy(dtype="int64"), dtype=torch.long
+    users = interactions[settings.USER_COL].to_numpy(dtype=np.int64)
+    items = interactions[settings.ITEM_COL].to_numpy(dtype=np.int64)
+    valid = (users >= 0) & (items >= 0)
+    if not valid.any():
+        return
+
+    data["user", "interacts", "item"].edge_index = torch.as_tensor(
+        np.stack([users[valid], items[valid]]), dtype=torch.long
     )
-    item_ids = torch.as_tensor(
-        interactions[settings.ITEM_COL].to_numpy(dtype="int64"), dtype=torch.long
-    )
-    valid = (user_ids >= 0) & (item_ids >= 0)
-    user_ids, item_ids = user_ids[valid], item_ids[valid]
-
-    _add_edge_pair(graph, _INTERACTION_EDGE, user_ids, item_ids)
 
 
-def add_attribute_edges(
-    graph: HeteroData,
+def _field_kinds(processor: DataProcessor) -> dict[str, bool]:
+    """Map every user/item feature field to whether it is list-valued."""
+    kinds: dict[str, bool] = {}
+    for prefix, _, _ in _ENTITIES:
+        groups = processor.column_groups.get(prefix, {})
+        for col in groups.get("categorical", []):
+            kinds.setdefault(col, False)
+        for col in groups.get("list", []):
+            kinds[col] = True
+    return kinds
+
+
+def _add_attribute_edges(
+    data: HeteroData,
+    frames: dict[str, pd.DataFrame],
+    node_ids: dict[str, pd.Series],
     processor: DataProcessor,
-    prefix: str,
-    node_prefix: str,
-    feats: torch.Tensor,
+) -> dict[str, dict[str, int]]:
+    """Create one attribute node type per field and return its vocabulary."""
+    vocab: dict[str, dict[str, int]] = {}
+
+    for field, is_list in _field_kinds(processor).items():
+        rows: list[pd.DataFrame] = []
+        for prefix, node_type, _ in _ENTITIES:
+            groups = processor.column_groups.get(prefix, {})
+            if field not in groups.get("categorical", []) and field not in groups.get(
+                "list", []
+            ):
+                continue
+
+            tokens = frames[prefix][field].map(
+                _coerce_list_tokens if is_list else _single_token
+            )
+            long = pd.DataFrame(
+                {
+                    "entity": node_type,
+                    "node": node_ids[prefix].to_numpy(),
+                    "token": tokens.to_numpy(),
+                }
+            )
+            rows.append(long)
+
+        if not rows:
+            continue
+
+        long = pd.concat(rows, ignore_index=True)
+        long = long.explode("token").dropna(subset=["token", "node"])
+        long = long.loc[long["node"] >= 0].reset_index(drop=True)
+        long["token"] = long["token"].astype(str).str.strip()
+        long = long.loc[long["token"] != ""].reset_index(drop=True)
+        if long.empty:
+            continue
+
+        codes, uniques = pd.factorize(long["token"].to_numpy(), sort=True)
+        vocab[field] = {str(token): idx for idx, token in enumerate(uniques)}
+
+        attr_node = f"attr::{field}"
+        data[attr_node].num_nodes = len(uniques)
+        for entity in ("user", "item"):
+            mask = (long["entity"] == entity).to_numpy()
+            if not mask.any():
+                continue
+            data[entity, f"has::{field}", attr_node].edge_index = torch.as_tensor(
+                np.stack([long["node"].to_numpy()[mask], codes[mask]]),
+                dtype=torch.long,
+            )
+
+    return vocab
+
+
+def _add_reference_edges(
+    data: HeteroData,
+    frames: dict[str, pd.DataFrame],
+    node_ids: dict[str, pd.Series],
+    processor: DataProcessor,
 ) -> None:
-    rows = torch.arange(feats.shape[0], device=feats.device)
+    for prefix, node_type, _ in _ENTITIES:
+        for field, target_field in processor.schema.get(prefix, {}).get("refs", {}).items():
+            frame = frames[prefix]
+            if field not in frame.columns or target_field not in frame.columns:
+                continue
 
-    for node_type, relation, count, columns, is_list in _attribute_nodes(
-        processor, prefix, node_prefix
-    ):
-        graph[node_type].num_nodes = count
-        if is_list:
-            present = feats[:, list(columns)] > 0.5
-            sources, targets = torch.nonzero(present, as_tuple=True)
-        else:
-            (column,) = columns
-            targets = feats[:, column].long()
-            valid = targets >= 0
-            sources, targets = rows[valid], targets[valid]
+            lookup: dict[str, int] = {}
+            for value, node in zip(frame[target_field], node_ids[prefix]):
+                key = _normalize_label(value)
+                if key and not pd.isna(node):
+                    lookup.setdefault(key, int(node))
 
-        _add_edge_pair(graph, (node_prefix, relation, node_type), sources, targets)
+            sources: list[int] = []
+            targets: list[int] = []
+            for node, value in zip(node_ids[prefix], frame[field]):
+                if pd.isna(node) or node < 0:
+                    continue
+                for token in _coerce_list_tokens(value):
+                    target = lookup.get(_normalize_label(token))
+                    if target is not None:
+                        sources.append(int(node))
+                        targets.append(target)
+
+            if sources:
+                data[node_type, f"ref::{field}", node_type].edge_index = torch.as_tensor(
+                    np.stack([sources, targets]), dtype=torch.long
+                )
+
+
+def _add_cooccurrence_edges(
+    data: HeteroData,
+    frames: dict[str, pd.DataFrame],
+    node_ids: dict[str, pd.Series],
+    processor: DataProcessor,
+    vocab: dict[str, dict[str, int]],
+) -> None:
+    for prefix, _, _ in _ENTITIES:
+        for left, right in processor.schema.get(prefix, {}).get("cooc", []):
+            if left not in vocab or right not in vocab:
+                continue
+
+            frame = frames[prefix]
+            left_codes = _row_codes(frame[left], vocab[left])
+            right_codes = _row_codes(frame[right], vocab[right])
+            rows = node_ids[prefix].to_numpy()
+            valid = (left_codes >= 0) & (right_codes >= 0) & (rows >= 0)
+            if not valid.any():
+                continue
+
+            data[f"attr::{left}", f"cooc::{left}::{right}", f"attr::{right}"].edge_index = (
+                torch.as_tensor(
+                    np.stack([left_codes[valid], right_codes[valid]]),
+                    dtype=torch.long,
+                )
+            )
+
+
+def _row_codes(values: pd.Series, vocab: dict[str, int]) -> np.ndarray:
+    return np.array(
+        [vocab.get(_normalize_label(value), -1) for value in values], dtype=np.int64
+    )
+
+
+def _clean_edges(data: HeteroData) -> None:
+    for edge_type in list(data.edge_types):
+        edge_index, _ = remove_self_loops(data[edge_type].edge_index)
+        data[edge_type].edge_index = coalesce(edge_index)
+
+
+def _single_token(value: object) -> list[str]:
+    if _is_missing(value):
+        return []
+    return [str(value).strip()]
+
+
+def _normalize_label(value: object) -> str:
+    if _is_missing(value):
+        return ""
+    text = str(value).strip().strip("\"'").strip().lower()
+    return " ".join(text.split())

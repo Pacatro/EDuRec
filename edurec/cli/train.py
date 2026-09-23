@@ -189,7 +189,7 @@ def train(
         recsys = RecSys(
             cfg=cfg,
             model=KGRNN(cfg),
-            knowledge_graph=dm.build_knowledge_graph(),
+            knowledge_graph=dm.knowledge_graph,
             u_static_feats=dm.u_static_feats,
             i_static_feats=dm.i_static_feats,
             train_cfg=train_cfg,
