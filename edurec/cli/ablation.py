@@ -199,10 +199,8 @@ def run_ablation(
                     "variant": variant,
                     "seed": seed,
                     "applicable": int(applicable),
-                    **{
-                        f"module_{name}": int(enabled)
-                        for name, enabled in cfg.available_modules.items()
-                    },
+                    "module_graph": int(cfg.graph_mode == "kg"),
+                    "module_sequence": int(cfg.uses_sequence),
                     "graph_mode": cfg.graph_mode,
                     "scorer_type": cfg.scorer_type,
                     "use_text_features": int(cfg.use_text_features),

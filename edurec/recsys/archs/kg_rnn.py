@@ -23,12 +23,8 @@ class KGRNN(nn.Module):
         super().__init__()
         self.cfg = cfg
 
-        available = cfg.available_modules
-
         self.kg = KGEncoder(cfg.kg_encoder)
-        self.sequence_encoder = (
-            SeqEncoder(cfg.seq_encoder) if available["sequence"] else None
-        )
+        self.sequence_encoder = SeqEncoder(cfg.seq_encoder)
 
         self.item_bias = (
             nn.Parameter(torch.zeros(cfg.num_items)) if cfg.use_item_bias else None
@@ -51,11 +47,8 @@ class KGRNN(nn.Module):
         user_graph, item_emb = self.kg(edge_index, user_feats, item_feats)
         user_emb = user_graph[u_ids]
 
-        if self.sequence_encoder is not None:
-            padded = torch.cat([item_emb.new_zeros(1, item_emb.size(1)), item_emb])
-            hist = padded[h_ids.clamp(min=0)]
-            seq_user = self.sequence_encoder(hist, h_mask)
-            user_emb = torch.cat([user_emb, seq_user], dim=-1)
+        seq_user = self._sequence_embedding(item_emb, h_ids, h_mask)
+        user_emb = torch.cat([user_emb, seq_user], dim=-1)
 
         scores = self.scorer(user_emb, item_emb, item_ids=candidate_item_ids)
 
@@ -66,3 +59,17 @@ class KGRNN(nn.Module):
                 scores = scores + self.item_bias
 
         return scores
+
+    def _sequence_embedding(
+        self,
+        item_emb: torch.Tensor,
+        h_ids: torch.Tensor,
+        h_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """Encode history, returning zeros when the sequence module is disabled."""
+        if not self.cfg.uses_sequence:
+            return item_emb.new_zeros(h_ids.size(0), self.cfg.emb_dim)
+
+        padded = torch.cat([item_emb.new_zeros(1, item_emb.size(1)), item_emb])
+        hist = padded[h_ids.clamp(min=0)]
+        return self.sequence_encoder(hist, h_mask)

@@ -63,17 +63,15 @@ def build_config(
 
 def print_model_modules(prefix: str, cfg: ModelConfig) -> None:
     """Print the effective model modules in a compact form."""
-    modules = ", ".join(
-        f"{name}={'ON' if enabled else 'OFF'}"
-        for name, enabled in cfg.available_modules.items()
-    )
+    graph = "ON" if cfg.graph_mode == "kg" else "OFF"
+    sequence = "ON" if cfg.uses_sequence else "OFF"
     options = (
         f"text={'ON' if cfg.use_text_features else 'OFF'}, "
         f"scorer={cfg.scorer_type}, "
         f"gcl={'ON' if cfg.use_gcl else 'OFF'}, "
         f"item_bias={'ON' if cfg.use_item_bias else 'OFF'}"
     )
-    print(f"[{prefix}] Model modules: {modules}, {options}")
+    print(f"[{prefix}] Model modules: graph={graph}, sequence={sequence}, {options}")
 
 
 def print_data_summary(prefix: str, dm: ElearningDataModule) -> None:

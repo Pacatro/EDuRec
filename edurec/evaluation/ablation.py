@@ -70,6 +70,6 @@ def ablation_applicable(base_cfg: ModelConfig, variant: str) -> bool:
     if variant == "no_text":
         return full.num_user_text_feats > 0 or full.num_item_text_feats > 0
     if variant == "no_sequence":
-        return full.available_modules["sequence"]
+        return full.uses_sequence
 
-    return full.available_modules != candidate.available_modules
+    return full != candidate

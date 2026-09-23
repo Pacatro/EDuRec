@@ -50,26 +50,22 @@ class KGEncoder(nn.Module):
         self.input_norm = nn.LayerNorm(cfg.emb_dim)
         self.output_norm = nn.LayerNorm(cfg.emb_dim)
 
-        if cfg.graph_mode == "kg":
-            self.attr_embs = nn.ModuleDict(
+        self.attr_embs = nn.ModuleDict(
+            {
+                node_type: nn.Embedding(count, cfg.emb_dim)
+                for node_type, count in cfg.node_counts.items()
+            }
+        )
+        self.convs = nn.ModuleList(
+            HeteroConv(
                 {
-                    node_type: nn.Embedding(count, cfg.emb_dim)
-                    for node_type, count in cfg.node_counts.items()
-                }
+                    edge_type: SAGEConv(cfg.emb_dim, cfg.emb_dim)
+                    for edge_type in cfg.edge_types
+                },
+                aggr="sum",
             )
-            self.convs = nn.ModuleList(
-                HeteroConv(
-                    {
-                        edge_type: SAGEConv(cfg.emb_dim, cfg.emb_dim)
-                        for edge_type in cfg.edge_types
-                    },
-                    aggr="sum",
-                )
-                for _ in range(cfg.num_layers)
-            )
-        else:
-            self.attr_embs = nn.ModuleDict()
-            self.convs = None
+            for _ in range(cfg.num_layers)
+        )
 
     def forward(
         self,
@@ -92,7 +88,7 @@ class KGEncoder(nn.Module):
 
         x = {node_type: self.input_norm(value) for node_type, value in x.items()}
 
-        if self.convs is not None:
+        if self.cfg.graph_mode == "kg":
             for conv in self.convs:
                 out = conv(x, edge_index)
                 x = {

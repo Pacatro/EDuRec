@@ -104,21 +104,15 @@ class ModelConfig(BaseConfig):
         return self.num_item_dense_feats - self.num_item_text_feats
 
     @property
-    def available_modules(self) -> dict[str, bool]:
-        """Effective modules after combining dataset availability and ablations."""
-        return {
-            "graph": self.graph_mode in {"kg", "id"},
-            "sequence": self.use_seq_encoder and self.has_history,
-        }
+    def uses_sequence(self) -> bool:
+        """Whether the sequential history encoder contributes to user reps."""
+        return self.use_seq_encoder and self.has_history
 
     @property
     def kg_encoder(self) -> KGEncoderConfig:
-        use_kg = self.graph_mode == "kg"
-        edge_types: list[EdgeType] = (
-            [(edge[0], edge[1], edge[2]) for edge in self.kg_edge_types]
-            if use_kg
-            else []
-        )
+        edge_types: list[EdgeType] = [
+            (edge[0], edge[1], edge[2]) for edge in self.kg_edge_types
+        ]
         return KGEncoderConfig(
             num_users=self.num_users,
             num_items=self.num_items,
@@ -126,7 +120,7 @@ class ModelConfig(BaseConfig):
             user_feat_dim=self.effective_user_dense_feats,
             item_feat_dim=self.effective_item_dense_feats,
             num_layers=self.gnn_layers,
-            node_counts=dict(self.kg_node_counts) if use_kg else {},
+            node_counts=dict(self.kg_node_counts),
             edge_types=edge_types,
             graph_mode=self.graph_mode,
         )
@@ -145,7 +139,7 @@ class ModelConfig(BaseConfig):
     def scorer(self) -> ScorerConfig:
         return ScorerConfig(
             emb_dim=self.emb_dim,
-            num_user_sources=1 + int(self.available_modules["sequence"]),
+            num_user_sources=2,
             hidden_dims=self.hidden_dims,
             dropout=self.dropout,
             scorer_type=self.scorer_type,
