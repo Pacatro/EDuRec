@@ -7,8 +7,8 @@ gru_hidden_dim: 256
 gru_layers: 2
 has_history: true
 hidden_dims:
-- 256
-- 128
+  - 256
+  - 128
 kg_edge_types: []
 kg_node_counts: {}
 loss_reduction: mean
@@ -25,3 +25,4 @@ use_item_bias: false
 use_seq_encoder: true
 use_text_features: true
 seq_cell: lstm
+

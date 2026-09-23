@@ -7,8 +7,8 @@ gru_hidden_dim: 128
 gru_layers: 2
 has_history: false
 hidden_dims:
-- 512
-- 256
+  - 512
+  - 256
 kg_edge_types: []
 kg_node_counts: {}
 loss_reduction: mean
