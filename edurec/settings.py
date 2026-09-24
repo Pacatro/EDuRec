@@ -89,7 +89,7 @@ PREPROCESS_FEATURE_TYPES: tuple[str, ...] = (
     "list",
     "time",
 )
-TEXT_EMBEDDING_MODEL: str = "paraphrase-MiniLM-L3-v2"
+TEXT_EMBEDDING_MODEL: str = "intfloat/multilingual-e5-small"
 TEXT_EMBEDDING_DIM: int = 384
 TEXT_EMBEDDING_BATCH_SIZE: int = 32
 TEXT_MAX_TOKENS: int = 256
@@ -113,7 +113,7 @@ EMB_DIM: int = 128
 # Training
 LR: float = 2e-4
 WEIGHT_DECAY: float = 1e-4
-BATCH_SIZE: int = 128
+BATCH_SIZE: int = 256
 PATIENCE: int = 5
 TOP_K: int = 20
 EPOCHS: int = 150
@@ -123,7 +123,7 @@ VAL_RATIO: float = 0.1
 TEST_RATIO: float = 0.2
 SAVE_DATA: bool = False
 ADAPTIVE_K: bool = False
-LOSS_ALPHA: float = 0.05
+LOSS_ALPHA: float = 0.5
 COMPILE_MODEL: bool = False
 TOP_KS: list[int] = [5, 10, 20]
 
