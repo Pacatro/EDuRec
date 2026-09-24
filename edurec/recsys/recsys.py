@@ -146,7 +146,6 @@ class RecSys(L.LightningModule):
             rank_loss = F.cross_entropy(scores, batch.target_item_id.reshape(-1).long())
 
         use_gcl = prefix == "train" and self.cfg.use_gcl and self.cfg.graph_mode == "kg"
-        use_gcl = False
         gcl_loss = self._compute_gcl_loss(batch) if use_gcl else rank_loss.new_zeros(())
         loss = rank_loss + self.alpha * gcl_loss
 
@@ -163,11 +162,11 @@ class RecSys(L.LightningModule):
             self.log(
                 "train/GclLoss",
                 gcl_loss.detach(),
-                on_step=True,
+                on_step=self.cfg.use_gcl,
                 on_epoch=False,
-                prog_bar=True,
-                logger=True,
-                sync_dist=True,
+                prog_bar=self.cfg.use_gcl,
+                logger=self.cfg.use_gcl,
+                sync_dist=self.cfg.use_gcl,
             )
             self.log(
                 "train/Loss",
