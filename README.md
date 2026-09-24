@@ -237,17 +237,19 @@ model configuration (or the `--arch` CLI flag):
 
 The sections below describe the modules shared by both architectures.
 
-- **Knowledge-graph encoder**: a heterogeneous graph is derived from each
-  dataset schema. Users and items are nodes, and every categorical or
-  list-valued metadata field becomes an attribute node type, connected through
-  typed edges (interaction, `has::<field>` and their reverses). Fields with the
-  same name share attribute nodes across users and items. Extra relations are
-  declared per dataset in the schema and resolved by the same generic builder:
-  `refs` links fields whose values name another entity (for example DORIS
-  course prerequisites) and `cooc` links two attributes that co-occur in a row
-  (for example COCO category levels). Reverse edges and edge cleanup are
-  delegated to PyTorch Geometric. Numeric and text embeddings initialize the
-  user and item nodes, so no separate user/item feature encoders are needed.
+- **Knowledge-graph encoder**: a heterogeneous item-item graph is derived from
+  each dataset schema. Items are nodes, and every categorical or list-valued
+  item field becomes an attribute node type. Each item connects to its
+  attribute values through an edge named after the field, so items that share
+  an attribute value become neighbours through that shared attribute node.
+  User-item interactions are not modeled. Extra relations are declared per
+  dataset in the schema and resolved by the same generic builder: `refs` links
+  fields whose values name another entity (for example DORIS course
+  prerequisites) and `cooc` links two attributes that co-occur in a row (for
+  example COCO category levels). Reverse edges and edge cleanup are delegated
+  to PyTorch Geometric. Numeric and text embeddings initialize the item nodes,
+  while user representations still come from learned identifier embeddings and
+  their feature projections, so no separate item feature encoder is needed.
 - **Sequential encoder**: a GRU encodes each user's recent item history.
 - **Interaction context**: interaction-level metadata is encoded
   independently and consumed by the scorer.

@@ -234,20 +234,11 @@ class ElearningDataModule(L.LightningDataModule):
         if self._knowledge_graph is None:
             artifacts = self.artifacts
 
-            if (
-                artifacts.train is None
-                or artifacts.u_static_feats is None
-                or artifacts.i_static_feats is None
-                or artifacts.user_features is None
-                or artifacts.item_features is None
-            ):
-                raise RuntimeError("Knowledge graph requires training data.")
+            if artifacts.i_static_feats is None or artifacts.item_features is None:
+                raise RuntimeError("Knowledge graph requires item data.")
 
             self._knowledge_graph = build_knowledge_graph(
-                artifacts.train,
-                artifacts.user_features,
                 artifacts.item_features,
-                artifacts.u_static_feats,
                 artifacts.i_static_feats,
                 self.data_processor,
             )
