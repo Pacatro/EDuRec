@@ -1,7 +1,7 @@
 import ast
 import re
 from dataclasses import dataclass, field
-from functools import lru_cache
+from functools import cache
 from html import unescape
 from pathlib import Path
 from typing import Any, Self
@@ -221,7 +221,7 @@ class DataProcessor:
         text_cols: list[str],
     ) -> FeatureMetadata:
         metadata = FeatureMetadata(
-            numeric_cols=list(numeric_cols),
+            numeric_cols=numeric_cols,
             categorical_cols=categorical_cols,
             text_embedding_cols=text_cols,
         )
@@ -417,8 +417,7 @@ class DataProcessor:
                 cleaned = _clean_text(value)
                 if cleaned:
                     parts.append(f"{col}: {cleaned}")
-            tokens = " [SEP] ".join(parts).split()
-            docs.append(" ".join(tokens[: self.text_max_tokens]))
+            docs.append(" [SEP] ".join(parts))
 
         model = _get_sentence_embedding_model(self.text_embedding_model)
         if hasattr(model, "max_seq_length"):
@@ -496,7 +495,7 @@ def _build_id_map(*series_list: pd.Series) -> dict[object, int]:
     return {value: idx for idx, value in enumerate(values.tolist())}
 
 
-@lru_cache(maxsize=None)
+@cache
 def _get_sentence_embedding_model(model_name: str):
     try:
         from sentence_transformers import SentenceTransformer
