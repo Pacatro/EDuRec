@@ -21,10 +21,7 @@ def build_ranking_metrics(
     metrics = {}
     for k in topks:
         common = {"top_k": k, "empty_target_action": "neg", "aggregation": "mean"}
-        metrics[f"precision@{k}"] = RetrievalPrecision(
-            **common,
-            adaptive_k=adaptive_k,
-        )
+        metrics[f"precision@{k}"] = RetrievalPrecision(**common, adaptive_k=adaptive_k)
         metrics[f"recall@{k}"] = RetrievalRecall(**common)
         metrics[f"ndcg@{k}"] = RetrievalNormalizedDCG(**common)
         metrics[f"hit@{k}"] = RetrievalHitRate(**common)
@@ -81,14 +78,7 @@ def update_ranking_metrics(
         target_item_ids=target_item_ids,
     )
 
-    _, top_item_ids = torch.topk(
-        eval_scores,
-        k=max_k,
-        dim=1,
-        largest=True,
-        sorted=True,
-    )
-
+    _, top_item_ids = torch.topk(eval_scores, k=max_k, dim=1, largest=True, sorted=True)
     top_targets = top_item_ids.eq(target_item_ids.unsqueeze(1))
     indexes = query_ids.unsqueeze(1).expand_as(top_item_ids)
 
@@ -135,10 +125,7 @@ def mask_seen_items(
     )
 
     target_scores = masked_scores.gather(1, target_item_ids.unsqueeze(1))
-    masked_scores[
-        batch_indexes[valid_history],
-        history_ids[valid_history],
-    ] = -torch.inf
+    masked_scores[batch_indexes[valid_history], history_ids[valid_history]] = -torch.inf
     masked_scores.scatter_(1, target_item_ids.unsqueeze(1), target_scores)
 
     return masked_scores
