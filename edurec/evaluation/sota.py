@@ -72,8 +72,6 @@ def eval_sota_models(
 
     base_config = _build_config_dict(
         data_root=atomic_dataset_dir.parent,
-        atomic_dataset_dir=atomic_dataset_dir,
-        dataset_name=dataset_name,
         epochs=epochs,
         batch_size=batch_size,
         lr=lr,
@@ -472,8 +470,6 @@ def _negative_sampling_config(input_type: InputType | None) -> dict[str, object]
 
 def _build_config_dict(
     data_root: Path,
-    atomic_dataset_dir: Path,
-    dataset_name: str,
     epochs: int,
     batch_size: int,
     lr: float,
@@ -481,14 +477,16 @@ def _build_config_dict(
     topks: list[int],
     show_progress: bool = False,
 ) -> dict[str, object]:
-    """Build the common RecBole configuration."""
+    """Build the common RecBole configuration.
+
+    Only identifier fields are loaded because none of the supported SOTA models
+    consume user or item side features. Sequential models replace the
+    interaction columns with the item history list.
+    """
     load_col: dict[str, list[str]] = {
-        "inter": [
-            settings.USER_COL,
-            settings.ITEM_COL,
-        ],
-        "user": _field_names(atomic_dataset_dir / f"{dataset_name}.user"),
-        "item": _field_names(atomic_dataset_dir / f"{dataset_name}.item"),
+        "inter": [settings.USER_COL, settings.ITEM_COL],
+        "user": [settings.USER_COL],
+        "item": [settings.ITEM_COL],
     }
 
     return {
@@ -527,9 +525,3 @@ def _build_config_dict(
         "state": "info" if show_progress else "error",
         "log_wandb": False,
     }
-
-
-def _field_names(path: Path) -> list[str]:
-    """Read field names from a RecBole atomic file."""
-    columns = pd.read_csv(path, sep="\t", nrows=0).columns
-    return [column.split(":", maxsplit=1)[0] for column in columns]
