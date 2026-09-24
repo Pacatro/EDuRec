@@ -1,7 +1,7 @@
 from dataclasses import replace
 from typing import Any
 
-from ..recsys.configs import ModelConfig
+from ..recsys.configs import ModelArch, ModelConfig
 
 BASE_ABLATION: dict[str, Any] = {
     "graph_mode": "id",
@@ -55,11 +55,15 @@ def ablation_applicable(base_cfg: ModelConfig, variant: str) -> bool:
     ``no_sequence`` on a dataset without history) would otherwise be silently
     identical to ``full`` and report a meaningless zero importance.
     """
+    candidate = get_ablation_config(base_cfg, variant)
+
+    if candidate.arch == ModelArch.KG_SEQ and not candidate.uses_sequence:
+        return False
+
     if variant in {"base", "full", "dot_product"}:
         return True
 
     full = get_ablation_config(base_cfg, "full")
-    candidate = get_ablation_config(base_cfg, variant)
 
     if variant == "no_graph":
         return full.graph_mode == "kg"

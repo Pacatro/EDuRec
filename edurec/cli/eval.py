@@ -8,7 +8,8 @@ import typer
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
 from ..evaluation import eval_model, eval_sota_models
-from ..recsys import ModelConfig
+from ..recsys import ModelArch, ModelConfig
+from ..recsys.archs import ARCH_LABELS
 from ..recsys.configs import monitor_topk, resolve_train_config
 from ..recsys.ranking import EVALUATION_PROTOCOL
 from .utils import (
@@ -40,8 +41,8 @@ def _save_seed_results(results: pd.DataFrame, dataset_root: Path, seed: int) -> 
         pd.DataFrame([row]).to_csv(path, index=False)
 
 
-def _target_models(sota_models: list[str]) -> list[str]:
-    return list(dict.fromkeys(["KGRNN", *sota_models]))
+def _target_models(sota_models: list[str], proposed_label: str) -> list[str]:
+    return list(dict.fromkeys([proposed_label, *sota_models]))
 
 
 def _load_seed_result(
@@ -126,6 +127,14 @@ def eval_models(
     dataset: Annotated[
         DatasetName | None,
         typer.Option("--dataset", "-d", help="Dataset to use."),
+    ] = None,
+    arch: Annotated[
+        ModelArch | None,
+        typer.Option(
+            "--arch",
+            "-A",
+            help="Proposed model architecture to evaluate. Defaults to kg_rnn.",
+        ),
     ] = None,
     seeds: Annotated[
         str,
@@ -259,17 +268,19 @@ def eval_models(
     parsed_seeds = parse_seeds(seeds)
     if only_proposed:
         sota_models = []
+    resolved_arch = arch if arch is not None else ModelArch.KG_RNN
+    proposed_label = ARCH_LABELS[resolved_arch.value]
     val_ratio = settings.VAL_RATIO
     test_ratio = settings.TEST_RATIO
     verbose = settings.state["verbose"]
 
     datasets = datasets_to_run(dataset)
 
-    models = _target_models(sota_models)
+    models = _target_models(sota_models, proposed_label)
 
     print("\n[EVAL] Evaluation run")
     print(f"[EVAL] Datasets: {', '.join(ds.value for ds in datasets)}")
-    print(f"[EVAL] Models: KGRNN + {len(sota_models)} SOTA")
+    print(f"[EVAL] Models: {proposed_label} + {len(sota_models)} SOTA")
     print(f"[EVAL] Seeds: {', '.join(str(seed) for seed in parsed_seeds)}")
     print(f"[EVAL] Results folder: {output_dir}")
     print(f"[EVAL] Configs folder: {configs_folder}\n")
@@ -279,7 +290,9 @@ def eval_models(
         dataset_root = output_dir / run_name
         dataset_root.mkdir(parents=True, exist_ok=True)
         dataset_started_at = datetime.datetime.now(datetime.UTC)
-        model_config_path, train_config_path = config_paths(configs_folder, run_name)
+        model_config_path, train_config_path = config_paths(
+            configs_folder, run_name, resolved_arch
+        )
         train_cfg = resolve_train_config(
             cli={
                 "epochs": epochs,
@@ -294,19 +307,21 @@ def eval_models(
         )
         val_topk = monitor_topk(None, train_cfg)
         pending_by_seed = _pending_models_by_seed(dataset_root, models, parsed_seeds)
-        needs_kgru = any(
-            "KGRNN" in pending_models for pending_models in pending_by_seed.values()
+        needs_proposed = any(
+            proposed_label in pending_models
+            for pending_models in pending_by_seed.values()
         )
         saved_cfg = (
             ModelConfig.load(model_config_path)
-            if needs_kgru and model_config_path.exists()
+            if needs_proposed and model_config_path.exists()
             else None
         )
 
         print(f"[EVAL] [{dataset_idx}/{len(datasets)}] Dataset: {run_name}")
         print(f"[EVAL] Top-k: {train_cfg.topks} | val@{val_topk}")
         print(
-            f"[EVAL] Models: KGRNN, {', '.join(sota_models) if sota_models else 'none'}"
+            f"[EVAL] Models: {proposed_label}, "
+            f"{', '.join(sota_models) if sota_models else 'none'}"
         )
         if not pending_by_seed:
             print("[EVAL] All requested seeds are already evaluated. Skipping runs.")
@@ -355,11 +370,11 @@ def eval_models(
 
             print_data_summary("EVAL", dm)
 
-            if "KGRNN" in pending_models:
-                cfg = build_config(dm, base=saved_cfg)
+            if proposed_label in pending_models:
+                cfg = build_config(dm, base=saved_cfg, arch=resolved_arch)
                 print_model_modules("EVAL", cfg)
                 settings.seed_everything(seed)
-                print(f"[EVAL] Running KGRNN | seed={seed}")
+                print(f"[EVAL] Running {proposed_label} | seed={seed}")
                 proposed_results = eval_model(
                     dm=dm,
                     cfg=cfg,

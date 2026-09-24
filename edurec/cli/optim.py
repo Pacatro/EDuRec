@@ -5,7 +5,7 @@ import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
-from ..recsys import ModelConfig, optimize_model
+from ..recsys import ModelArch, ModelConfig, optimize_model
 from ..recsys.configs import TrainConfig
 from .utils import (
     build_config,
@@ -21,6 +21,14 @@ app = typer.Typer(no_args_is_help=True)
 @app.command(name="optim", help="Run a hyperparameter optimization for the model.")
 def optimize(
     dataset: Annotated[DatasetName | None, typer.Option("--dataset", "-d")] = None,
+    arch: Annotated[
+        ModelArch | None,
+        typer.Option(
+            "--arch",
+            "-A",
+            help="Model architecture to optimize. Defaults to kg_rnn.",
+        ),
+    ] = None,
     epochs: Annotated[
         int,
         typer.Option(
@@ -90,6 +98,7 @@ def optimize(
 
     for dataset_name in datasets:
         run_name = dataset_name.value
+        resolved_arch = arch if arch is not None else ModelArch.KG_RNN
         if verbose:
             print(
                 f"[OPTIM] Config: epochs={epochs}, batch_size={batch_size}, trials={n_trials}, patience={patience}"
@@ -120,7 +129,7 @@ def optimize(
 
         dataset_results_path = results_root / run_name
 
-        base_cfg = build_config(dm)
+        base_cfg = build_config(dm, arch=resolved_arch)
         base_train_cfg = TrainConfig(
             epochs=epochs,
             batch_size=batch_size,
@@ -153,9 +162,13 @@ def optimize(
         )
         print("[OPTIM] Params:", study.best_params)
 
-        model_cfg_path, train_cfg_path = config_paths(configs_folder, run_name)
-        result_cfg_path = results_root / f"config-{run_name}.yaml"
-        result_train_cfg_path = results_root / f"train-config-{run_name}.yaml"
+        model_cfg_path, train_cfg_path = config_paths(
+            configs_folder, run_name, resolved_arch
+        )
+        result_cfg_path = results_root / f"config-{run_name}-{resolved_arch.value}.yaml"
+        result_train_cfg_path = (
+            results_root / f"train-config-{run_name}-{resolved_arch.value}.yaml"
+        )
         best_cfg.save(result_cfg_path)
         best_cfg.save(model_cfg_path)
         best_train_cfg.save(result_train_cfg_path)

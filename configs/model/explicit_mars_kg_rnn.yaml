@@ -1,3 +1,4 @@
+arch: kg_rnn
 dropout: 0.15
 edge_dropout: 0.3
 emb_dim: 128

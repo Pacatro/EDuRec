@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, fields, replace
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal, Self
 
@@ -49,9 +50,16 @@ class TrainConfig(BaseConfig):
     adaptive_k: bool = settings.ADAPTIVE_K
 
 
+class ModelArch(StrEnum):
+    """Available recommendation architectures."""
+
+    KG_RNN = "kg_rnn"
+    KG_SEQ = "kg_seq"
+
+
 @dataclass
 class ModelConfig(BaseConfig):
-    """Model architecture configuration for KGRNN."""
+    """Model architecture configuration."""
 
     num_users: int
     num_items: int
@@ -65,6 +73,9 @@ class ModelConfig(BaseConfig):
     emb_dim: int = settings.EMB_DIM
     use_item_bias: bool = True
     dropout: float = settings.DROPOUT
+
+    # Architecture selection
+    arch: ModelArch = ModelArch.KG_RNN
 
     # Ablations
     graph_mode: Literal["kg", "id"] = "kg"
@@ -109,6 +120,15 @@ class ModelConfig(BaseConfig):
         return self.use_seq_encoder and self.has_history
 
     @property
+    def num_user_sources(self) -> int:
+        """User representations concatenated before scoring.
+
+        ``kg_rnn`` fuses the graph user node with the sequence state, while the
+        serial ``kg_seq`` architecture scores only the sequence output.
+        """
+        return 1 if self.arch == ModelArch.KG_SEQ else 2
+
+    @property
     def kg_encoder(self) -> KGEncoderConfig:
         edge_types: list[EdgeType] = [
             (edge[0], edge[1], edge[2]) for edge in self.kg_edge_types
@@ -139,7 +159,7 @@ class ModelConfig(BaseConfig):
     def scorer(self) -> ScorerConfig:
         return ScorerConfig(
             emb_dim=self.emb_dim,
-            num_user_sources=2,
+            num_user_sources=self.num_user_sources,
             hidden_dims=self.hidden_dims,
             dropout=self.dropout,
             scorer_type=self.scorer_type,

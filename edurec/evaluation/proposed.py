@@ -4,7 +4,7 @@ import pandas as pd
 
 from .. import settings
 from ..datasets import ElearningDataModule
-from ..recsys import KGRNN, ModelConfig, RecSys, train_model
+from ..recsys import ModelConfig, RecSys, arch_label, train_model
 from ..recsys.configs import TrainConfig
 
 
@@ -17,9 +17,9 @@ def eval_model(
     results_path: Path | None = None,
     verbose: bool = False,
 ) -> pd.DataFrame:
+    label = arch_label(cfg)
     recsys = RecSys(
         cfg=cfg,
-        model=KGRNN(cfg),
         knowledge_graph=dm.knowledge_graph,
         u_static_feats=dm.u_static_feats,
         i_static_feats=dm.i_static_feats,
@@ -43,7 +43,7 @@ def eval_model(
     results = pd.DataFrame(
         [
             {
-                "model": "KGRNN",
+                "model": label,
                 **metrics,
                 "training_time_s": timer.time_elapsed("train"),
                 "inference_time_s": timer.time_elapsed("test"),
@@ -52,6 +52,6 @@ def eval_model(
     )
 
     if results_path is not None:
-        results.to_csv(results_path / "KGRNN.csv", index=True)
+        results.to_csv(results_path / f"{label}.csv", index=True)
 
     return results

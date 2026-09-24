@@ -10,7 +10,7 @@ import typer
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
 from ..evaluation.ablation import ABLATIONS, ablation_applicable, get_ablation_config
-from ..recsys import KGRNN, ModelConfig, RecSys, train_model
+from ..recsys import ModelArch, ModelConfig, RecSys, arch_applicable, train_model
 from ..recsys.configs import resolve_train_config
 from .utils import (
     build_config,
@@ -28,6 +28,14 @@ app = typer.Typer(no_args_is_help=True)
 @app.command(name="ablation", help="Run KGRNN ablation variants.")
 def run_ablation(
     dataset: Annotated[DatasetName | None, typer.Option("--dataset", "-d")] = None,
+    arch: Annotated[
+        ModelArch | None,
+        typer.Option(
+            "--arch",
+            "-A",
+            help="Model architecture to ablate. Defaults to the saved/default kg_rnn.",
+        ),
+    ] = None,
     seeds: Annotated[
         str,
         typer.Option("--seeds", "-s", help="Comma-separated seeds to run."),
@@ -83,18 +91,20 @@ def run_ablation(
 
     variants = list(ABLATIONS)
 
-    print("\n[ABLATION] KGRNN ablation run")
+    print("\n[ABLATION] ablation run")
     print(f"[ABLATION] Datasets: {', '.join(ds.value for ds in datasets)}")
+    print(f"[ABLATION] Architecture: {(arch or ModelArch.KG_RNN).value}")
     print(f"[ABLATION] Variants: {', '.join(variants)}")
     print(f"[ABLATION] Seeds: {', '.join(str(seed) for seed in parsed_seeds)}")
     print(f"[ABLATION] Output folder: {output_dir}")
 
     for dataset_name in datasets:
         run_name = dataset_name.value
+        resolved_arch = arch if arch is not None else ModelArch.KG_RNN
         dataset_root = output_dir / run_name
         dataset_root.mkdir(parents=True, exist_ok=True)
         model_config_path, train_config_path = config_paths(
-            Path(settings.CONFIGS_FOLDER), run_name
+            Path(settings.CONFIGS_FOLDER), run_name, resolved_arch
         )
         train_cfg = resolve_train_config(
             cli={
@@ -130,13 +140,17 @@ def run_ablation(
 
             if model_config_path.exists():
                 print("[ABLATION] Using existing model config file:", model_config_path)
-                base_cfg = build_config(dm, base=ModelConfig.load(model_config_path))
+                base_cfg = build_config(
+                    dm,
+                    base=ModelConfig.load(model_config_path),
+                    arch=resolved_arch,
+                )
             else:
                 print(
                     "[ABLATION] No model config file found, creating new config for dataset:",
                     run_name,
                 )
-                base_cfg = build_config(dm)
+                base_cfg = build_config(dm, arch=resolved_arch)
 
             for variant in variants:
                 settings.seed_everything(seed)
@@ -147,6 +161,38 @@ def run_ablation(
                 cfg.save(variant_root / "config.yaml")
 
                 print(f"[ABLATION] {run_name} | {variant} | seed={seed}")
+                if not arch_applicable(cfg):
+                    print(
+                        f"[ABLATION] SKIPPING variant {variant!r}: the "
+                        f"{cfg.arch} architecture requires sequential history."
+                    )
+                    row: dict[str, float | int | str] = {
+                        "variant": variant,
+                        "seed": seed,
+                        "applicable": 0,
+                        "module_graph": int(cfg.graph_mode == "kg"),
+                        "module_sequence": int(cfg.uses_sequence),
+                        "arch": str(cfg.arch),
+                        "graph_mode": cfg.graph_mode,
+                        "scorer_type": cfg.scorer_type,
+                        "use_text_features": int(cfg.use_text_features),
+                        "use_gcl": int(cfg.use_gcl),
+                        "use_item_bias": int(cfg.use_item_bias),
+                        "num_parameters": 0,
+                        "training_time_s": 0.0,
+                        "inference_time_s": 0.0,
+                    }
+                    rows.append(row)
+                    pd.DataFrame([row]).to_csv(
+                        variant_root / settings.METRICS_FILENAME,
+                        index=False,
+                    )
+                    pd.DataFrame([asdict(cfg)]).to_csv(
+                        variant_root / "config.csv",
+                        index=False,
+                    )
+                    continue
+
                 if not applicable:
                     print(
                         f"[ABLATION] WARNING: variant {variant!r} disables a module "
@@ -157,7 +203,6 @@ def run_ablation(
 
                 model = RecSys(
                     cfg=cfg,
-                    model=KGRNN(cfg),
                     knowledge_graph=knowledge_graph,
                     u_static_feats=dm.u_static_feats,
                     i_static_feats=dm.i_static_feats,
@@ -201,6 +246,7 @@ def run_ablation(
                     "applicable": int(applicable),
                     "module_graph": int(cfg.graph_mode == "kg"),
                     "module_sequence": int(cfg.uses_sequence),
+                    "arch": str(cfg.arch),
                     "graph_mode": cfg.graph_mode,
                     "scorer_type": cfg.scorer_type,
                     "use_text_features": int(cfg.use_text_features),

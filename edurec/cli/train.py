@@ -6,7 +6,7 @@ import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
-from ..recsys import KGRNN, ModelConfig, RecSys, train_model
+from ..recsys import ModelArch, ModelConfig, RecSys, arch_label, train_model
 from ..recsys.configs import monitor_topk, resolve_train_config
 from ..recsys.io import save_metrics, save_model
 from .utils import (
@@ -24,6 +24,14 @@ app = typer.Typer(no_args_is_help=True)
 @app.command(name="train", help="Train the model.")
 def train(
     dataset: Annotated[DatasetName | None, typer.Option("--dataset", "-d")] = None,
+    arch: Annotated[
+        ModelArch | None,
+        typer.Option(
+            "--arch",
+            "-A",
+            help="Model architecture to train. Defaults to the saved/default kg_rnn.",
+        ),
+    ] = None,
     epochs: Annotated[
         int | None,
         typer.Option(
@@ -115,10 +123,13 @@ def train(
 
     for dataset_idx, dataset_name in enumerate(datasets, start=1):
         run_name = dataset_name.value
+        resolved_arch = arch if arch is not None else ModelArch.KG_RNN
         dataset_experiment_name = (
             f"{experiment_name}_{run_name}" if experiment_name else None
         )
-        model_config_path, train_config_path = config_paths(configs_folder, run_name)
+        model_config_path, train_config_path = config_paths(
+            configs_folder, run_name, resolved_arch
+        )
         train_cfg = resolve_train_config(
             cli={
                 "epochs": epochs,
@@ -134,7 +145,7 @@ def train(
 
         print("\n[TRAIN] Training run")
         print(f"[TRAIN] Dataset {dataset_idx}/{len(datasets)}: {run_name}")
-        print("[TRAIN] Model: KGRNN")
+        print(f"[TRAIN] Model: {resolved_arch.value}")
         print(f"[TRAIN] Monitor: val/ndcg@{val_topk}")
         print(f"[TRAIN] Save model: {save}")
         print("[TRAIN] Preparing data...")
@@ -175,10 +186,14 @@ def train(
         print_data_summary("TRAIN", dm)
 
         if model_config_path.exists():
-            cfg = build_config(dm, base=ModelConfig.load(model_config_path))
+            cfg = build_config(
+                dm,
+                base=ModelConfig.load(model_config_path),
+                arch=resolved_arch,
+            )
             print(f"[TRAIN] Using saved model config: {model_config_path}")
         else:
-            cfg = build_config(dm)
+            cfg = build_config(dm, arch=resolved_arch)
             print("[TRAIN] No saved model config found; using the full model.")
 
         if train_config_path.exists():
@@ -188,7 +203,6 @@ def train(
 
         recsys = RecSys(
             cfg=cfg,
-            model=KGRNN(cfg),
             knowledge_graph=dm.knowledge_graph,
             u_static_feats=dm.u_static_feats,
             i_static_feats=dm.i_static_feats,
@@ -196,7 +210,7 @@ def train(
             val_topk=val_topk,
         )
 
-        print("[TRAIN] Training KGRNN...")
+        print(f"[TRAIN] Training {arch_label(cfg)}...")
 
         trainer, best_model_path, timer = train_model(
             model=recsys,

@@ -1,24 +1,26 @@
-dropout: 0.5
+arch: kg_rnn
+dropout: 0.0
 edge_dropout: 0.0
-emb_dim: 512
-gnn_layers: 2
+emb_dim: 256
+gnn_layers: 1
 graph_mode: kg
-gru_hidden_dim: 256
-gru_layers: 1
-has_history: true
+gru_hidden_dim: 128
+gru_layers: 2
+has_history: false
 hidden_dims:
-  - 1024
+  - 512
+  - 256
 kg_edge_types: []
 kg_node_counts: {}
 loss_reduction: mean
-num_item_dense_feats: 463
+num_item_dense_feats: 384
 num_item_text_feats: 384
-num_items: 2865
-num_user_dense_feats: 1
+num_items: 70
+num_user_dense_feats: 0
 num_user_text_feats: 0
-num_users: 40250
+num_users: 454
 scorer_type: mlp
-temperature: 0.5
+temperature: 0.2
 use_gcl: true
 use_item_bias: true
 use_seq_encoder: true

@@ -12,7 +12,6 @@ from torch_geometric.data import HeteroData
 
 from .. import settings
 from ..datasets import ElearningDataModule
-from .archs.kg_rnn import KGRNN
 from .configs import ModelConfig, TrainConfig
 from .recsys import RecSys
 from .training import train_model
@@ -119,7 +118,6 @@ def objective(
 
     model = RecSys(
         cfg=config,
-        model=KGRNN(config),
         knowledge_graph=knowledge_graph,
         u_static_feats=datamodule.u_static_feats,
         i_static_feats=datamodule.i_static_feats,

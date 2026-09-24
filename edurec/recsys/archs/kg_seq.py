@@ -8,16 +8,18 @@ from .modules.scorer import Scorer
 from .modules.seq_encoder import SeqEncoder
 
 
-class KGRNN(BaseRecArch):
-    """Knowledge-graph educational recommender.
+class KGSeq(BaseRecArch):
+    """Serial knowledge-graph to sequence recommender.
 
-    User representations come from the knowledge-graph encoder and, when
-    history is available, from the sequential history encoder. Both
-    representations are concatenated and scored against the item embeddings by
-    a final MLP.
+    The knowledge-graph encoder processes the full graph and produces item node
+    representations. For each user, the item nodes that appear in their
+    chronological history are gathered from those graph representations and
+    encoded by the sequential encoder. Its output is the only user
+    representation fed to the scorer, which scores it against the item
+    embeddings.
 
-    The sequential encoder uses a GRU or LSTM depending on
-    ``cfg.seq_encoder.cell_type`` (``seq_cell`` in ``ModelConfig``).
+    Unlike ``KGRNN``, the graph user node is not concatenated with the sequence
+    state: the graph feeds the sequence, not the scorer.
     """
 
     def __init__(self, cfg: ModelConfig):
@@ -46,10 +48,7 @@ class KGRNN(BaseRecArch):
         item_feats = i_static_feats[:, : self.cfg.effective_item_dense_feats]
 
         user_graph, item_emb = self.kg(edge_index, user_feats, item_feats)
-        user_emb = user_graph[u_ids]
-
-        seq_user = self._sequence_embedding(item_emb, h_ids, h_mask)
-        user_emb = torch.cat([user_emb, seq_user], dim=-1)
+        user_emb = self._user_representation(user_graph, item_emb, u_ids, h_ids, h_mask)
 
         scores = self.scorer(user_emb, item_emb, item_ids=candidate_item_ids)
 
@@ -61,15 +60,22 @@ class KGRNN(BaseRecArch):
 
         return scores
 
-    def _sequence_embedding(
+    def _user_representation(
         self,
+        user_graph: torch.Tensor,
         item_emb: torch.Tensor,
+        u_ids: torch.Tensor,
         h_ids: torch.Tensor,
         h_mask: torch.Tensor,
     ) -> torch.Tensor:
-        """Encode history, returning zeros when the sequence module is disabled."""
+        """Encode the graph-derived item history of each user.
+
+        The serial architecture is only built when history is available
+        (``build_model`` enforces it); the graph user node is kept as a safe
+        fallback so the module never dereferences missing history tensors.
+        """
         if not self.cfg.uses_sequence:
-            return item_emb.new_zeros(h_ids.size(0), self.cfg.emb_dim)
+            return user_graph[u_ids]
 
         padded = torch.cat([item_emb.new_zeros(1, item_emb.size(1)), item_emb])
         hist = padded[h_ids.clamp(min=0)]

@@ -9,23 +9,23 @@ from torchmetrics.retrieval import RetrievalNormalizedDCG
 
 from .. import settings
 from ..datasets import RecSysQuery
-from .archs.kg_rnn import KGRNN
+from .archs import BaseRecArch, build_model
 from .configs import ModelConfig, TrainConfig
 from .losses import InfoNCELoss, LossReduction
 from .ranking import build_ranking_metrics, update_ranking_metrics
 
 
 class RecSys(L.LightningModule):
-    """LightningModule that trains and evaluates the KGRNN recommender.
+    """LightningModule that trains and evaluates an EDuRec architecture.
 
     It owns the data buffers, losses, ranking metrics, optimizer and the
-    train/val/test loops. The knowledge-graph model is injected by the caller.
+    train/val/test loops. The architecture selected by ``cfg.arch`` is built
+    internally so checkpoints can be reloaded from the saved config alone.
     """
 
     def __init__(
         self,
         cfg: ModelConfig,
-        model: KGRNN,
         knowledge_graph: HeteroData,
         u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
@@ -35,7 +35,6 @@ class RecSys(L.LightningModule):
         super().__init__()
         self.save_hyperparameters(
             ignore=[
-                "model",
                 "knowledge_graph",
                 "u_static_feats",
                 "i_static_feats",
@@ -82,7 +81,7 @@ class RecSys(L.LightningModule):
             adaptive_k=self.train_cfg.adaptive_k,
         )
 
-        self.model = model
+        self.model: BaseRecArch = build_model(cfg)
 
     def forward(
         self,
@@ -147,6 +146,7 @@ class RecSys(L.LightningModule):
             rank_loss = F.cross_entropy(scores, batch.target_item_id.reshape(-1).long())
 
         use_gcl = prefix == "train" and self.cfg.use_gcl and self.cfg.graph_mode == "kg"
+        use_gcl = False
         gcl_loss = self._compute_gcl_loss(batch) if use_gcl else rank_loss.new_zeros(())
         loss = rank_loss + self.alpha * gcl_loss
 

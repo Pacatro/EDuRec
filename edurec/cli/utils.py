@@ -6,7 +6,7 @@ import typer
 
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule, dataset_loaders
-from ..recsys import ModelConfig
+from ..recsys import ModelArch, ModelConfig
 from ..recsys.configs import TrainConfig
 
 
@@ -14,11 +14,16 @@ def datasets_to_run(dataset: DatasetName | None) -> list[DatasetName]:
     return [dataset] if dataset is not None else list(dataset_loaders)
 
 
-def config_paths(configs_folder: Path, run_name: str) -> tuple[Path, Path]:
-    """Return the model and training config paths for a given run."""
+def config_paths(
+    configs_folder: Path,
+    run_name: str,
+    arch: ModelArch | str,
+) -> tuple[Path, Path]:
+    """Return the per-architecture model and training config paths for a run."""
+    arch_value = ModelArch(arch).value
     return (
-        Path(configs_folder) / "model" / f"{run_name}.yaml",
-        Path(configs_folder) / "train" / f"{run_name}.yaml",
+        Path(configs_folder) / "model" / f"{run_name}_{arch_value}.yaml",
+        Path(configs_folder) / "train" / f"{run_name}_{arch_value}.yaml",
     )
 
 
@@ -55,6 +60,7 @@ def build_config(
         "kg_edge_types": [list(edge) for edge in dm.kg_edge_types],
         "has_history": dm.has_history,
     }
+    overrides = {key: value for key, value in overrides.items() if value is not None}
     if base is not None:
         return replace(base, **dataset_config, **overrides)
 
@@ -71,7 +77,10 @@ def print_model_modules(prefix: str, cfg: ModelConfig) -> None:
         f"gcl={'ON' if cfg.use_gcl else 'OFF'}, "
         f"item_bias={'ON' if cfg.use_item_bias else 'OFF'}"
     )
-    print(f"[{prefix}] Model modules: graph={graph}, sequence={sequence}, {options}")
+    print(
+        f"[{prefix}] Model modules: arch={cfg.arch}, graph={graph}, "
+        f"sequence={sequence}, {options}"
+    )
 
 
 def print_data_summary(prefix: str, dm: ElearningDataModule) -> None:

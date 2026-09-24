@@ -170,24 +170,27 @@ uv run edurec optim --dataset explicit_mars --trials 30 --use_processed
 
 The command saves the best model and training configurations, trial log, and
 study database under `results/optimization/<dataset>/`. It also writes the best
-configuration for each dataset to `configs/model/<dataset>.yaml` and
-`configs/train/<dataset>.yaml`, so they can be reused by training and
-evaluation. Use `--configs-folder` to choose a different folder.
+configuration for each dataset and architecture to
+`configs/model/<dataset>_<arch>.yaml` and `configs/train/<dataset>_<arch>.yaml`,
+so they can be reused by training and evaluation. Use `--configs-folder` to
+choose a different folder.
 
 ### Saved Configurations
 
 The `configs/` folder keeps one model configuration and one independent training
-configuration per evaluated dataset:
+configuration per evaluated dataset **and architecture**:
 
 ```text
-configs/model/<dataset>.yaml   Model architecture hyperparameters
-configs/train/<dataset>.yaml   Training hyperparameters (epochs, lr, batch size,
-                               patience, weight decay, top-k, alpha, adaptive-k)
+configs/model/<dataset>_<arch>.yaml   Model architecture hyperparameters
+configs/train/<dataset>_<arch>.yaml   Training hyperparameters (epochs, lr,
+                                      batch size, patience, weight decay, top-k,
+                                      alpha, adaptive-k)
 ```
 
-When a config file exists for the dataset being run, training, evaluation, and
-ablation commands load it. Explicit CLI flags always take precedence over the
-saved configurations, which in turn take precedence over the global defaults in
+`<arch>` is `kg_rnn` (the default) or `kg_seq`. When a config file exists for the
+dataset and architecture being run, training, evaluation, and ablation commands
+load it. Explicit CLI flags always take precedence over the saved
+configurations, which in turn take precedence over the global defaults in
 `edurec/settings.py`.
 
 ### Run Ablations
@@ -222,8 +225,17 @@ plots. Aggregated outputs are saved to `results/ablations/<dataset>/`.
 
 ![EDuRec model architecture](model-diagram.png)
 
-EDuRec builds user and item representations from a knowledge graph and a
-sequential history encoder:
+EDuRec exposes two selectable architectures through the `arch` field of the
+model configuration (or the `--arch` CLI flag):
+
+- `kg_rnn` (default): the graph user node and the sequence state are computed in
+  parallel and concatenated before scoring.
+- `kg_seq`: a serial pipeline. The knowledge-graph encoder processes the full
+  graph, the item node representations in each user's history are gathered into
+  a new sequence, and the sequential encoder consumes that sequence. Its output
+  is the only user representation fed to the scorer.
+
+The sections below describe the modules shared by both architectures.
 
 - **Knowledge-graph encoder**: a heterogeneous graph is derived from each
   dataset schema. Users and items are nodes, and every categorical or
@@ -252,6 +264,8 @@ reflects the fields declared by each dataset schema.
 Sequential history modules additionally require a real chronological
 interaction field. Datasets without one are split randomly and do not allocate
 history tensors; a synthetic row index is not considered a valid timestamp.
+The `kg_seq` architecture additionally requires sequential history, so it is
+rejected for datasets without one and skipped by the ablation command.
 Interaction context has an independent encoder and remains available without a
 sequential history. It is kept separate from the user representation: the final
 scorer consumes user, item, and context representations explicitly.
