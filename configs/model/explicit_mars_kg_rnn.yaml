@@ -21,9 +21,9 @@ num_user_text_feats: 0
 num_users: 4741
 scorer_type: mlp
 temperature: 0.15
-use_gcl: true
+use_gcl: false
 use_item_bias: false
 use_seq_encoder: true
 use_text_features: true
-seq_cell: lstm
+seq_cell: gru
 
