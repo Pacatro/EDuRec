@@ -76,7 +76,7 @@ COCO_REQUIRED_FILES = (
     "instructor_latest.csv",
     "teach_latest.csv",
 )
-COCO_MAX_INTERACTIONS: int = 100_000
+COCO_MAX_INTERACTIONS: int = 500_000
 
 # Preprocessing
 PROCESSED_FOLDER: str = f"{DATA_FOLDER}/processed"
@@ -94,10 +94,7 @@ TEXT_EMBEDDING_DIM: int = 384
 TEXT_EMBEDDING_BATCH_SIZE: int = 32
 TEXT_MAX_TOKENS: int = 256
 
-# GCL
-DROP_EDGES_P: float = 0.2
-TAU: float = 0.15
-LOSS_REDUCTION: str = "mean"
+# GNN
 GNN_LAYERS: int = 2
 
 # RecSys
@@ -123,7 +120,6 @@ VAL_RATIO: float = 0.1
 TEST_RATIO: float = 0.2
 SAVE_DATA: bool = False
 ADAPTIVE_K: bool = False
-LOSS_ALPHA: float = 0.5
 COMPILE_MODEL: bool = False
 TOP_KS: list[int] = [5, 10, 20]
 

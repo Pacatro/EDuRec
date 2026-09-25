@@ -273,13 +273,39 @@ def preprocess(
             dtype=torch.float32,
         )
 
+    u_cat_feats = _categorical_codes(
+        user_frame,
+        processor.feature_metadata["users"].categorical_cols,
+        id_col=settings.USER_COL,
+    )
+
     return ProcessedData(
         train=split_dfs["train"],
         val=split_dfs["val"],
         test=split_dfs["test"],
         u_static_feats=static_feats["users"],
+        u_cat_feats=u_cat_feats,
         i_static_feats=static_feats["items"],
         user_features=users.reset_index(drop=True),
         item_features=items.reset_index(drop=True),
         data_processor=processor,
     )
+
+
+def _categorical_codes(
+    frame: pd.DataFrame,
+    categorical_cols: list[str],
+    id_col: str,
+) -> torch.Tensor:
+    """Integer codes for the encoded categorical columns, ordered by mapped id.
+
+    The processor already ordinal-encodes categorical fields, so the values are
+    reused as-is. ``-1`` marks unknown categories and is preserved for the model
+    to map to a padding embedding.
+    """
+    if not categorical_cols:
+        return torch.zeros((len(frame), 0), dtype=torch.long)
+
+    values = frame.sort_values(id_col)[categorical_cols].to_numpy(dtype=np.float32)
+    values = np.nan_to_num(values, nan=-1.0)
+    return torch.as_tensor(values.astype(np.int64), dtype=torch.long)

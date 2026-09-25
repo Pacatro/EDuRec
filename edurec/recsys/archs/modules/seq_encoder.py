@@ -15,6 +15,7 @@ class SeqEncoderConfig:
     num_layers: int = settings.GRU_LAYERS
     dropout: float = 0.1
     cell_type: Literal["gru", "lstm"] = settings.SEQ_CELL
+    condition_dim: int = 0
 
 
 class SeqEncoder(nn.Module):
@@ -25,6 +26,9 @@ class SeqEncoder(nn.Module):
 
     def __init__(self, cfg: SeqEncoderConfig):
         super().__init__()
+        self.cell_type = cfg.cell_type
+        self.hidden_dim = cfg.hidden_dim
+        self.num_layers = cfg.num_layers
 
         rnn_cls = {"gru": nn.GRU, "lstm": nn.LSTM}[cfg.cell_type]
         self.rnn = rnn_cls(
@@ -34,13 +38,32 @@ class SeqEncoder(nn.Module):
             batch_first=True,
             dropout=cfg.dropout if cfg.num_layers > 1 else 0.0,
         )
+        self.state_proj = (
+            nn.Linear(cfg.condition_dim, cfg.hidden_dim * cfg.num_layers)
+            if cfg.condition_dim > 0
+            else None
+        )
         self.proj = nn.Linear(cfg.hidden_dim, cfg.emb_dim)
         self.norm = nn.LayerNorm(cfg.emb_dim)
+
+    def _initial_hidden(
+        self,
+        condition: torch.Tensor,
+        order: torch.Tensor,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        assert self.state_proj is not None
+        state = self.state_proj(condition)[order]
+        state = state.view(-1, self.num_layers, self.hidden_dim).permute(1, 0, 2)
+        state = state.contiguous()
+        if self.cell_type == "lstm":
+            return state, torch.zeros_like(state)
+        return state
 
     def forward(
         self,
         history_emb: torch.Tensor,
         history_mask: torch.Tensor,
+        condition: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Encode a user interaction history.
 
@@ -50,6 +73,8 @@ class SeqEncoder(nn.Module):
             history_mask: Boolean mask with shape
                 ``[batch_size, history_len]``. True values indicate valid
                 interactions.
+            condition: Optional ``[batch_size, condition_dim]`` profile used to
+                initialise the recurrent hidden state.
         Returns:
             Sequential user state with shape ``[batch_size, emb_dim]``.
             Users without history receive a zero vector.
@@ -69,7 +94,10 @@ class SeqEncoder(nn.Module):
             batch_first=True,
             enforce_sorted=True,
         )
-        _, hidden = self.rnn(packed)
+        if self.state_proj is not None and condition is not None:
+            _, hidden = self.rnn(packed, self._initial_hidden(condition, order))
+        else:
+            _, hidden = self.rnn(packed)
 
         # LSTM returns ``(h_n, c_n)`` while GRU returns ``h_n`` directly.
         if isinstance(hidden, tuple):

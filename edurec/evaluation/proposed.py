@@ -21,8 +21,9 @@ def eval_model(
     recsys = RecSys(
         cfg=cfg,
         knowledge_graph=dm.knowledge_graph,
-        u_static_feats=dm.u_static_feats,
         i_static_feats=dm.i_static_feats,
+        u_static_feats=dm.u_static_feats,
+        u_cat_feats=dm.u_cat_feats,
         train_cfg=train_cfg,
         val_topk=val_topk,
     )

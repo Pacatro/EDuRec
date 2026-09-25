@@ -11,11 +11,9 @@ EdgeType = tuple[str, str, str]
 
 
 @dataclass
-class KGEncoderConfig:
-    num_users: int
+class GraphEncoderConfig:
     num_items: int
     emb_dim: int
-    user_feat_dim: int = 0
     item_feat_dim: int = 0
     num_layers: int = settings.GNN_LAYERS
     node_counts: dict[str, int] = field(default_factory=dict)
@@ -23,26 +21,22 @@ class KGEncoderConfig:
     graph_mode: str = "kg"
 
 
-class KGEncoder(nn.Module):
-    """Knowledge-graph encoder over users, items and metadata attributes.
+class GraphEncoder(nn.Module):
+    """Item knowledge-graph encoder.
 
-    User and item nodes start from a learned identifier embedding plus a
-    projection of their numeric/text features. Categorical and list-valued
-    metadata become attribute nodes with their own embeddings. Stacked
-    heterogeneous convolutions propagate information across every typed edge.
+    Item nodes start from a learned identifier embedding plus a projection of
+    their numeric/text features. Categorical and list-valued metadata become
+    attribute nodes with their own embeddings. Stacked heterogeneous
+    convolutions propagate information across every typed edge, so items that
+    share an attribute value become neighbours. Only items feed the graph; user
+    representations are built by the sequential encoder.
     """
 
-    def __init__(self, cfg: KGEncoderConfig):
+    def __init__(self, cfg: GraphEncoderConfig):
         super().__init__()
         self.cfg = cfg
-        self.num_users = cfg.num_users
-        self.num_items = cfg.num_items
 
-        self.user_emb = nn.Embedding(cfg.num_users, cfg.emb_dim)
         self.item_emb = nn.Embedding(cfg.num_items, cfg.emb_dim)
-        self.user_proj = (
-            nn.Linear(cfg.user_feat_dim, cfg.emb_dim) if cfg.user_feat_dim > 0 else None
-        )
         self.item_proj = (
             nn.Linear(cfg.item_feat_dim, cfg.emb_dim) if cfg.item_feat_dim > 0 else None
         )
@@ -70,19 +64,14 @@ class KGEncoder(nn.Module):
     def forward(
         self,
         edge_index: dict[EdgeType, torch.Tensor],
-        user_feats: torch.Tensor,
         item_feats: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        x = {
-            "user": self.user_emb.weight,
-            "item": self.item_emb.weight,
-        }
-        for node_type, projection, features in (
-            ("user", self.user_proj, user_feats),
-            ("item", self.item_proj, item_feats),
-        ):
-            if projection is not None:
-                x[node_type] = x[node_type] + projection(features)
+    ) -> torch.Tensor:
+        item = self.item_emb.weight
+        if self.item_proj is not None:
+            item = item + self.item_proj(item_feats)
+
+        x = {"item": item}
+
         for node_type, embedding in self.attr_embs.items():
             x[node_type] = cast(torch.Tensor, embedding.weight)
 
@@ -98,4 +87,4 @@ class KGEncoder(nn.Module):
                     for node_type, value in x.items()
                 }
 
-        return x["user"], x["item"]
+        return x["item"]

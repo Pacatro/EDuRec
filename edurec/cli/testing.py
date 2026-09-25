@@ -79,8 +79,9 @@ def test_recsys(
         checkpoint_path=str(model_path),
         cfg=cfg,
         knowledge_graph=test_graph,
-        u_static_feats=dm.u_static_feats,
         i_static_feats=dm.i_static_feats,
+        u_static_feats=dm.u_static_feats,
+        u_cat_feats=dm.u_cat_feats,
         train_cfg=TrainConfig(
             batch_size=batch_size,
             topks=[top_k],

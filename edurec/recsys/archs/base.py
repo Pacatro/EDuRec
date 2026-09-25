@@ -3,28 +3,28 @@ from abc import ABC, abstractmethod
 import torch
 from torch import nn
 
-from .modules.kg_encoder import KGEncoder
+from .modules.kg_encoder import GraphEncoder
 
 
 class BaseRecArch(nn.Module, ABC):
     """Common interface for the recommendation architectures.
 
-    Every architecture owns a knowledge-graph encoder (``kg``) and maps a query
-    batch to item scores. The concrete heads differ in how the user
-    representation is built (parallel graph+sequence fusion vs. a serial
-    graph-to-sequence pipeline).
+    Every architecture owns a knowledge-graph encoder (``kg``) over item nodes
+    and maps a history batch to item scores. Users are represented solely by the
+    output of the sequential history encoder.
     """
 
-    kg: KGEncoder
+    kg: GraphEncoder
 
     @abstractmethod
     def forward(
         self,
-        u_ids: torch.Tensor,
         h_ids: torch.Tensor,
         h_mask: torch.Tensor,
         edge_index: dict[tuple[str, str, str], torch.Tensor],
-        u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
+        u_static_feats: torch.Tensor,
+        u_cat_feats: torch.Tensor,
+        user_ids: torch.Tensor,
         candidate_item_ids: torch.Tensor | None = None,
     ) -> torch.Tensor: ...

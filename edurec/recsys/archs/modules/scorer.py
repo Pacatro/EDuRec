@@ -8,7 +8,6 @@ from torch import nn
 @dataclass
 class ScorerConfig:
     emb_dim: int
-    num_user_sources: int = 1
     hidden_dims: list[int] = field(default_factory=list)
     dropout: float = 0.1
     scorer_type: Literal["mlp", "dot"] = "mlp"
@@ -16,7 +15,7 @@ class ScorerConfig:
 
 
 class Scorer(nn.Module):
-    """Scores concatenated user representations against item embeddings.
+    """Scores a user representation against item embeddings.
 
     Candidate scoring restricts the computation to ``[batch, num_candidates]``,
     which is much cheaper than the full ``[batch, num_items]`` pass used during
@@ -26,8 +25,6 @@ class Scorer(nn.Module):
     def __init__(self, cfg: ScorerConfig, chunk_size: int = 1024):
         super().__init__()
         self.scorer_type = cfg.scorer_type
-        self.emb_dim = cfg.emb_dim
-        self.num_user_sources = cfg.num_user_sources
         self.chunk_size = chunk_size
 
         if cfg.scorer_type == "dot":
@@ -44,7 +41,7 @@ class Scorer(nn.Module):
             self.logit_scale = nn.Parameter(torch.tensor(initial_scale))
             return
 
-        input_dim = cfg.emb_dim * (cfg.num_user_sources + 1)
+        input_dim = cfg.emb_dim * 2
 
         layers = []
         prev_dim = input_dim
@@ -72,8 +69,7 @@ class Scorer(nn.Module):
         """Return scores with shape ``[batch, num_candidates]``.
 
         Args:
-            user_emb: Concatenated user representations with shape
-                ``[batch, num_user_sources * emb_dim]``.
+            user_emb: User representation with shape ``[batch, emb_dim]``.
             item_emb: Full item representation table ``[num_items, emb_dim]``.
             item_ids: Optional ``[batch, num_candidates]`` item IDs to score.
                 When provided, only those candidates are scored instead of the
@@ -96,11 +92,9 @@ class Scorer(nn.Module):
         cand_emb = item_emb[item_ids]
 
         if self.scorer_type == "dot":
-            sources = user_emb.split(self.emb_dim, dim=-1)
-            scores = sum(
-                torch.bmm(source.unsqueeze(1), cand_emb.transpose(1, 2)).squeeze(1)
-                for source in sources
-            )
+            scores = torch.bmm(
+                user_emb.unsqueeze(1), cand_emb.transpose(1, 2)
+            ).squeeze(1)
             return scores * self.logit_scale.clamp(min=1e-3)
 
         mlp = cast(nn.Sequential, self.mlp)
@@ -117,9 +111,7 @@ class Scorer(nn.Module):
     ) -> torch.Tensor:
         """Score the full catalog in chunks: ``[batch, num_items]``."""
         if self.scorer_type == "dot":
-            sources = user_emb.split(self.emb_dim, dim=-1)
-            scores = sum(source @ item_emb.T for source in sources)
-            return scores * self.logit_scale.clamp(min=1e-3)
+            return user_emb @ item_emb.T * self.logit_scale.clamp(min=1e-3)
 
         mlp = cast(nn.Sequential, self.mlp)
         batch_size = user_emb.shape[0]

@@ -7,9 +7,10 @@ from typing import Any, Literal, Self
 import yaml
 
 from .. import settings
-from .archs.modules.kg_encoder import EdgeType, KGEncoderConfig
+from .archs.modules.kg_encoder import EdgeType, GraphEncoderConfig
 from .archs.modules.scorer import ScorerConfig
 from .archs.modules.seq_encoder import SeqEncoderConfig
+from .archs.modules.user_profile import UserProfileConfig
 
 
 @dataclass
@@ -46,7 +47,6 @@ class TrainConfig(BaseConfig):
     patience: int = settings.PATIENCE
     weight_decay: float = settings.WEIGHT_DECAY
     topks: list[int] = field(default_factory=lambda: list(settings.TOP_KS))
-    alpha: float = settings.LOSS_ALPHA
     adaptive_k: bool = settings.ADAPTIVE_K
 
 
@@ -54,7 +54,6 @@ class ModelArch(StrEnum):
     """Available recommendation architectures."""
 
     KG_RNN = "kg_rnn"
-    KG_SEQ = "kg_seq"
 
 
 @dataclass
@@ -63,10 +62,10 @@ class ModelConfig(BaseConfig):
 
     num_users: int
     num_items: int
-    num_user_dense_feats: int
     num_item_dense_feats: int
-    num_user_text_feats: int
     num_item_text_feats: int
+    num_user_dense_feats: int = 0
+    user_cat_cardinalities: list[int] = field(default_factory=list)
     has_history: bool = True
     kg_node_counts: dict[str, int] = field(default_factory=dict)
     kg_edge_types: list[list[str]] = field(default_factory=list)
@@ -80,14 +79,15 @@ class ModelConfig(BaseConfig):
     # Ablations
     graph_mode: Literal["kg", "id"] = "kg"
     use_text_features: bool = True
-    use_seq_encoder: bool = True
-    use_gcl: bool = True
+    use_user_features: bool = True
     scorer_type: Literal["mlp", "dot"] = "mlp"
 
-    # GCL Defaults
-    edge_dropout: float = settings.DROP_EDGES_P
-    temperature: float = settings.TAU
-    loss_reduction: str = settings.LOSS_REDUCTION
+    # User profile
+    user_fusion: Literal["gate", "concat"] = "gate"
+    use_user_id_embedding: bool = False
+    condition_seq_on_profile: bool = False
+
+    # GNN Defaults
     gnn_layers: int = settings.GNN_LAYERS
 
     # GRU Defaults
@@ -101,13 +101,6 @@ class ModelConfig(BaseConfig):
     )
 
     @property
-    def effective_user_dense_feats(self) -> int:
-        """User dense features actually fed to the graph after ablations."""
-        if self.use_text_features:
-            return self.num_user_dense_feats
-        return self.num_user_dense_feats - self.num_user_text_feats
-
-    @property
     def effective_item_dense_feats(self) -> int:
         """Item dense features actually fed to the graph after ablations."""
         if self.use_text_features:
@@ -115,29 +108,13 @@ class ModelConfig(BaseConfig):
         return self.num_item_dense_feats - self.num_item_text_feats
 
     @property
-    def uses_sequence(self) -> bool:
-        """Whether the sequential history encoder contributes to user reps."""
-        return self.use_seq_encoder and self.has_history
-
-    @property
-    def num_user_sources(self) -> int:
-        """User representations concatenated before scoring.
-
-        ``kg_rnn`` fuses the graph user node with the sequence state, while the
-        serial ``kg_seq`` architecture scores only the sequence output.
-        """
-        return 1 if self.arch == ModelArch.KG_SEQ else 2
-
-    @property
-    def kg_encoder(self) -> KGEncoderConfig:
+    def kg_encoder(self) -> GraphEncoderConfig:
         edge_types: list[EdgeType] = [
             (edge[0], edge[1], edge[2]) for edge in self.kg_edge_types
         ]
-        return KGEncoderConfig(
-            num_users=self.num_users,
+        return GraphEncoderConfig(
             num_items=self.num_items,
             emb_dim=self.emb_dim,
-            user_feat_dim=self.effective_user_dense_feats,
             item_feat_dim=self.effective_item_dense_feats,
             num_layers=self.gnn_layers,
             node_counts=dict(self.kg_node_counts),
@@ -146,20 +123,37 @@ class ModelConfig(BaseConfig):
         )
 
     @property
+    def user_profile(self) -> UserProfileConfig:
+        return UserProfileConfig(
+            emb_dim=self.emb_dim,
+            num_dense_feats=self.num_user_dense_feats,
+            cat_cardinalities=list(self.user_cat_cardinalities),
+            num_users=self.num_users,
+            use_id_embedding=self.use_user_id_embedding,
+        )
+
+    @property
     def seq_encoder(self) -> SeqEncoderConfig:
+        condition_dim = (
+            self.emb_dim
+            if self.use_user_features
+            and self.condition_seq_on_profile
+            and self.user_profile.is_active
+            else 0
+        )
         return SeqEncoderConfig(
             emb_dim=self.emb_dim,
             hidden_dim=self.gru_hidden_dim,
             num_layers=self.gru_layers,
             dropout=self.dropout,
             cell_type=self.seq_cell,
+            condition_dim=condition_dim,
         )
 
     @property
     def scorer(self) -> ScorerConfig:
         return ScorerConfig(
             emb_dim=self.emb_dim,
-            num_user_sources=self.num_user_sources,
             hidden_dims=self.hidden_dims,
             dropout=self.dropout,
             scorer_type=self.scorer_type,

@@ -325,6 +325,13 @@ class ElearningDataModule(L.LightningDataModule):
         return self.artifacts.u_static_feats
 
     @property
+    def u_cat_feats(self) -> torch.Tensor:
+        if self.artifacts.u_cat_feats is None:
+            raise RuntimeError("User categorical features are not available.")
+
+        return self.artifacts.u_cat_feats
+
+    @property
     def i_static_feats(self) -> torch.Tensor:
         if self.artifacts.i_static_feats is None:
             raise RuntimeError("Static features are not available.")

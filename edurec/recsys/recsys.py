@@ -3,7 +3,6 @@ import torch
 import torch.nn.functional as F
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from torch_geometric.data import HeteroData
-from torch_geometric.utils import dropout_edge
 from torchmetrics import MetricCollection
 from torchmetrics.retrieval import RetrievalNormalizedDCG
 
@@ -11,7 +10,6 @@ from .. import settings
 from ..datasets import RecSysQuery
 from .archs import BaseRecArch, build_model
 from .configs import ModelConfig, TrainConfig
-from .losses import InfoNCELoss, LossReduction
 from .ranking import build_ranking_metrics, update_ranking_metrics
 
 
@@ -27,8 +25,9 @@ class RecSys(L.LightningModule):
         self,
         cfg: ModelConfig,
         knowledge_graph: HeteroData,
-        u_static_feats: torch.Tensor,
         i_static_feats: torch.Tensor,
+        u_static_feats: torch.Tensor,
+        u_cat_feats: torch.Tensor,
         train_cfg: TrainConfig | None = None,
         val_topk: int = settings.TOP_K,
     ) -> None:
@@ -36,8 +35,9 @@ class RecSys(L.LightningModule):
         self.save_hyperparameters(
             ignore=[
                 "knowledge_graph",
-                "u_static_feats",
                 "i_static_feats",
+                "u_static_feats",
+                "u_cat_feats",
             ]
         )
 
@@ -45,7 +45,6 @@ class RecSys(L.LightningModule):
         self.train_cfg = train_cfg or TrainConfig()
         self.lr = self.train_cfg.lr
         self.weight_decay = self.train_cfg.weight_decay
-        self.alpha = self.train_cfg.alpha
         self.val_topk = int(val_topk)
         self.topks = sorted(set(self.train_cfg.topks or [settings.TOP_K]))
         self.monitor = f"val/ndcg@{self.val_topk}"
@@ -57,13 +56,9 @@ class RecSys(L.LightningModule):
                 knowledge_graph[edge_type].edge_index,
                 persistent=False,
             )
-        self.register_buffer("u_static_feats", u_static_feats, persistent=False)
         self.register_buffer("i_static_feats", i_static_feats, persistent=False)
-
-        self.gcl_loss = InfoNCELoss(
-            tau=cfg.temperature,
-            reduction=LossReduction(cfg.loss_reduction),
-        )
+        self.register_buffer("u_static_feats", u_static_feats, persistent=False)
+        self.register_buffer("u_cat_feats", u_cat_feats, persistent=False)
 
         self.val_ranking_metrics = MetricCollection(
             {
@@ -95,12 +90,13 @@ class RecSys(L.LightningModule):
         is ``None`` the full ``[batch, num_items]`` score matrix is returned.
         """
         return self.model(
-            u_ids=batch.user_id,
             h_ids=batch.history_items,
             h_mask=batch.history_valid_mask,
             edge_index=self._edge_index_dict(),
-            u_static_feats=self.get_buffer("u_static_feats"),
             i_static_feats=self.get_buffer("i_static_feats"),
+            u_static_feats=self.get_buffer("u_static_feats"),
+            u_cat_feats=self.get_buffer("u_cat_feats"),
+            user_ids=batch.user_id,
             candidate_item_ids=candidate_item_ids,
         )
 
@@ -145,32 +141,10 @@ class RecSys(L.LightningModule):
             scores = self(batch)
             rank_loss = F.cross_entropy(scores, batch.target_item_id.reshape(-1).long())
 
-        use_gcl = prefix == "train" and self.cfg.use_gcl and self.cfg.graph_mode == "kg"
-        gcl_loss = self._compute_gcl_loss(batch) if use_gcl else rank_loss.new_zeros(())
-        loss = rank_loss + self.alpha * gcl_loss
-
         if prefix == "train":
             self.log(
-                "train/RankLoss",
-                rank_loss.detach(),
-                on_step=True,
-                on_epoch=False,
-                prog_bar=True,
-                logger=True,
-                sync_dist=True,
-            )
-            self.log(
-                "train/GclLoss",
-                gcl_loss.detach(),
-                on_step=self.cfg.use_gcl,
-                on_epoch=False,
-                prog_bar=self.cfg.use_gcl,
-                logger=self.cfg.use_gcl,
-                sync_dist=self.cfg.use_gcl,
-            )
-            self.log(
                 "train/Loss",
-                loss.detach(),
+                rank_loss.detach(),
                 on_step=True,
                 on_epoch=False,
                 prog_bar=True,
@@ -210,56 +184,13 @@ class RecSys(L.LightningModule):
                 batch_size=scores.size(0),
             )
 
-        return loss
+        return rank_loss
 
     def _edge_index_dict(self) -> dict[tuple[str, str, str], torch.Tensor]:
         return {
             edge_type: self.get_buffer(f"edge_index_{idx}")
             for idx, edge_type in enumerate(self._edge_types)
         }
-
-    def _compute_gcl_loss(self, batch: RecSysQuery) -> torch.Tensor:
-        p = self.cfg.edge_dropout
-        edge_index = self._edge_index_dict()
-
-        edge_index_1 = {
-            edge_type: dropout_edge(edges, p=p)[0]
-            for edge_type, edges in edge_index.items()
-        }
-        edge_index_2 = {
-            edge_type: dropout_edge(edges, p=p)[0]
-            for edge_type, edges in edge_index.items()
-        }
-
-        user_feats = self.get_buffer("u_static_feats")[
-            :, : self.cfg.effective_user_dense_feats
-        ]
-        item_feats = self.get_buffer("i_static_feats")[
-            :, : self.cfg.effective_item_dense_feats
-        ]
-
-        u_emb1, i_emb1 = self.model.kg(edge_index_1, user_feats, item_feats)
-        u_emb2, i_emb2 = self.model.kg(edge_index_2, user_feats, item_feats)
-
-        user_ids, item_ids = self._contrastive_batch_ids(batch)
-        return self.gcl_loss(
-            u_emb1[user_ids],
-            i_emb1[item_ids],
-            u_emb2[user_ids],
-            i_emb2[item_ids],
-        )
-
-    @staticmethod
-    def _contrastive_batch_ids(batch: RecSysQuery) -> tuple[torch.Tensor, torch.Tensor]:
-        user_ids = batch.user_id.reshape(-1).long().unique()
-        target_item_ids = batch.target_item_id.reshape(-1).long()
-
-        history_item_ids = (
-            batch.history_items[batch.history_valid_mask].reshape(-1).long() - 1
-        )
-        item_ids = torch.cat([target_item_ids, history_item_ids]).unique()
-
-        return user_ids, item_ids
 
     def predict_step(self, batch: RecSysQuery) -> torch.Tensor:
         return self(batch)

@@ -10,7 +10,7 @@ import typer
 from .. import settings
 from ..datasets import DatasetName, ElearningDataModule
 from ..evaluation.ablation import ABLATIONS, ablation_applicable, get_ablation_config
-from ..recsys import ModelArch, ModelConfig, RecSys, arch_applicable, train_model
+from ..recsys import ModelArch, ModelConfig, RecSys, train_model
 from ..recsys.configs import resolve_train_config
 from .utils import (
     build_config,
@@ -161,22 +161,22 @@ def run_ablation(
                 cfg.save(variant_root / "config.yaml")
 
                 print(f"[ABLATION] {run_name} | {variant} | seed={seed}")
-                if not arch_applicable(cfg):
+                if not cfg.has_history:
                     print(
-                        f"[ABLATION] SKIPPING variant {variant!r}: the "
-                        f"{cfg.arch} architecture requires sequential history."
+                        f"[ABLATION] SKIPPING variant {variant!r}: "
+                        "the model requires sequential history."
                     )
                     row: dict[str, float | int | str] = {
                         "variant": variant,
                         "seed": seed,
                         "applicable": 0,
                         "module_graph": int(cfg.graph_mode == "kg"),
-                        "module_sequence": int(cfg.uses_sequence),
+                        "module_sequence": int(cfg.has_history),
                         "arch": str(cfg.arch),
                         "graph_mode": cfg.graph_mode,
                         "scorer_type": cfg.scorer_type,
                         "use_text_features": int(cfg.use_text_features),
-                        "use_gcl": int(cfg.use_gcl),
+                        "use_user_features": int(cfg.use_user_features),
                         "use_item_bias": int(cfg.use_item_bias),
                         "num_parameters": 0,
                         "training_time_s": 0.0,
@@ -204,8 +204,9 @@ def run_ablation(
                 model = RecSys(
                     cfg=cfg,
                     knowledge_graph=knowledge_graph,
-                    u_static_feats=dm.u_static_feats,
                     i_static_feats=dm.i_static_feats,
+                    u_static_feats=dm.u_static_feats,
+                    u_cat_feats=dm.u_cat_feats,
                     train_cfg=train_cfg,
                     val_topk=top_k,
                 )
@@ -245,12 +246,12 @@ def run_ablation(
                     "seed": seed,
                     "applicable": int(applicable),
                     "module_graph": int(cfg.graph_mode == "kg"),
-                    "module_sequence": int(cfg.uses_sequence),
+                    "module_sequence": int(cfg.has_history),
                     "arch": str(cfg.arch),
                     "graph_mode": cfg.graph_mode,
                     "scorer_type": cfg.scorer_type,
                     "use_text_features": int(cfg.use_text_features),
-                    "use_gcl": int(cfg.use_gcl),
+                    "use_user_features": int(cfg.use_user_features),
                     "use_item_bias": int(cfg.use_item_bias),
                     **{
                         name.removeprefix("test/"): value

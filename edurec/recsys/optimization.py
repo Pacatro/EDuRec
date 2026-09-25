@@ -18,7 +18,7 @@ from .training import train_model
 
 # Bump whenever the search space or the objective changes so old studies are
 # not silently resumed with incompatible trials.
-OPTIMIZER_VERSION = 1
+OPTIMIZER_VERSION = 2
 
 
 def _optim_digest(
@@ -89,23 +89,12 @@ def objective(
         dropout=trial.suggest_categorical(
             "dropout", sorted({0.0, 0.1, settings.DROPOUT, 0.3, 0.5})
         ),
-        edge_dropout=trial.suggest_categorical(
-            "edge_dropout", sorted({0.0, 0.1, settings.DROP_EDGES_P, 0.3, 0.5})
-        ),
-        # GCL loss
-        temperature=trial.suggest_categorical(
-            "temperature", sorted({0.05, 0.1, settings.TAU, 0.2, 0.5})
-        ),
         # Item bias
         use_item_bias=trial.suggest_categorical("use_item_bias", [True, False]),
     )
 
     train_config = replace(
         base_train_config,
-        # GCL loss
-        alpha=trial.suggest_categorical(
-            "alpha", sorted({0.01, settings.LOSS_ALPHA, 0.1, 0.2, 1.0})
-        ),
         # Optimizer
         lr=trial.suggest_categorical("lr", sorted({1e-4, settings.LR, 5e-4, 1e-3})),
         weight_decay=trial.suggest_categorical(
@@ -119,8 +108,9 @@ def objective(
     model = RecSys(
         cfg=config,
         knowledge_graph=knowledge_graph,
-        u_static_feats=datamodule.u_static_feats,
         i_static_feats=datamodule.i_static_feats,
+        u_static_feats=datamodule.u_static_feats,
+        u_cat_feats=datamodule.u_cat_feats,
         train_cfg=train_config,
         val_topk=val_topk,
     )

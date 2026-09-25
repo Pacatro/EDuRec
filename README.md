@@ -184,10 +184,10 @@ configuration per evaluated dataset **and architecture**:
 configs/model/<dataset>_<arch>.yaml   Model architecture hyperparameters
 configs/train/<dataset>_<arch>.yaml   Training hyperparameters (epochs, lr,
                                       batch size, patience, weight decay, top-k,
-                                      alpha, adaptive-k)
+                                      adaptive-k)
 ```
 
-`<arch>` is `kg_rnn` (the default) or `kg_seq`. When a config file exists for the
+`<arch>` is `kg_rnn` (the only architecture). When a config file exists for the
 dataset and architecture being run, training, evaluation, and ablation commands
 load it. Explicit CLI flags always take precedence over the saved
 configurations, which in turn take precedence over the global defaults in
@@ -203,78 +203,52 @@ uv run edurec ablation --dataset doris --seeds 13,42,77,101,2026 --use_processed
 
 Implemented main variants:
 
-- `base`: ID-only dot-product baseline without knowledge-graph structure.
 - `full`: full EDuRec architecture.
 - `no_graph`: drops the knowledge-graph structure (attribute nodes and
-  message passing), keeping only ID embeddings and feature projections.
-- `no_text`: removes the text embeddings from the user/item node features.
-- `no_sequence`: removes the GRU history encoding.
-- `no_context`: removes the independent interaction-context representation.
-- `sum_fusion`: replaces the gated fusion of the graph and sequence user
-  representations with a direct sum.
-- `no_gcl`: removes graph contrastive learning.
+  message passing), keeping only item ID embeddings and feature projections.
+- `no_text`: removes the text embeddings from the item node features.
 - `no_item_bias`: removes the learned item-popularity bias.
 - `dot_product`: replaces the MLP scorer with dot-product scoring.
 
 Variants that disable a module the dataset does not provide (for example
-`no_sequence` on a dataset without history, or `sum_fusion` when there is no
-sequence source to fuse) are marked as not applicable and excluded from the
-plots. Aggregated outputs are saved to `results/ablations/<dataset>/`.
+`no_text` on a dataset without text features) are marked as not applicable and
+excluded from the plots. Aggregated outputs are saved to
+`results/ablations/<dataset>/`.
 
 ## Model Architecture
 
 ![EDuRec model architecture](model-diagram.png)
 
-EDuRec exposes two selectable architectures through the `arch` field of the
-model configuration (or the `--arch` CLI flag):
+EDuRec exposes a single architecture through the `arch` field of the model
+configuration (currently only `kg_rnn`): the knowledge-graph encoder refines the
+item embeddings, each user's chronological history is gathered from those
+representations and encoded by a GRU, and the resulting user state is scored
+against the item embeddings.
 
-- `kg_rnn` (default): the graph user node and the sequence state are computed in
-  parallel and concatenated before scoring.
-- `kg_seq`: a serial pipeline. The knowledge-graph encoder processes the full
-  graph, the item node representations in each user's history are gathered into
-  a new sequence, and the sequential encoder consumes that sequence. Its output
-  is the only user representation fed to the scorer.
-
-The sections below describe the modules shared by both architectures.
+The sections below describe the modules.
 
 - **Knowledge-graph encoder**: a heterogeneous item-item graph is derived from
   each dataset schema. Items are nodes, and every categorical or list-valued
   item field becomes an attribute node type. Each item connects to its
   attribute values through an edge named after the field, so items that share
   an attribute value become neighbours through that shared attribute node.
-  User-item interactions are not modeled. Extra relations are declared per
-  dataset in the schema and resolved by the same generic builder: `refs` links
-  fields whose values name another entity (for example DORIS course
-  prerequisites) and `cooc` links two attributes that co-occur in a row (for
-  example COCO category levels). Reverse edges and edge cleanup are delegated
-  to PyTorch Geometric. Numeric and text embeddings initialize the item nodes,
-  while user representations still come from learned identifier embeddings and
-  their feature projections, so no separate item feature encoder is needed.
-- **Sequential encoder**: a GRU encodes each user's recent item history.
-- **Interaction context**: interaction-level metadata is encoded
-  independently and consumed by the scorer.
-- **Gated fusion**: learned global gates weight and combine the user sources
-  (graph and sequence).
-- **Scorer**: the final user and item embeddings are scored with either an MLP
-  scorer or a dot-product scorer. An optional item bias can be added.
+  User-item interactions are not modeled, and the graph contains no user nodes.
+  Extra relations are declared per dataset in the schema and resolved by the
+  same generic builder: `refs` links fields whose values name another entity
+  (for example DORIS course prerequisites) and `cooc` links two attributes that
+  co-occur in a row (for example COCO category levels). Reverse edges and edge
+  cleanup are delegated to PyTorch Geometric. Numeric and text embeddings
+  initialize the item nodes.
+- **Sequential encoder**: a GRU encodes each user's recent item history. Because
+  the graph only contains items, this sequence is the sole source of user
+  representations, so a chronological timestamp is required.
+- **Scorer**: the user and item embeddings are scored with either an MLP scorer
+  or a dot-product scorer. An optional item bias can be added.
 
 Module availability is inferred from each processed dataset when the model
-configuration is built. The sequential encoder and context inputs are omitted
-when their required data is absent, and the knowledge graph automatically
-reflects the fields declared by each dataset schema.
-
-Sequential history modules additionally require a real chronological
-interaction field. Datasets without one are split randomly and do not allocate
-history tensors; a synthetic row index is not considered a valid timestamp.
-The `kg_seq` architecture additionally requires sequential history, so it is
-rejected for datasets without one and skipped by the ablation command.
-Interaction context has an independent encoder and remains available without a
-sequential history. It is kept separate from the user representation: the final
-scorer consumes user, item, and context representations explicitly.
-
-Training uses cross-entropy over all candidate items. When enabled, graph
-contrastive learning applies edge dropout to create two graph views and adds an
-InfoNCE loss for user and item embeddings.
+configuration is built. The knowledge graph automatically reflects the fields
+declared by each dataset schema. Sequential history requires a real
+chronological interaction field; datasets without one cannot train the model.
 
 ## Implemented Experiments
 
@@ -308,8 +282,7 @@ experiments.
 `uv run edurec ablation` evaluates architecture variants across configurable
 seeds and records metrics, parameter counts, and per-run configuration files.
 This is intended to isolate the contribution of the knowledge-graph structure,
-text features, sequential history, context, gated fusion, graph contrastive
-learning, item bias, and the scoring function.
+text features, item bias, and the scoring function.
 
 ## Author
 

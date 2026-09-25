@@ -12,7 +12,7 @@ from .dataprocessor import DataProcessor
 
 # Bump whenever the preprocessing logic changes in a way that invalidates
 # existing caches (e.g. deduplication or timestamp parsing changes).
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 MANIFEST_FILENAME = "manifest.json"
 
 CACHE_FILES = (
@@ -46,7 +46,7 @@ def processed_cache_exists(folder: Path) -> bool:
         return False
 
     tensors = load_file(folder / "static_feats.safetensors")
-    return {"u_static_feats", "i_static_feats"}.issubset(tensors)
+    return {"u_static_feats", "u_cat_feats", "i_static_feats"}.issubset(tensors)
 
 
 @dataclass
@@ -55,6 +55,7 @@ class ProcessedData:
     val: pd.DataFrame | None = None
     test: pd.DataFrame | None = None
     u_static_feats: torch.Tensor | None = None
+    u_cat_feats: torch.Tensor | None = None
     i_static_feats: torch.Tensor | None = None
     user_features: pd.DataFrame | None = None
     item_features: pd.DataFrame | None = None
@@ -69,6 +70,7 @@ class ProcessedData:
                 self.val,
                 self.test,
                 self.u_static_feats,
+                self.u_cat_feats,
                 self.i_static_feats,
                 self.user_features,
                 self.item_features,
@@ -102,12 +104,17 @@ class ProcessedData:
         self.user_features.reset_index(drop=True).to_feather(folder / "users.feather")
         self.item_features.reset_index(drop=True).to_feather(folder / "items.feather")
 
-        if self.u_static_feats is None or self.i_static_feats is None:
+        if (
+            self.u_static_feats is None
+            or self.u_cat_feats is None
+            or self.i_static_feats is None
+        ):
             raise RuntimeError("Static features are not available.")
 
         save_file(
             {
                 "u_static_feats": self.u_static_feats.contiguous(),
+                "u_cat_feats": self.u_cat_feats.contiguous(),
                 "i_static_feats": self.i_static_feats.contiguous(),
             },
             folder / "static_feats.safetensors",
@@ -132,6 +139,7 @@ class ProcessedData:
             val=pd.read_feather(folder / "val.feather"),
             test=pd.read_feather(folder / "test.feather"),
             u_static_feats=tensors["u_static_feats"],
+            u_cat_feats=tensors["u_cat_feats"],
             i_static_feats=tensors["i_static_feats"],
             user_features=pd.read_feather(folder / "users.feather"),
             item_features=pd.read_feather(folder / "items.feather"),

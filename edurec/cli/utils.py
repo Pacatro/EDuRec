@@ -52,10 +52,10 @@ def build_config(
     dataset_config = {
         "num_users": dm.num_users,
         "num_items": dm.num_items,
-        "num_user_dense_feats": dm.num_user_dense_feats,
         "num_item_dense_feats": dm.num_item_dense_feats,
-        "num_user_text_feats": dm.num_user_text_feats,
         "num_item_text_feats": dm.num_item_text_feats,
+        "num_user_dense_feats": dm.num_user_dense_feats,
+        "user_cat_cardinalities": dm.user_cat_cardinalities,
         "kg_node_counts": dm.kg_node_counts,
         "kg_edge_types": [list(edge) for edge in dm.kg_edge_types],
         "has_history": dm.has_history,
@@ -70,11 +70,12 @@ def build_config(
 def print_model_modules(prefix: str, cfg: ModelConfig) -> None:
     """Print the effective model modules in a compact form."""
     graph = "ON" if cfg.graph_mode == "kg" else "OFF"
-    sequence = "ON" if cfg.uses_sequence else "OFF"
+    sequence = "ON" if cfg.has_history else "OFF"
+    user = "ON" if cfg.use_user_features and cfg.user_profile.is_active else "OFF"
     options = (
         f"text={'ON' if cfg.use_text_features else 'OFF'}, "
+        f"user={user}, "
         f"scorer={cfg.scorer_type}, "
-        f"gcl={'ON' if cfg.use_gcl else 'OFF'}, "
         f"item_bias={'ON' if cfg.use_item_bias else 'OFF'}"
     )
     print(
