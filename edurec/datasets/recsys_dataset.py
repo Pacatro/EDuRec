@@ -13,7 +13,6 @@ class RecSysQuery(NamedTuple):
     user_id: torch.Tensor
     history_items: torch.Tensor
     history_valid_mask: torch.Tensor
-    context: torch.Tensor
     target_item_id: torch.Tensor
     negative_item_ids: torch.Tensor
 
@@ -24,27 +23,12 @@ class RecSysDataset(Dataset):
         interactions: pd.DataFrame,
         history_items: torch.Tensor,
         history_valid_mask: torch.Tensor,
-        num_ctx_feats: int,
-        context_cols: list[str] | None = None,
         negative_item_ids: np.ndarray | torch.Tensor | None = None,
     ):
         if len(history_items) != len(interactions):
             raise RuntimeError("Precomputed history must align with interactions.")
 
         interactions = interactions.reset_index(drop=True)
-        self.num_ctx_feats = num_ctx_feats
-        context_cols = context_cols or []
-
-        if len(context_cols) != num_ctx_feats:
-            raise RuntimeError(
-                "context_cols must contain exactly num_ctx_feats columns."
-            )
-
-        self.context = torch.as_tensor(
-            interactions[context_cols].to_numpy(dtype=np.float32, copy=True),
-            dtype=torch.float32,
-        )
-
         self.user_ids = interactions[settings.USER_COL].to_numpy(copy=True)
         self.target_item_ids = interactions[settings.ITEM_COL].to_numpy(copy=True)
         self.n_interactions = len(interactions)
@@ -73,7 +57,6 @@ class RecSysDataset(Dataset):
             user_id=torch.tensor(int(self.user_ids[idx]), dtype=torch.long),
             history_items=self.history_items[idx],
             history_valid_mask=self.history_valid_mask[idx],
-            context=self.context[idx],
             target_item_id=torch.tensor(
                 int(self.target_item_ids[idx]), dtype=torch.long
             ),

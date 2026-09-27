@@ -47,7 +47,6 @@ def dataset_command(
     print(f"Number of interactions: {dm.num_interactions}")
     print(f"Number of user features: {dm.num_user_feats}")
     print(f"Number of item features: {dm.num_item_feats}")
-    print(f"Number of interactions context features: {dm.num_ctx_feats}")
 
     raw_dataset = dm.raw_dataset
     assert raw_dataset is not None

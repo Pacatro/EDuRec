@@ -26,14 +26,6 @@ from .preprocessing import (
 from .recsys_dataset import RecSysDataset
 from .user_history import build_histories
 
-EXCLUDED_CONTEXT_COLS = (
-    settings.USER_COL,
-    settings.ITEM_COL,
-    settings.RELEVANT_COL,
-    settings.RATING_COL,
-    settings.TIME_COL,
-)
-
 
 class ElearningDataModule(L.LightningDataModule):
     def __init__(
@@ -157,8 +149,6 @@ class ElearningDataModule(L.LightningDataModule):
             interactions=interactions,
             history_items=history_items,
             history_valid_mask=history_valid_mask,
-            num_ctx_feats=self.num_ctx_feats,
-            context_cols=self._context_cols(interactions),
             negative_item_ids=negative_item_ids,
         )
 
@@ -222,12 +212,6 @@ class ElearningDataModule(L.LightningDataModule):
             add_relevance(val, thresholds),
             add_relevance(test, thresholds),
         )
-
-    @staticmethod
-    def _context_cols(
-        interactions: pd.DataFrame,
-    ) -> list[str]:
-        return [col for col in interactions.columns if col not in EXCLUDED_CONTEXT_COLS]
 
     @property
     def knowledge_graph(self) -> HeteroData:
@@ -366,16 +350,6 @@ class ElearningDataModule(L.LightningDataModule):
             )
 
         return 0 if self.raw_dataset is None else len(self.raw_dataset.interactions)
-
-    @property
-    def num_ctx_feats(self) -> int:
-        if self.artifacts.train is not None:
-            return len(self._context_cols(self.artifacts.train))
-
-        if self.raw_dataset is not None:
-            return len(self._context_cols(self.raw_dataset.interactions))
-
-        return 0
 
     @property
     def has_history(self) -> bool:

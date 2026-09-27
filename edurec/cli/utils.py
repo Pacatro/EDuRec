@@ -109,7 +109,7 @@ def print_data_summary(prefix: str, dm: ElearningDataModule) -> None:
 
     if settings.state["verbose"]:
         print(
-            f"[{prefix}] Features: context={dm.train_ds.num_ctx_feats}, "
+            f"[{prefix}] Features: "
             f"user_dense={dm.num_user_dense_feats}, "
             f"item_dense={dm.num_item_dense_feats}, "
             f"user_text={dm.num_user_text_feats}, "
