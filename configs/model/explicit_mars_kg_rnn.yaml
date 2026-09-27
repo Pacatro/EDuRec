@@ -1,6 +1,5 @@
 arch: kg_rnn
 dropout: 0.15
-edge_dropout: 0.3
 emb_dim: 128
 gnn_layers: 1
 graph_mode: kg
@@ -12,18 +11,12 @@ hidden_dims:
   - 128
 kg_edge_types: []
 kg_node_counts: {}
-loss_reduction: mean
 num_item_dense_feats: 486
 num_item_text_feats: 384
 num_items: 1609
 num_user_dense_feats: 0
-num_user_text_feats: 0
 num_users: 4741
 scorer_type: mlp
-temperature: 0.15
-use_gcl: false
-use_item_bias: false
-use_seq_encoder: true
-use_text_features: true
 seq_cell: gru
-
+use_item_bias: false
+use_text_features: true

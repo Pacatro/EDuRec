@@ -7,6 +7,4 @@ topks:
   - 5
   - 10
   - 20
-alpha: 0.01
 adaptive_k: false
-
