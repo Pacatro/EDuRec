@@ -92,9 +92,9 @@ class Scorer(nn.Module):
         cand_emb = item_emb[item_ids]
 
         if self.scorer_type == "dot":
-            scores = torch.bmm(
-                user_emb.unsqueeze(1), cand_emb.transpose(1, 2)
-            ).squeeze(1)
+            scores = torch.bmm(user_emb.unsqueeze(1), cand_emb.transpose(1, 2)).squeeze(
+                1
+            )
             return scores * self.logit_scale.clamp(min=1e-3)
 
         mlp = cast(nn.Sequential, self.mlp)

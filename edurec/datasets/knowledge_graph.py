@@ -88,7 +88,9 @@ def _add_reference_edges(
     node_ids: pd.Series,
     processor: DataProcessor,
 ) -> None:
-    for field, target_field in processor.schema.get("items", {}).get("refs", {}).items():
+    for field, target_field in (
+        processor.schema.get("items", {}).get("refs", {}).items()
+    ):
         if field not in item_frame.columns or target_field not in item_frame.columns:
             continue
 
@@ -133,11 +135,11 @@ def _add_cooccurrence_edges(
         if not valid.any():
             continue
 
-        data[f"attr::{left}", f"cooc::{left}::{right}", f"attr::{right}"].edge_index = (
-            torch.as_tensor(
-                np.stack([left_codes[valid], right_codes[valid]]),
-                dtype=torch.long,
-            )
+        data[
+            f"attr::{left}", f"cooc::{left}::{right}", f"attr::{right}"
+        ].edge_index = torch.as_tensor(
+            np.stack([left_codes[valid], right_codes[valid]]),
+            dtype=torch.long,
         )
 
 

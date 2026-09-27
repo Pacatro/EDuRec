@@ -47,9 +47,7 @@ class UserProfileEncoder(nn.Module):
             else None
         )
         self.id_emb = (
-            nn.Embedding(cfg.num_users, cfg.emb_dim)
-            if cfg.use_id_embedding
-            else None
+            nn.Embedding(cfg.num_users, cfg.emb_dim) if cfg.use_id_embedding else None
         )
         self.norm = nn.LayerNorm(cfg.emb_dim)
 
@@ -65,11 +63,7 @@ class UserProfileEncoder(nn.Module):
         ``user_ids``. Returns ``None`` when no user feature is configured, so
         callers can skip the profile path entirely.
         """
-        if (
-            len(self.cat_embs) == 0
-            and self.dense_proj is None
-            and self.id_emb is None
-        ):
+        if len(self.cat_embs) == 0 and self.dense_proj is None and self.id_emb is None:
             return None
 
         batch_ids = user_ids.clamp(min=0)

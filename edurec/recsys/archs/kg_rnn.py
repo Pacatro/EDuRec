@@ -53,7 +53,9 @@ class KGRNN(BaseRecArch):
         )
         self.scorer = Scorer(cfg.scorer)
 
-    def _fuse(self, user_emb: torch.Tensor, profile: torch.Tensor | None) -> torch.Tensor:
+    def _fuse(
+        self, user_emb: torch.Tensor, profile: torch.Tensor | None
+    ) -> torch.Tensor:
         if profile is None:
             return user_emb
         if self.fusion_gate is not None:
