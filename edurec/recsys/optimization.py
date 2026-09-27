@@ -18,7 +18,7 @@ from .training import train_model
 
 # Bump whenever the search space or the objective changes so old studies are
 # not silently resumed with incompatible trials.
-OPTIMIZER_VERSION = 2
+OPTIMIZER_VERSION = 3
 
 
 def _optim_digest(
@@ -59,13 +59,35 @@ def objective(
     emb_dim = trial.suggest_categorical(
         "emb_dim", sorted({64, settings.EMB_DIM, 256, 512})
     )
-    scorer = trial.suggest_categorical("scorer", ["linear", "single", "funnel"])
 
-    hidden_dims = {
-        "linear": [],
-        "single": [2 * emb_dim],
-        "funnel": [2 * emb_dim, emb_dim],
-    }[scorer]
+    # The scorer is either a dot product (no hidden layers) or an MLP whose
+    # depth is tuned through a named shape.
+    scorer_type = trial.suggest_categorical("scorer_type", ["mlp", "dot"])
+    if scorer_type == "mlp":
+        scorer_shape = trial.suggest_categorical(
+            "scorer_shape", ["linear", "single", "funnel"]
+        )
+        hidden_dims = {
+            "linear": [],
+            "single": [2 * emb_dim],
+            "funnel": [2 * emb_dim, emb_dim],
+        }[scorer_shape]
+    else:
+        hidden_dims = []
+
+    # The user-profile encoder and its fusion only exist when the dataset
+    # provides user features, so those dimensions are dataset-dependent.
+    profile_overrides: dict[str, Any] = {}
+    if base_config.user_profile.is_active:
+        profile_overrides = {
+            "user_fusion": trial.suggest_categorical("user_fusion", ["gate", "concat"]),
+            "use_user_id_embedding": trial.suggest_categorical(
+                "use_user_id_embedding", [False, True]
+            ),
+            "condition_seq_on_profile": trial.suggest_categorical(
+                "condition_seq_on_profile", [False, True]
+            ),
+        }
 
     config = replace(
         base_config,
@@ -84,7 +106,10 @@ def objective(
             "gru_layers", sorted({1, settings.GRU_LAYERS, 2, 3})
         ),
         # Scorer
+        scorer_type=scorer_type,
         hidden_dims=hidden_dims,
+        # User profile fusion
+        **profile_overrides,
         # Regularization
         dropout=trial.suggest_categorical(
             "dropout", sorted({0.0, 0.1, settings.DROPOUT, 0.3, 0.5})
