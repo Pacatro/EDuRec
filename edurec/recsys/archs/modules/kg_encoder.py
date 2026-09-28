@@ -3,53 +3,11 @@ from typing import cast
 
 import torch
 from torch import nn
-from torch_geometric.nn import SAGEConv
+from torch_geometric.nn import HeteroConv, SAGEConv
 
 from .... import settings
 
 EdgeType = tuple[str, str, str]
-
-
-class RelationAwareGraphSAGE(nn.Module):
-    """One GraphSAGE layer with softmax-weighted relation aggregation.
-
-    Every edge type keeps its own ``SAGEConv``; the resulting messages are
-    combined with a learned softmax over relations, so the encoder decides how
-    much each relation (``hasSkill``, ``hasTopic``, references, co-occurrence)
-    contributes instead of treating all of them uniformly. Item-item and
-    item-attribute edges are both supported because the reverse directions are
-    already added when the graph is built.
-    """
-
-    def __init__(self, edge_types: list[EdgeType], emb_dim: int):
-        super().__init__()
-        self.edge_types = list(edge_types)
-        self.convs = nn.ModuleList(
-            SAGEConv(emb_dim, emb_dim) for _ in self.edge_types
-        )
-        self.relation_logits = nn.Parameter(torch.zeros(len(self.edge_types)))
-
-    def forward(
-        self,
-        x: dict[str, torch.Tensor],
-        edge_index: dict[EdgeType, torch.Tensor],
-    ) -> dict[str, torch.Tensor]:
-        if not self.edge_types:
-            return {}
-
-        weights = torch.softmax(self.relation_logits, dim=0)
-        out: dict[str, torch.Tensor] = {}
-
-        for weight, edge_type, conv in zip(weights, self.edge_types, self.convs):
-            edges = edge_index.get(edge_type)
-            if edges is None or edges.numel() == 0:
-                continue
-
-            src, _, dst = edge_type
-            message = conv((x[src], x[dst]), edges) * weight
-            out[dst] = out[dst] + message if dst in out else message
-
-        return out
 
 
 @dataclass
@@ -68,12 +26,10 @@ class GraphEncoder(nn.Module):
 
     Item nodes start from a learned identifier embedding plus a projection of
     their numeric/text features. Categorical and list-valued metadata become
-    attribute nodes with their own embeddings. Stacked relation-aware
-    heterogeneous convolutions propagate information across every typed edge,
-    weighting each relation with a learned softmax, so items that share an
-    attribute value become neighbours with an importance the model can tune.
-    Only items feed the graph; user representations are built by the sequential
-    encoder.
+    attribute nodes with their own embeddings. Stacked heterogeneous
+    convolutions propagate information across every typed edge, so items that
+    share an attribute value become neighbours. Only items feed the graph; user
+    representations are built by the sequential encoder.
     """
 
     def __init__(self, cfg: GraphEncoderConfig):
@@ -95,7 +51,13 @@ class GraphEncoder(nn.Module):
             }
         )
         self.convs = nn.ModuleList(
-            RelationAwareGraphSAGE(cfg.edge_types, cfg.emb_dim)
+            HeteroConv(
+                {
+                    edge_type: SAGEConv(cfg.emb_dim, cfg.emb_dim)
+                    for edge_type in cfg.edge_types
+                },
+                aggr="sum",
+            )
             for _ in range(cfg.num_layers)
         )
 

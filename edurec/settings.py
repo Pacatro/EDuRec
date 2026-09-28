@@ -107,10 +107,6 @@ MAX_HISTORY_LEN: int = 50
 # Embeddings
 EMB_DIM: int = 128
 
-# Scoring
-DOT_TEMPERATURE: float = 0.07
-FULL_CATALOG_LOSS: bool = True
-
 # Training
 LR: float = 2e-4
 WEIGHT_DECAY: float = 1e-4

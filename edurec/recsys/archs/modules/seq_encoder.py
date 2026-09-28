@@ -3,7 +3,7 @@ from typing import Literal
 
 import torch
 from torch import nn
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+from torch.nn.utils.rnn import pack_padded_sequence
 
 from .... import settings
 
@@ -15,16 +15,13 @@ class SeqEncoderConfig:
     num_layers: int = settings.GRU_LAYERS
     dropout: float = 0.1
     cell_type: Literal["gru", "lstm"] = settings.SEQ_CELL
+    condition_dim: int = 0
 
 
 class SeqEncoder(nn.Module):
     """Recurrent encoder over a user's chronological item history.
 
-    Supports GRU and LSTM cells, selected via ``cfg.cell_type``. The recurrent
-    network keeps one state per interaction; the last state ``h_T`` is combined
-    with an attention-pooled summary ``h_att`` so relevant earlier interactions
-    remain reachable instead of being condensed into a single state. The static
-    user profile is deliberately not consumed here: it is fused afterwards.
+    Supports GRU and LSTM cells, selected via ``cfg.cell_type``.
     """
 
     def __init__(self, cfg: SeqEncoderConfig):
@@ -41,30 +38,32 @@ class SeqEncoder(nn.Module):
             batch_first=True,
             dropout=cfg.dropout if cfg.num_layers > 1 else 0.0,
         )
-        self.attention = nn.Sequential(
-            nn.Linear(cfg.hidden_dim, cfg.hidden_dim),
-            nn.Tanh(),
-            nn.Linear(cfg.hidden_dim, 1),
+        self.state_proj = (
+            nn.Linear(cfg.condition_dim, cfg.hidden_dim * cfg.num_layers)
+            if cfg.condition_dim > 0
+            else None
         )
-        self.proj = nn.Linear(cfg.hidden_dim * 2, cfg.emb_dim)
+        self.proj = nn.Linear(cfg.hidden_dim, cfg.emb_dim)
         self.norm = nn.LayerNorm(cfg.emb_dim)
 
-    def _pool(
+    def _initial_hidden(
         self,
-        outputs: torch.Tensor,
-        mask: torch.Tensor,
-    ) -> torch.Tensor:
-        """Attention-pool valid states: ``sum_t alpha_t h_t``."""
-        logits = self.attention(outputs).squeeze(-1)
-        # A large negative (not ``-inf``) keeps softmax finite for empty rows.
-        logits = logits.masked_fill(~mask, -1e9)
-        weights = torch.softmax(logits, dim=1)
-        return torch.einsum("bl,blh->bh", weights, outputs)
+        condition: torch.Tensor,
+        order: torch.Tensor,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        assert self.state_proj is not None
+        state = self.state_proj(condition)[order]
+        state = state.view(-1, self.num_layers, self.hidden_dim).permute(1, 0, 2)
+        state = state.contiguous()
+        if self.cell_type == "lstm":
+            return state, torch.zeros_like(state)
+        return state
 
     def forward(
         self,
         history_emb: torch.Tensor,
         history_mask: torch.Tensor,
+        condition: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Encode a user interaction history.
 
@@ -74,6 +73,8 @@ class SeqEncoder(nn.Module):
             history_mask: Boolean mask with shape
                 ``[batch_size, history_len]``. True values indicate valid
                 interactions.
+            condition: Optional ``[batch_size, condition_dim]`` profile used to
+                initialise the recurrent hidden state.
         Returns:
             Sequential user state with shape ``[batch_size, emb_dim]``.
             Users without history receive a zero vector.
@@ -93,27 +94,19 @@ class SeqEncoder(nn.Module):
             batch_first=True,
             enforce_sorted=True,
         )
-        outputs, hidden = self.rnn(packed)
+        if self.state_proj is not None and condition is not None:
+            _, hidden = self.rnn(packed, self._initial_hidden(condition, order))
+        else:
+            _, hidden = self.rnn(packed)
 
         # LSTM returns ``(h_n, c_n)`` while GRU returns ``h_n`` directly.
         if isinstance(hidden, tuple):
             hidden = hidden[0]
 
-        # ``hidden[-1]`` is the last valid state of every row (sorted order).
-        last = hidden[-1]
-        padded_outputs, _ = pad_packed_sequence(
-            outputs,
-            batch_first=True,
-            total_length=history_emb.size(1),
-        )
-        pooled = self._pool(padded_outputs, history_mask[order])
+        # `hidden` follows the sorted batch order, so restore the input order.
+        sorted_last = hidden[-1]
+        last = sorted_last.new_empty(sorted_last.shape)
+        last[order] = sorted_last
 
-        combined = torch.cat([last, pooled], dim=-1)
-        seq_user_emb = self.proj(combined)
-
-        # Restore the original (unsorted) batch order.
-        restored = seq_user_emb.new_empty(seq_user_emb.shape)
-        restored[order] = seq_user_emb
-        seq_user_emb = self.norm(restored)
-
+        seq_user_emb = self.norm(self.proj(last))
         return seq_user_emb * has_history.unsqueeze(-1)
