@@ -104,15 +104,6 @@ GRU_LAYERS: int = 1
 DROPOUT: float = 0.15
 MAX_HISTORY_LEN: int = 50
 
-# Causal transformer sequence encoder
-TRANSFORMER_LAYERS: int = 2
-TRANSFORMER_HEADS: int = 4
-TRANSFORMER_FFN_DIM: int = 512
-
-# Multi-interest extraction
-NUM_INTERESTS: int = 4
-TIME_EMBED_BUCKETS: int = 64
-
 # Embeddings
 EMB_DIM: int = 128
 

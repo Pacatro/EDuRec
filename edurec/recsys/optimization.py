@@ -12,13 +12,13 @@ from torch_geometric.data import HeteroData
 
 from .. import settings
 from ..datasets import ElearningDataModule
-from .configs import ModelArch, ModelConfig, TrainConfig
+from .configs import ModelConfig, TrainConfig
 from .recsys import RecSys
 from .training import train_model
 
 # Bump whenever the search space or the objective changes so old studies are
 # not silently resumed with incompatible trials.
-OPTIMIZER_VERSION = 4
+OPTIMIZER_VERSION = 3
 
 
 def _optim_digest(
@@ -60,94 +60,62 @@ def objective(
         "emb_dim", sorted({64, settings.EMB_DIM, 256, 512})
     )
 
-    # The user-profile encoder is dataset-dependent, so those dimensions are
-    # only tuned when the dataset actually provides user features.
+    # The scorer is either a dot product (no hidden layers) or an MLP whose
+    # depth is tuned through a named shape.
+    scorer_type = trial.suggest_categorical("scorer_type", ["mlp", "dot"])
+    if scorer_type == "mlp":
+        scorer_shape = trial.suggest_categorical(
+            "scorer_shape", ["linear", "single", "funnel"]
+        )
+        hidden_dims = {
+            "linear": [],
+            "single": [2 * emb_dim],
+            "funnel": [2 * emb_dim, emb_dim],
+        }[scorer_shape]
+    else:
+        hidden_dims = []
+
+    # The user-profile encoder and its fusion only exist when the dataset
+    # provides user features, so those dimensions are dataset-dependent.
     profile_overrides: dict[str, Any] = {}
     if base_config.user_profile.is_active:
         profile_overrides = {
+            "user_fusion": trial.suggest_categorical("user_fusion", ["gate", "concat"]),
             "use_user_id_embedding": trial.suggest_categorical(
                 "use_user_id_embedding", [False, True]
             ),
+            "condition_seq_on_profile": trial.suggest_categorical(
+                "condition_seq_on_profile", [False, True]
+            ),
         }
-        if base_config.arch == ModelArch.KG_RNN:
-            profile_overrides.update(
-                {
-                    "user_fusion": trial.suggest_categorical(
-                        "user_fusion", ["gate", "concat"]
-                    ),
-                    "condition_seq_on_profile": trial.suggest_categorical(
-                        "condition_seq_on_profile", [False, True]
-                    ),
-                }
-            )
-
-    arch_overrides: dict[str, Any] = {
-        "gnn_layers": trial.suggest_categorical(
-            "gnn_layers", sorted({1, settings.GNN_LAYERS, 3, 4})
-        ),
-        "dropout": trial.suggest_categorical(
-            "dropout", sorted({0.0, 0.1, settings.DROPOUT, 0.3, 0.5})
-        ),
-        "use_item_bias": trial.suggest_categorical("use_item_bias", [True, False]),
-    }
-
-    if base_config.arch == ModelArch.MI_TRANSFORMER:
-        arch_overrides.update(
-            {
-                "transformer_layers": trial.suggest_categorical(
-                    "transformer_layers", sorted({1, settings.TRANSFORMER_LAYERS, 3, 4})
-                ),
-                "transformer_heads": trial.suggest_categorical(
-                    "transformer_heads", [2, 4, 8]
-                ),
-                "transformer_ffn_dim": trial.suggest_categorical(
-                    "transformer_ffn_dim",
-                    sorted({2 * emb_dim, settings.TRANSFORMER_FFN_DIM, 4 * emb_dim}),
-                ),
-                "num_interests": trial.suggest_categorical(
-                    "num_interests", sorted({2, settings.NUM_INTERESTS, 8})
-                ),
-                "use_temporal_features": trial.suggest_categorical(
-                    "use_temporal_features", [True, False]
-                ),
-            }
-        )
-    else:
-        # The scorer is either a dot product (no hidden layers) or an MLP whose
-        # depth is tuned through a named shape.
-        scorer_type = trial.suggest_categorical("scorer_type", ["mlp", "dot"])
-        if scorer_type == "mlp":
-            scorer_shape = trial.suggest_categorical(
-                "scorer_shape", ["linear", "single", "funnel"]
-            )
-            hidden_dims = {
-                "linear": [],
-                "single": [2 * emb_dim],
-                "funnel": [2 * emb_dim, emb_dim],
-            }[scorer_shape]
-        else:
-            hidden_dims = []
-
-        arch_overrides.update(
-            {
-                "seq_cell": trial.suggest_categorical("seq_cell", ["gru", "lstm"]),
-                "gru_hidden_dim": trial.suggest_categorical(
-                    "gru_hidden_dim",
-                    sorted({64, settings.GRU_HIDDEN_DIM, 256, 2 * emb_dim}),
-                ),
-                "gru_layers": trial.suggest_categorical(
-                    "gru_layers", sorted({1, settings.GRU_LAYERS, 2, 3})
-                ),
-                "scorer_type": scorer_type,
-                "hidden_dims": hidden_dims,
-            }
-        )
 
     config = replace(
         base_config,
         emb_dim=emb_dim,
+        # Knowledge-graph encoder
+        gnn_layers=trial.suggest_categorical(
+            "gnn_layers", sorted({1, settings.GNN_LAYERS, 3, 4})
+        ),
+        # Recurrent sequence encoder
+        seq_cell=trial.suggest_categorical("seq_cell", ["gru", "lstm"]),
+        gru_hidden_dim=trial.suggest_categorical(
+            "gru_hidden_dim",
+            sorted({64, settings.GRU_HIDDEN_DIM, 256, 2 * emb_dim}),
+        ),
+        gru_layers=trial.suggest_categorical(
+            "gru_layers", sorted({1, settings.GRU_LAYERS, 2, 3})
+        ),
+        # Scorer
+        scorer_type=scorer_type,
+        hidden_dims=hidden_dims,
+        # User profile fusion
         **profile_overrides,
-        **arch_overrides,
+        # Regularization
+        dropout=trial.suggest_categorical(
+            "dropout", sorted({0.0, 0.1, settings.DROPOUT, 0.3, 0.5})
+        ),
+        # Item bias
+        use_item_bias=trial.suggest_categorical("use_item_bias", [True, False]),
     )
 
     train_config = replace(

@@ -13,7 +13,6 @@ class RecSysQuery(NamedTuple):
     user_id: torch.Tensor
     history_items: torch.Tensor
     history_valid_mask: torch.Tensor
-    history_times: torch.Tensor
     target_item_id: torch.Tensor
     negative_item_ids: torch.Tensor
 
@@ -24,7 +23,6 @@ class RecSysDataset(Dataset):
         interactions: pd.DataFrame,
         history_items: torch.Tensor,
         history_valid_mask: torch.Tensor,
-        history_times: torch.Tensor | None = None,
         negative_item_ids: np.ndarray | torch.Tensor | None = None,
     ):
         if len(history_items) != len(interactions):
@@ -49,16 +47,6 @@ class RecSysDataset(Dataset):
 
         self.history_items = history_items
         self.history_valid_mask = history_valid_mask
-        self.history_times = (
-            torch.zeros(history_items.shape, dtype=torch.float32)
-            if history_times is None
-            else torch.as_tensor(history_times, dtype=torch.float32)
-        )
-
-        if self.history_times.shape != self.history_items.shape:
-            raise RuntimeError(
-                "Precomputed history times must align with history item IDs."
-            )
 
     def __len__(self) -> int:
         return self.n_interactions
@@ -69,7 +57,6 @@ class RecSysDataset(Dataset):
             user_id=torch.tensor(int(self.user_ids[idx]), dtype=torch.long),
             history_items=self.history_items[idx],
             history_valid_mask=self.history_valid_mask[idx],
-            history_times=self.history_times[idx],
             target_item_id=torch.tensor(
                 int(self.target_item_ids[idx]), dtype=torch.long
             ),
