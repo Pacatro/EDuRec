@@ -7,10 +7,7 @@ from typing import Any, Literal, Self
 import yaml
 
 from .. import settings
-from .archs.modules.candidate_attention import CandidateAttentionConfig
-from .archs.modules.history_transformer import HistoryTransformerConfig
 from .archs.modules.kg_encoder import EdgeType, GraphEncoderConfig
-from .archs.modules.reranker import RerankerConfig
 from .archs.modules.scorer import ScorerConfig
 from .archs.modules.seq_encoder import SeqEncoderConfig
 from .archs.modules.user_profile import UserProfileConfig
@@ -57,7 +54,6 @@ class ModelArch(StrEnum):
     """Available recommendation architectures."""
 
     KG_RNN = "kg_rnn"
-    GRAPH_TRANSFORMER = "graph_transformer"
 
 
 @dataclass
@@ -98,15 +94,6 @@ class ModelConfig(BaseConfig):
     gru_hidden_dim: int = settings.GRU_HIDDEN_DIM
     gru_layers: int = settings.GRU_LAYERS
     seq_cell: Literal["gru", "lstm"] = settings.SEQ_CELL
-
-    # History Transformer & two-stage retrieval (graph_transformer)
-    retrieval_k: int = settings.RETRIEVAL_K
-    transformer_heads: int = settings.TRANSFORMER_HEADS
-    transformer_layers: int = settings.TRANSFORMER_LAYERS
-    transformer_ff_dim: int = settings.TRANSFORMER_FF_DIM
-    rerank_hidden_dims: list[int] = field(
-        default_factory=lambda: [settings.EMB_DIM * 2, settings.EMB_DIM]
-    )
 
     # Scorer defaults
     hidden_dims: list[int] = field(
@@ -170,33 +157,6 @@ class ModelConfig(BaseConfig):
             hidden_dims=self.hidden_dims,
             dropout=self.dropout,
             scorer_type=self.scorer_type,
-        )
-
-    @property
-    def history_transformer(self) -> HistoryTransformerConfig:
-        return HistoryTransformerConfig(
-            emb_dim=self.emb_dim,
-            num_heads=self.transformer_heads,
-            num_layers=self.transformer_layers,
-            dim_feedforward=self.transformer_ff_dim,
-            dropout=self.dropout,
-            max_len=settings.MAX_HISTORY_LEN,
-        )
-
-    @property
-    def candidate_attention(self) -> CandidateAttentionConfig:
-        return CandidateAttentionConfig(
-            emb_dim=self.emb_dim,
-            num_heads=self.transformer_heads,
-            dropout=self.dropout,
-        )
-
-    @property
-    def reranker(self) -> RerankerConfig:
-        return RerankerConfig(
-            emb_dim=self.emb_dim,
-            hidden_dims=self.rerank_hidden_dims,
-            dropout=self.dropout,
         )
 
 
