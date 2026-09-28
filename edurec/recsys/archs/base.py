@@ -3,8 +3,6 @@ from abc import ABC, abstractmethod
 import torch
 from torch import nn
 
-from edurec.recsys.archs.modules.kg_encoder import GraphEncoder
-
 
 class BaseRecArch(nn.Module, ABC):
     """Common interface for the recommendation architectures.
@@ -14,7 +12,6 @@ class BaseRecArch(nn.Module, ABC):
     output of the sequential history encoder.
     """
 
-    kg: GraphEncoder
 
     @abstractmethod
     def forward(
