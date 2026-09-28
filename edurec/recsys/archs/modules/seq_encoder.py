@@ -8,6 +8,9 @@ from torch.nn.utils.rnn import pack_padded_sequence
 from .... import settings
 
 
+Pooling = Literal["last", "mean", "last_mean"]
+
+
 @dataclass
 class SeqEncoderConfig:
     emb_dim: int
@@ -16,12 +19,16 @@ class SeqEncoderConfig:
     dropout: float = 0.1
     cell_type: Literal["gru", "lstm"] = settings.SEQ_CELL
     condition_dim: int = 0
+    pooling: Pooling = "last_mean"
 
 
 class SeqEncoder(nn.Module):
     """Recurrent encoder over a user's chronological item history.
 
-    Supports GRU and LSTM cells, selected via ``cfg.cell_type``.
+    Supports GRU and LSTM cells, selected via ``cfg.cell_type``. The user state
+    combines the last hidden state with a masked mean of the item history
+    (``cfg.pooling``), so long-term preferences survive alongside the most
+    recent step.
     """
 
     def __init__(self, cfg: SeqEncoderConfig):
@@ -29,6 +36,7 @@ class SeqEncoder(nn.Module):
         self.cell_type = cfg.cell_type
         self.hidden_dim = cfg.hidden_dim
         self.num_layers = cfg.num_layers
+        self.pooling = cfg.pooling
 
         rnn_cls = {"gru": nn.GRU, "lstm": nn.LSTM}[cfg.cell_type]
         self.rnn = rnn_cls(
@@ -43,7 +51,12 @@ class SeqEncoder(nn.Module):
             if cfg.condition_dim > 0
             else None
         )
-        self.proj = nn.Linear(cfg.hidden_dim, cfg.emb_dim)
+        pool_dim = 0
+        if "last" in cfg.pooling:
+            pool_dim += cfg.hidden_dim
+        if "mean" in cfg.pooling:
+            pool_dim += cfg.emb_dim
+        self.proj = nn.Linear(pool_dim, cfg.emb_dim)
         self.norm = nn.LayerNorm(cfg.emb_dim)
 
     def _initial_hidden(
@@ -108,5 +121,15 @@ class SeqEncoder(nn.Module):
         last = sorted_last.new_empty(sorted_last.shape)
         last[order] = sorted_last
 
-        seq_user_emb = self.norm(self.proj(last))
+        parts: list[torch.Tensor] = []
+        if "last" in self.pooling:
+            parts.append(last)
+        if "mean" in self.pooling:
+            mask = history_mask.unsqueeze(-1).to(history_emb.dtype)
+            pooled_mean = (history_emb * mask).sum(dim=1) / mask.sum(dim=1).clamp(
+                min=1.0
+            )
+            parts.append(pooled_mean)
+
+        seq_user_emb = self.norm(self.proj(torch.cat(parts, dim=-1)))
         return seq_user_emb * has_history.unsqueeze(-1)

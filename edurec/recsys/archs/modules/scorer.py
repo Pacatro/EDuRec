@@ -12,19 +12,24 @@ class ScorerConfig:
     dropout: float = 0.1
     scorer_type: Literal["mlp", "dot"] = "mlp"
     dot_temperature: float | None = None
+    interaction: Literal["concat", "product"] = "product"
 
 
 class Scorer(nn.Module):
     """Scores a user representation against item embeddings.
 
-    Candidate scoring restricts the computation to ``[batch, num_candidates]``,
-    which is much cheaper than the full ``[batch, num_items]`` pass used during
-    evaluation. Full-catalog scoring is chunked over items to bound peak memory.
+    The MLP scorer concatenates the user representation, the item embedding and
+    their element-wise product (``cfg.interaction == "product"``) so it can
+    model multiplicative user-item interactions. Candidate scoring restricts the
+    computation to ``[batch, num_candidates]``, which is much cheaper than the
+    full ``[batch, num_items]`` pass used during evaluation. Full-catalog
+    scoring is chunked over items to bound peak memory.
     """
 
     def __init__(self, cfg: ScorerConfig, chunk_size: int = 1024):
         super().__init__()
         self.scorer_type = cfg.scorer_type
+        self.interaction = cfg.interaction
         self.chunk_size = chunk_size
 
         if cfg.scorer_type == "dot":
@@ -41,7 +46,7 @@ class Scorer(nn.Module):
             self.logit_scale = nn.Parameter(torch.tensor(initial_scale))
             return
 
-        input_dim = cfg.emb_dim * 2
+        input_dim = cfg.emb_dim * (3 if cfg.interaction == "product" else 2)
 
         layers = []
         prev_dim = input_dim
@@ -59,6 +64,15 @@ class Scorer(nn.Module):
         layers.append(nn.Linear(prev_dim, 1))
 
         self.mlp = nn.Sequential(*layers)
+
+    def _pair_input(
+        self,
+        user_emb: torch.Tensor,
+        item_emb: torch.Tensor,
+    ) -> torch.Tensor:
+        if self.interaction == "product":
+            return torch.cat([user_emb, item_emb, user_emb * item_emb], dim=-1)
+        return torch.cat([user_emb, item_emb], dim=-1)
 
     def forward(
         self,
@@ -99,8 +113,8 @@ class Scorer(nn.Module):
 
         mlp = cast(nn.Sequential, self.mlp)
         batch_size, num_candidates = item_ids.shape
-        user_emb = user_emb.unsqueeze(1).expand(batch_size, num_candidates, -1)
-        input = torch.cat([user_emb, cand_emb], dim=-1)
+        user = user_emb.unsqueeze(1).expand(batch_size, num_candidates, -1)
+        input = self._pair_input(user, cand_emb)
 
         return mlp(input).squeeze(-1)
 
@@ -121,9 +135,7 @@ class Scorer(nn.Module):
         scores = []
         for start in range(0, num_items, chunk_size):
             chunk_emb = item_emb[start : start + chunk_size]
-            parts = [
-                user_emb.unsqueeze(1).expand(batch_size, chunk_emb.size(0), -1),
-                chunk_emb.unsqueeze(0).expand(batch_size, -1, -1),
-            ]
-            scores.append(mlp(torch.cat(parts, dim=-1)).squeeze(-1))
+            user = user_emb.unsqueeze(1).expand(batch_size, chunk_emb.size(0), -1)
+            item = chunk_emb.unsqueeze(0).expand(batch_size, -1, -1)
+            scores.append(mlp(self._pair_input(user, item)).squeeze(-1))
         return torch.cat(scores, dim=1)

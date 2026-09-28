@@ -48,6 +48,14 @@ class KGRNN(BaseRecArch):
             else None
         )
 
+        # Learned user representation used when a user has no interaction
+        # history, so cold-start users are not scored from a zero vector.
+        self.cold_start = (
+            nn.Embedding(cfg.num_users, cfg.emb_dim)
+            if cfg.use_cold_start_embedding and cfg.num_users > 0
+            else None
+        )
+
         self.item_bias = (
             nn.Parameter(torch.zeros(cfg.num_items)) if cfg.use_item_bias else None
         )
@@ -90,6 +98,13 @@ class KGRNN(BaseRecArch):
             else None
         )
         user_emb = self.seq_encoder(hist, h_mask, condition=profile)
+
+        if self.cold_start is not None:
+            has_history = h_mask.bool().any(dim=1, keepdim=True)
+            fallback_ids = user_ids.clamp(min=0, max=self.cfg.num_users - 1)
+            fallback = self.cold_start(fallback_ids)
+            user_emb = torch.where(has_history, user_emb, fallback)
+
         user_emb = self._fuse(user_emb, profile)
 
         scores = self.scorer(user_emb, item_emb, item_ids=candidate_item_ids)
