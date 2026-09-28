@@ -12,14 +12,12 @@ from .modules.user_profile import UserProfileEncoder
 class KGRNN(BaseRecArch):
     """Knowledge-graph educational recommender.
 
-    The knowledge-graph encoder refines the item embeddings, each user's
-    chronological history is gathered from those representations and encoded by
-    a GRU or LSTM (``cfg.seq_encoder.cell_type``), and the resulting user state
-    is scored against the item embeddings by a final MLP.
-
-    When user features are available, a static profile is encoded separately and
-    fused with the sequential state through a learned gate, so cold-start users
-    can fall back on their profile.
+    The relation-aware knowledge-graph encoder refines the item embeddings. Each
+    user's chronological history is gathered from those representations and
+    encoded by a GRU or LSTM (``cfg.seq_encoder.cell_type``) with attention
+    pooling. The static profile is fused only after the sequential encoder and
+    the resulting user state is scored against the item embeddings with a
+    normalized dot product, so a cold-start user can fall back on the profile.
     """
 
     def __init__(self, cfg: ModelConfig):
@@ -89,7 +87,7 @@ class KGRNN(BaseRecArch):
             if self.user_profile is not None
             else None
         )
-        user_emb = self.seq_encoder(hist, h_mask, condition=profile)
+        user_emb = self.seq_encoder(hist, h_mask)
         user_emb = self._fuse(user_emb, profile)
 
         scores = self.scorer(user_emb, item_emb, item_ids=candidate_item_ids)

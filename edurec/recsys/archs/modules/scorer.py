@@ -2,7 +2,10 @@ from dataclasses import dataclass, field
 from typing import Literal, cast
 
 import torch
+import torch.nn.functional as F
 from torch import nn
+
+from .... import settings
 
 
 @dataclass
@@ -10,16 +13,19 @@ class ScorerConfig:
     emb_dim: int
     hidden_dims: list[int] = field(default_factory=list)
     dropout: float = 0.1
-    scorer_type: Literal["mlp", "dot"] = "mlp"
+    scorer_type: Literal["dot", "mlp"] = "dot"
     dot_temperature: float | None = None
 
 
 class Scorer(nn.Module):
     """Scores a user representation against item embeddings.
 
-    Candidate scoring restricts the computation to ``[batch, num_candidates]``,
-    which is much cheaper than the full ``[batch, num_items]`` pass used during
-    evaluation. Full-catalog scoring is chunked over items to bound peak memory.
+    The default scorer is a normalized dot product (cosine similarity) divided
+    by a learnable temperature. Unit-normalising both sides forces a shared
+    user-item space and lets the whole catalog be scored with one matrix
+    multiplication. Candidate scoring restricts the computation to
+    ``[batch, num_candidates]``; full-catalog scoring over the MLP fallback is
+    chunked over items to bound peak memory.
     """
 
     def __init__(self, cfg: ScorerConfig, chunk_size: int = 1024):
@@ -29,16 +35,14 @@ class Scorer(nn.Module):
 
         if cfg.scorer_type == "dot":
             self.mlp = None
-            # Embeddings are LayerNorm-ed, so a raw dot product produces logits
-            # of order emb_dim and saturates the ranking cross-entropy. A
-            # learnable scale (initialised to 1 / sqrt(emb_dim)) lets the model
-            # calibrate the logit temperature.
-            initial_scale = (
-                1.0 / (cfg.emb_dim**0.5)
+            # Logits are bounded to [-1, 1] before the temperature division, so
+            # the initial temperature controls how peaked the softmax starts.
+            initial_temperature = (
+                settings.DOT_TEMPERATURE
                 if cfg.dot_temperature is None
-                else 1.0 / cfg.dot_temperature
+                else cfg.dot_temperature
             )
-            self.logit_scale = nn.Parameter(torch.tensor(initial_scale))
+            self.temperature = nn.Parameter(torch.tensor(initial_temperature))
             return
 
         input_dim = cfg.emb_dim * 2
@@ -92,10 +96,10 @@ class Scorer(nn.Module):
         cand_emb = item_emb[item_ids]
 
         if self.scorer_type == "dot":
-            scores = torch.bmm(user_emb.unsqueeze(1), cand_emb.transpose(1, 2)).squeeze(
-                1
-            )
-            return scores * self.logit_scale.clamp(min=1e-3)
+            user = F.normalize(user_emb, dim=-1)
+            cand = F.normalize(cand_emb, dim=-1)
+            scores = torch.bmm(user.unsqueeze(1), cand.transpose(1, 2)).squeeze(1)
+            return scores / self.temperature.clamp(min=1e-3)
 
         mlp = cast(nn.Sequential, self.mlp)
         batch_size, num_candidates = item_ids.shape
@@ -109,9 +113,11 @@ class Scorer(nn.Module):
         user_emb: torch.Tensor,
         item_emb: torch.Tensor,
     ) -> torch.Tensor:
-        """Score the full catalog in chunks: ``[batch, num_items]``."""
+        """Score the full catalog: ``[batch, num_items]``."""
         if self.scorer_type == "dot":
-            return user_emb @ item_emb.T * self.logit_scale.clamp(min=1e-3)
+            user = F.normalize(user_emb, dim=-1)
+            item = F.normalize(item_emb, dim=-1)
+            return user @ item.T / self.temperature.clamp(min=1e-3)
 
         mlp = cast(nn.Sequential, self.mlp)
         batch_size = user_emb.shape[0]

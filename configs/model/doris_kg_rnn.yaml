@@ -15,6 +15,6 @@ num_item_text_feats: 384
 num_items: 2746
 num_user_dense_feats: 0
 num_users: 3951
-scorer_type: mlp
+scorer_type: dot
 use_item_bias: true
 use_text_features: true

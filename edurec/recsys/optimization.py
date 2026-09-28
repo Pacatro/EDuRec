@@ -18,7 +18,7 @@ from .training import train_model
 
 # Bump whenever the search space or the objective changes so old studies are
 # not silently resumed with incompatible trials.
-OPTIMIZER_VERSION = 3
+OPTIMIZER_VERSION = 4
 
 
 def _optim_digest(
@@ -62,7 +62,7 @@ def objective(
 
     # The scorer is either a dot product (no hidden layers) or an MLP whose
     # depth is tuned through a named shape.
-    scorer_type = trial.suggest_categorical("scorer_type", ["mlp", "dot"])
+    scorer_type = trial.suggest_categorical("scorer_type", ["dot", "mlp"])
     if scorer_type == "mlp":
         scorer_shape = trial.suggest_categorical(
             "scorer_shape", ["linear", "single", "funnel"]
@@ -83,9 +83,6 @@ def objective(
             "user_fusion": trial.suggest_categorical("user_fusion", ["gate", "concat"]),
             "use_user_id_embedding": trial.suggest_categorical(
                 "use_user_id_embedding", [False, True]
-            ),
-            "condition_seq_on_profile": trial.suggest_categorical(
-                "condition_seq_on_profile", [False, True]
             ),
         }
 

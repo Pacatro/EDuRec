@@ -48,6 +48,7 @@ class TrainConfig(BaseConfig):
     weight_decay: float = settings.WEIGHT_DECAY
     topks: list[int] = field(default_factory=lambda: list(settings.TOP_KS))
     adaptive_k: bool = settings.ADAPTIVE_K
+    full_catalog: bool = settings.FULL_CATALOG_LOSS
 
 
 class ModelArch(StrEnum):
@@ -80,12 +81,11 @@ class ModelConfig(BaseConfig):
     graph_mode: Literal["kg", "id"] = "kg"
     use_text_features: bool = True
     use_user_features: bool = True
-    scorer_type: Literal["mlp", "dot"] = "mlp"
+    scorer_type: Literal["dot", "mlp"] = "dot"
 
     # User profile
     user_fusion: Literal["gate", "concat"] = "gate"
     use_user_id_embedding: bool = False
-    condition_seq_on_profile: bool = False
 
     # GNN Defaults
     gnn_layers: int = settings.GNN_LAYERS
@@ -134,20 +134,12 @@ class ModelConfig(BaseConfig):
 
     @property
     def seq_encoder(self) -> SeqEncoderConfig:
-        condition_dim = (
-            self.emb_dim
-            if self.use_user_features
-            and self.condition_seq_on_profile
-            and self.user_profile.is_active
-            else 0
-        )
         return SeqEncoderConfig(
             emb_dim=self.emb_dim,
             hidden_dim=self.gru_hidden_dim,
             num_layers=self.gru_layers,
             dropout=self.dropout,
             cell_type=self.seq_cell,
-            condition_dim=condition_dim,
         )
 
     @property

@@ -128,7 +128,11 @@ class RecSys(L.LightningModule):
     ) -> torch.Tensor:
         negative_item_ids = batch.negative_item_ids if prefix == "train" else None
 
-        if negative_item_ids is not None and negative_item_ids.size(1) > 0:
+        if (
+            negative_item_ids is not None
+            and negative_item_ids.size(1) > 0
+            and not self.train_cfg.full_catalog
+        ):
             # One softmax over the target plus its sampled negatives.
             candidate_item_ids = torch.cat(
                 [batch.target_item_id.reshape(-1, 1).long(), negative_item_ids],
@@ -138,6 +142,7 @@ class RecSys(L.LightningModule):
             labels = torch.zeros(scores.size(0), dtype=torch.long, device=scores.device)
             rank_loss = F.cross_entropy(scores, labels)
         else:
+            # Full-catalog cross-entropy: every item competes with the target.
             scores = self(batch)
             rank_loss = F.cross_entropy(scores, batch.target_item_id.reshape(-1).long())
 
