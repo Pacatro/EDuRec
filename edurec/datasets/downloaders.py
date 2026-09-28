@@ -8,8 +8,8 @@ import kagglehub
 import requests
 from tqdm import tqdm
 
-from .. import settings
-from .loaders import DatasetName
+from edurec import settings
+from edurec.datasets.loaders import DatasetName
 
 type DownloadFn = Callable[[], Path]
 

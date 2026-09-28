@@ -3,11 +3,11 @@ from typing import Annotated
 
 import typer
 
-from .. import settings
-from ..datasets import DatasetName, ElearningDataModule
-from ..recsys import ModelArch, ModelConfig, optimize_model
-from ..recsys.configs import TrainConfig
-from .utils import (
+from edurec import settings
+from edurec.datasets import DatasetName, ElearningDataModule
+from edurec.recsys import ModelArch, ModelConfig, optimize_model
+from edurec.recsys.configs import TrainConfig
+from edurec.cli.utils import (
     build_config,
     config_paths,
     datasets_to_run,

@@ -22,9 +22,9 @@ from recbole.utils import (
 )
 from torch import nn
 
-from .. import settings
-from ..datasets import ElearningDataModule, RecSysDataset, RecSysQuery
-from ..recsys.ranking import build_ranking_metrics, update_ranking_metrics
+from edurec import settings
+from edurec.datasets import ElearningDataModule, RecSysDataset, RecSysQuery
+from edurec.recsys.ranking import build_ranking_metrics, update_ranking_metrics
 
 BENCHMARK_SPLITS = ("train", "valid", "test")
 SEQUENTIAL_BENCHMARK_SPLITS = ("train_seq", "valid_seq", "test_seq")

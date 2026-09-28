@@ -4,10 +4,10 @@ from typing import Any
 
 import typer
 
-from .. import settings
-from ..datasets import DatasetName, ElearningDataModule, dataset_loaders
-from ..recsys import ModelArch, ModelConfig
-from ..recsys.configs import TrainConfig
+from edurec import settings
+from edurec.datasets import DatasetName, ElearningDataModule, dataset_loaders
+from edurec.recsys import ModelArch, ModelConfig
+from edurec.recsys.configs import TrainConfig
 
 
 def datasets_to_run(dataset: DatasetName | None) -> list[DatasetName]:

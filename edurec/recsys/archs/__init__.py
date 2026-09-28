@@ -1,6 +1,6 @@
-from ..configs import ModelConfig
-from .base import BaseRecArch
-from .kg_rnn import KGRNN
+from edurec.recsys.configs import ModelConfig
+from edurec.recsys.archs.base import BaseRecArch
+from edurec.recsys.archs.kg_rnn import KGRNN
 
 ARCHS: dict[str, type[BaseRecArch]] = {
     "kg_rnn": KGRNN,

@@ -8,7 +8,7 @@ import pandas as pd
 import torch
 from safetensors.torch import load_file, save_file
 
-from .dataprocessor import DataProcessor
+from edurec.datasets.dataprocessor import DataProcessor
 
 # Bump whenever the preprocessing logic changes in a way that invalidates
 # existing caches (e.g. deduplication or timestamp parsing changes).

@@ -14,8 +14,8 @@ from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import MinMaxScaler, MultiLabelBinarizer, OrdinalEncoder
 
-from .. import settings
-from .loaders import Schema
+from edurec import settings
+from edurec.datasets.loaders import Schema
 
 PREFIXES = ("users", "items", "inter")
 SUPPORTED_FEATURE_TYPES = {"numeric", "categorical", "text", "list"}

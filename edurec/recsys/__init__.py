@@ -1,14 +1,8 @@
-from .archs import (
-    ARCH_LABELS,
-    KGRNN,
-    BaseRecArch,
-    arch_label,
-    build_model,
-)
-from .configs import ModelArch, ModelConfig, TrainConfig
-from .optimization import optimize_model
-from .recsys import RecSys
-from .training import train_model
+from edurec.recsys.archs import ARCH_LABELS, KGRNN, BaseRecArch, arch_label, build_model
+from edurec.recsys.configs import ModelArch, ModelConfig, TrainConfig
+from edurec.recsys.optimization import optimize_model
+from edurec.recsys.recsys import RecSys
+from edurec.recsys.training import train_model
 
 __all__ = [
     "ARCH_LABELS",

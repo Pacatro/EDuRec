@@ -3,7 +3,7 @@ from collections import defaultdict, deque
 import pandas as pd
 import torch
 
-from .. import settings
+from edurec import settings
 
 
 def build_histories(

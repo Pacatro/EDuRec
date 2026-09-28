@@ -5,8 +5,11 @@ import torch
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-from .... import settings
-from .attention_pooling import AttentionPooling, AttentionPoolingConfig
+from edurec import settings
+from edurec.recsys.archs.modules.attention_pooling import (
+    AttentionPooling,
+    AttentionPoolingConfig,
+)
 
 
 @dataclass

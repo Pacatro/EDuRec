@@ -5,7 +5,7 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from .. import settings
+from edurec import settings
 
 
 class RecSysQuery(NamedTuple):

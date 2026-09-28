@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from .. import settings
-from ..datasets import ElearningDataModule
-from ..recsys import ModelConfig, RecSys, arch_label, train_model
-from ..recsys.configs import TrainConfig
+from edurec import settings
+from edurec.datasets import ElearningDataModule
+from edurec.recsys import ModelConfig, RecSys, arch_label, train_model
+from edurec.recsys.configs import TrainConfig
 
 
 def eval_model(

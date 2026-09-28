@@ -7,12 +7,16 @@ from typing import Annotated
 import pandas as pd
 import typer
 
-from .. import settings
-from ..datasets import DatasetName, ElearningDataModule
-from ..evaluation.ablation import ABLATIONS, ablation_applicable, get_ablation_config
-from ..recsys import ModelArch, ModelConfig, RecSys, train_model
-from ..recsys.configs import resolve_train_config
-from .utils import (
+from edurec import settings
+from edurec.datasets import DatasetName, ElearningDataModule
+from edurec.evaluation.ablation import (
+    ABLATIONS,
+    ablation_applicable,
+    get_ablation_config,
+)
+from edurec.recsys import ModelArch, ModelConfig, RecSys, train_model
+from edurec.recsys.configs import resolve_train_config
+from edurec.cli.utils import (
     build_config,
     config_paths,
     dataset_train_defaults,

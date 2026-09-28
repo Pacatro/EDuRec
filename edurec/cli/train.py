@@ -4,12 +4,12 @@ from typing import Annotated
 
 import typer
 
-from .. import settings
-from ..datasets import DatasetName, ElearningDataModule
-from ..recsys import ModelArch, ModelConfig, RecSys, arch_label, train_model
-from ..recsys.configs import monitor_topk, resolve_train_config
-from ..recsys.io import save_metrics, save_model
-from .utils import (
+from edurec import settings
+from edurec.datasets import DatasetName, ElearningDataModule
+from edurec.recsys import ModelArch, ModelConfig, RecSys, arch_label, train_model
+from edurec.recsys.configs import monitor_topk, resolve_train_config
+from edurec.recsys.io import save_metrics, save_model
+from edurec.cli.utils import (
     build_config,
     config_paths,
     dataset_train_defaults,

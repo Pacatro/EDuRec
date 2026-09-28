@@ -5,12 +5,12 @@ import lightning as L
 import torch
 import typer
 
-from .. import settings
-from ..datasets import DatasetName, ElearningDataModule
-from ..recsys.configs import TrainConfig
-from ..recsys.io import load_model, save_metrics
-from ..recsys.recsys import RecSys
-from .utils import print_data_summary, print_model_modules
+from edurec import settings
+from edurec.datasets import DatasetName, ElearningDataModule
+from edurec.recsys.configs import TrainConfig
+from edurec.recsys.io import load_model, save_metrics
+from edurec.recsys.recsys import RecSys
+from edurec.cli.utils import print_data_summary, print_model_modules
 
 app = typer.Typer(no_args_is_help=True)
 

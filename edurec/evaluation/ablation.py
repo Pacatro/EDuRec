@@ -1,7 +1,7 @@
 from dataclasses import replace
 from typing import Any
 
-from ..recsys.configs import ModelConfig
+from edurec.recsys.configs import ModelConfig
 
 FULL_ABLATION: dict[str, Any] = {
     "graph_mode": "kg",

@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 import torch
 from torch import nn
 
-from .modules.kg_encoder import GraphEncoder
+from edurec.recsys.archs.modules.kg_encoder import GraphEncoder
 
 
 class BaseRecArch(nn.Module, ABC):

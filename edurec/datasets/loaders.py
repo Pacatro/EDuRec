@@ -8,7 +8,7 @@ from typing import Any, Literal, NamedTuple
 import numpy as np
 import pandas as pd
 
-from .. import settings
+from edurec import settings
 
 
 class DatasetName(StrEnum):

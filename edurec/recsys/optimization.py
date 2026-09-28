@@ -10,11 +10,11 @@ import optuna
 from lightning.pytorch.callbacks import ModelCheckpoint
 from torch_geometric.data import HeteroData
 
-from .. import settings
-from ..datasets import ElearningDataModule
-from .configs import ModelConfig, TrainConfig
-from .recsys import RecSys
-from .training import train_model
+from edurec import settings
+from edurec.datasets import ElearningDataModule
+from edurec.recsys.configs import ModelConfig, TrainConfig
+from edurec.recsys.recsys import RecSys
+from edurec.recsys.training import train_model
 
 # Bump whenever the search space or the objective changes so old studies are
 # not silently resumed with incompatible trials.

@@ -5,14 +5,14 @@ from typing import Annotated
 import pandas as pd
 import typer
 
-from .. import settings
-from ..datasets import DatasetName, ElearningDataModule
-from ..evaluation import eval_model, eval_sota_models
-from ..recsys import ModelArch, ModelConfig
-from ..recsys.archs import ARCH_LABELS
-from ..recsys.configs import monitor_topk, resolve_train_config
-from ..recsys.ranking import EVALUATION_PROTOCOL
-from .utils import (
+from edurec import settings
+from edurec.datasets import DatasetName, ElearningDataModule
+from edurec.evaluation import eval_model, eval_sota_models
+from edurec.recsys import ModelArch, ModelConfig
+from edurec.recsys.archs import ARCH_LABELS
+from edurec.recsys.configs import monitor_topk, resolve_train_config
+from edurec.recsys.ranking import EVALUATION_PROTOCOL
+from edurec.cli.utils import (
     build_config,
     config_paths,
     dataset_train_defaults,

@@ -7,14 +7,14 @@ import torch
 from torch.utils.data import DataLoader
 from torch_geometric.data import HeteroData
 
-from .. import settings
-from .atomic_files import save_atomic_files
-from .cache import CACHE_VERSION, ProcessedData, processed_cache_exists
-from .dataprocessor import DataProcessor
-from .downloaders import download_raw_data
-from .knowledge_graph import build_knowledge_graph
-from .loaders import DatasetName, RawData, load_raw_data
-from .preprocessing import (
+from edurec import settings
+from edurec.datasets.atomic_files import save_atomic_files
+from edurec.datasets.cache import CACHE_VERSION, ProcessedData, processed_cache_exists
+from edurec.datasets.dataprocessor import DataProcessor
+from edurec.datasets.downloaders import download_raw_data
+from edurec.datasets.knowledge_graph import build_knowledge_graph
+from edurec.datasets.loaders import DatasetName, RawData, load_raw_data
+from edurec.datasets.preprocessing import (
     add_relevance,
     clean_cols,
     filter_sparse,
@@ -23,8 +23,8 @@ from .preprocessing import (
     preprocess,
     split_data,
 )
-from .recsys_dataset import RecSysDataset
-from .user_history import build_histories
+from edurec.datasets.recsys_dataset import RecSysDataset
+from edurec.datasets.user_history import build_histories
 
 
 class ElearningDataModule(L.LightningDataModule):

@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from .. import settings
-from .configs import ModelConfig
+from edurec import settings
+from edurec.recsys.configs import ModelConfig
 
 
 def save_model(

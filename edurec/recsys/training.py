@@ -7,8 +7,8 @@ import torch
 from lightning.pytorch.callbacks import Callback, EarlyStopping, ModelCheckpoint, Timer
 from lightning.pytorch.loggers import MLFlowLogger
 
-from .. import settings
-from ..datasets import ElearningDataModule
+from edurec import settings
+from edurec.datasets import ElearningDataModule
 
 
 def train_model(

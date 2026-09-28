@@ -6,8 +6,8 @@ import networkx as nx
 import typer
 from torch_geometric.utils import to_networkx
 
-from .. import settings
-from ..datasets import DatasetName, ElearningDataModule
+from edurec import settings
+from edurec.datasets import DatasetName, ElearningDataModule
 
 app = typer.Typer(no_args_is_help=True)
 

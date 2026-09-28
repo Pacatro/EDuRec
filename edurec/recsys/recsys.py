@@ -6,11 +6,11 @@ from torch_geometric.data import HeteroData
 from torchmetrics import MetricCollection
 from torchmetrics.retrieval import RetrievalNormalizedDCG
 
-from .. import settings
-from ..datasets import RecSysQuery
-from .archs import BaseRecArch, build_model
-from .configs import ModelConfig, TrainConfig
-from .ranking import build_ranking_metrics, update_ranking_metrics
+from edurec import settings
+from edurec.datasets import RecSysQuery
+from edurec.recsys.archs import BaseRecArch, build_model
+from edurec.recsys.configs import ModelConfig, TrainConfig
+from edurec.recsys.ranking import build_ranking_metrics, update_ranking_metrics
 
 
 class RecSys(L.LightningModule):

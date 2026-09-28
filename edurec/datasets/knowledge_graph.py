@@ -5,8 +5,12 @@ from torch_geometric.data import HeteroData
 from torch_geometric.transforms import ToUndirected
 from torch_geometric.utils import coalesce, remove_self_loops
 
-from .. import settings
-from .dataprocessor import DataProcessor, _coerce_list_tokens, _is_missing
+from edurec import settings
+from edurec.datasets.dataprocessor import (
+    DataProcessor,
+    _coerce_list_tokens,
+    _is_missing,
+)
 
 EdgeType = tuple[str, str, str]
 

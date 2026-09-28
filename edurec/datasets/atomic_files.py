@@ -3,8 +3,8 @@ from typing import cast
 
 import pandas as pd
 
-from .. import settings
-from .cache import ProcessedData
+from edurec import settings
+from edurec.datasets.cache import ProcessedData
 
 
 def save_atomic_files(

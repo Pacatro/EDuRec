@@ -1,12 +1,12 @@
 import torch
 from torch import nn
 
-from ..configs import ModelConfig
-from .base import BaseRecArch
-from .modules.kg_encoder import GraphEncoder
-from .modules.scorer import Scorer
-from .modules.seq_encoder import SeqEncoder
-from .modules.user_profile import UserProfileEncoder
+from edurec.recsys.configs import ModelConfig
+from edurec.recsys.archs.base import BaseRecArch
+from edurec.recsys.archs.modules.kg_encoder import GraphEncoder
+from edurec.recsys.archs.modules.scorer import Scorer
+from edurec.recsys.archs.modules.seq_encoder import SeqEncoder
+from edurec.recsys.archs.modules.user_profile import UserProfileEncoder
 
 
 class KGRNN(BaseRecArch):

@@ -4,9 +4,9 @@ import numpy as np
 import pandas as pd
 import torch
 
-from .. import settings
-from .cache import ProcessedData
-from .dataprocessor import DataProcessor
+from edurec import settings
+from edurec.datasets.cache import ProcessedData
+from edurec.datasets.dataprocessor import DataProcessor
 
 
 def clean_cols(df: pd.DataFrame) -> pd.DataFrame:

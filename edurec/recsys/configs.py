@@ -6,11 +6,11 @@ from typing import Any, Literal, Self
 
 import yaml
 
-from .. import settings
-from .archs.modules.kg_encoder import EdgeType, GraphEncoderConfig
-from .archs.modules.scorer import ScorerConfig
-from .archs.modules.seq_encoder import SeqEncoderConfig
-from .archs.modules.user_profile import UserProfileConfig
+from edurec import settings
+from edurec.recsys.archs.modules.kg_encoder import EdgeType, GraphEncoderConfig
+from edurec.recsys.archs.modules.scorer import ScorerConfig
+from edurec.recsys.archs.modules.seq_encoder import SeqEncoderConfig
+from edurec.recsys.archs.modules.user_profile import UserProfileConfig
 
 
 @dataclass
