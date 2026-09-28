@@ -81,12 +81,10 @@ class ModelConfig(BaseConfig):
     use_text_features: bool = True
     use_user_features: bool = True
     scorer_type: Literal["mlp", "dot"] = "mlp"
-    scorer_interaction: Literal["concat", "product"] = "product"
 
     # User profile
     user_fusion: Literal["gate", "concat"] = "gate"
     use_user_id_embedding: bool = False
-    use_cold_start_embedding: bool = True
     condition_seq_on_profile: bool = False
 
     # GNN Defaults
@@ -96,7 +94,6 @@ class ModelConfig(BaseConfig):
     gru_hidden_dim: int = settings.GRU_HIDDEN_DIM
     gru_layers: int = settings.GRU_LAYERS
     seq_cell: Literal["gru", "lstm"] = settings.SEQ_CELL
-    seq_pooling: Literal["last", "mean", "last_mean"] = "last_mean"
 
     # Scorer defaults
     hidden_dims: list[int] = field(
@@ -151,7 +148,6 @@ class ModelConfig(BaseConfig):
             dropout=self.dropout,
             cell_type=self.seq_cell,
             condition_dim=condition_dim,
-            pooling=self.seq_pooling,
         )
 
     @property
@@ -161,7 +157,6 @@ class ModelConfig(BaseConfig):
             hidden_dims=self.hidden_dims,
             dropout=self.dropout,
             scorer_type=self.scorer_type,
-            interaction=self.scorer_interaction,
         )
 
 
