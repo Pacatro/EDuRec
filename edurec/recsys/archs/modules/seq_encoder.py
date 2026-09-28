@@ -3,9 +3,10 @@ from typing import Literal
 
 import torch
 from torch import nn
-from torch.nn.utils.rnn import pack_padded_sequence
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 from .... import settings
+from .attention_pooling import AttentionPooling, AttentionPoolingConfig
 
 
 @dataclass
@@ -43,6 +44,7 @@ class SeqEncoder(nn.Module):
             if cfg.condition_dim > 0
             else None
         )
+        self.pool = AttentionPooling(AttentionPoolingConfig(cfg.hidden_dim))
         self.proj = nn.Linear(cfg.hidden_dim, cfg.emb_dim)
         self.norm = nn.LayerNorm(cfg.emb_dim)
 
@@ -95,18 +97,24 @@ class SeqEncoder(nn.Module):
             enforce_sorted=True,
         )
         if self.state_proj is not None and condition is not None:
-            _, hidden = self.rnn(packed, self._initial_hidden(condition, order))
+            packed_out, _ = self.rnn(packed, self._initial_hidden(condition, order))
         else:
-            _, hidden = self.rnn(packed)
+            packed_out, _ = self.rnn(packed)
 
-        # LSTM returns ``(h_n, c_n)`` while GRU returns ``h_n`` directly.
-        if isinstance(hidden, tuple):
-            hidden = hidden[0]
+        outputs, _ = pad_packed_sequence(
+            packed_out, batch_first=True, total_length=history_emb.size(1)
+        )
 
-        # `hidden` follows the sorted batch order, so restore the input order.
-        sorted_last = hidden[-1]
-        last = sorted_last.new_empty(sorted_last.shape)
-        last[order] = sorted_last
+        # ``outputs`` follows the sorted batch order. Pool every recurrent
+        # state while masking out the padding steps.
+        step_mask = torch.arange(outputs.size(1), device=outputs.device)[
+            None, :
+        ] < sorted_lengths.unsqueeze(1)
+        sorted_pooled = self.pool(outputs, step_mask)
 
-        seq_user_emb = self.norm(self.proj(last))
+        # Restore the input batch order.
+        pooled = sorted_pooled.new_empty(sorted_pooled.shape)
+        pooled[order] = sorted_pooled
+
+        seq_user_emb = self.norm(self.proj(pooled))
         return seq_user_emb * has_history.unsqueeze(-1)
