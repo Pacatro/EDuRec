@@ -104,6 +104,12 @@ GRU_LAYERS: int = 1
 DROPOUT: float = 0.15
 MAX_HISTORY_LEN: int = 50
 
+# History Transformer & two-stage retrieval
+TRANSFORMER_HEADS: int = 4
+TRANSFORMER_LAYERS: int = 2
+TRANSFORMER_FF_DIM: int = 256
+RETRIEVAL_K: int = 100
+
 # Embeddings
 EMB_DIM: int = 128
 

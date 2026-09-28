@@ -2,6 +2,7 @@ from .archs import (
     ARCH_LABELS,
     KGRNN,
     BaseRecArch,
+    GraphTransformer,
     arch_label,
     build_model,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "ARCH_LABELS",
     "KGRNN",
     "BaseRecArch",
+    "GraphTransformer",
     "ModelArch",
     "ModelConfig",
     "RecSys",
