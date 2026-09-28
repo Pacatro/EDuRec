@@ -7,7 +7,6 @@ from torch.nn.utils.rnn import pack_padded_sequence
 
 from .... import settings
 
-
 Pooling = Literal["last", "mean", "last_mean"]
 
 
