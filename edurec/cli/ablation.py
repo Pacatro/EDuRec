@@ -8,14 +8,6 @@ import pandas as pd
 import typer
 
 from edurec import settings
-from edurec.datasets import DatasetName, ElearningDataModule
-from edurec.evaluation.ablation import (
-    ABLATIONS,
-    ablation_applicable,
-    get_ablation_config,
-)
-from edurec.recsys import ModelArch, ModelConfig, RecSys, train_model
-from edurec.recsys.configs import resolve_train_config
 from edurec.cli.utils import (
     build_config,
     config_paths,
@@ -25,11 +17,19 @@ from edurec.cli.utils import (
     print_data_summary,
     print_model_modules,
 )
+from edurec.datasets import DatasetName, ElearningDataModule
+from edurec.evaluation.ablation import (
+    ABLATIONS,
+    ablation_applicable,
+    get_ablation_config,
+)
+from edurec.recsys import ModelArch, ModelConfig, RecSys, train_model
+from edurec.recsys.configs import resolve_train_config
 
 app = typer.Typer(no_args_is_help=True)
 
 
-@app.command(name="ablation", help="Run KGRNN ablation variants.")
+@app.command(name="ablation", help="Run KGSeq ablation variants.")
 def run_ablation(
     dataset: Annotated[DatasetName | None, typer.Option("--dataset", "-d")] = None,
     arch: Annotated[

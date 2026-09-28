@@ -6,12 +6,6 @@ import pandas as pd
 import typer
 
 from edurec import settings
-from edurec.datasets import DatasetName, ElearningDataModule
-from edurec.evaluation import eval_model, eval_sota_models
-from edurec.recsys import ModelArch, ModelConfig
-from edurec.recsys.archs import ARCH_LABELS
-from edurec.recsys.configs import monitor_topk, resolve_train_config
-from edurec.recsys.ranking import EVALUATION_PROTOCOL
 from edurec.cli.utils import (
     build_config,
     config_paths,
@@ -21,6 +15,12 @@ from edurec.cli.utils import (
     print_data_summary,
     print_model_modules,
 )
+from edurec.datasets import DatasetName, ElearningDataModule
+from edurec.evaluation import eval_model, eval_sota_models
+from edurec.recsys import ModelArch, ModelConfig
+from edurec.recsys.archs import ARCH_LABELS
+from edurec.recsys.configs import monitor_topk, resolve_train_config
+from edurec.recsys.ranking import EVALUATION_PROTOCOL
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -122,7 +122,7 @@ def _summarize_seed_results(results: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(summary_rows, columns=["model", *metric_cols])
 
 
-@app.command(name="eval", help="Evaluate KGRNN against RecBole SOTA models.")
+@app.command(name="eval", help="Evaluate KGSeq against RecBole SOTA models.")
 def eval_models(
     dataset: Annotated[
         DatasetName | None,
@@ -164,7 +164,7 @@ def eval_models(
             "--batch-size",
             "-b",
             min=1,
-            help="Batch size used by KGRNN and RecBole. "
+            help="Batch size used by KGSeq and RecBole. "
             "Uses the saved training config if omitted.",
         ),
     ] = None,
@@ -236,7 +236,7 @@ def eval_models(
         bool,
         typer.Option(
             "--only-proposed",
-            help="Only evaluate the proposed KGRNN model, skipping SOTA models.",
+            help="Only evaluate the proposed KGSeq model, skipping SOTA models.",
         ),
     ] = False,
     adaptive_k: Annotated[
@@ -250,7 +250,7 @@ def eval_models(
     ] = None,
     compile: Annotated[
         bool,
-        typer.Option("--compile", help="Compile KGRNN before training."),
+        typer.Option("--compile", help="Compile KGSeq before training."),
     ] = settings.COMPILE_MODEL,
     output_dir: Annotated[
         Path,
@@ -261,7 +261,7 @@ def eval_models(
         typer.Option(
             "--configs-folder",
             "-C",
-            help="Folder containing saved KGRNN configurations.",
+            help="Folder containing saved KGSeq configurations.",
         ),
     ] = Path(settings.CONFIGS_FOLDER),
 ) -> None:

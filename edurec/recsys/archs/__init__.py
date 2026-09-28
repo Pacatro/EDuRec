@@ -1,13 +1,13 @@
-from edurec.recsys.configs import ModelConfig
 from edurec.recsys.archs.base import BaseRecArch
-from edurec.recsys.archs.kg_rnn import KGRNN
+from edurec.recsys.archs.kgseq import KGSeq
+from edurec.recsys.configs import ModelConfig
 
 ARCHS: dict[str, type[BaseRecArch]] = {
-    "kg_rnn": KGRNN,
+    "kg_rnn": KGSeq,
 }
 
 ARCH_LABELS: dict[str, str] = {
-    "kg_rnn": "KGRNN",
+    "kg_rnn": "KGSeq",
 }
 
 
@@ -29,7 +29,7 @@ def build_model(cfg: ModelConfig) -> BaseRecArch:
 
     if not cfg.has_history:
         raise ValueError(
-            "KGRNN requires sequential history: the dataset must provide a "
+            "KGSeq requires sequential history: the dataset must provide a "
             "chronological timestamp."
         )
 
@@ -43,8 +43,8 @@ def arch_label(cfg: ModelConfig) -> str:
 __all__ = [
     "ARCHS",
     "ARCH_LABELS",
-    "KGRNN",
     "BaseRecArch",
+    "KGSeq",
     "arch_label",
     "build_model",
 ]
