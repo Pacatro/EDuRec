@@ -92,6 +92,7 @@ class RecSys(L.LightningModule):
         return self.model(
             h_ids=batch.history_items,
             h_mask=batch.history_valid_mask,
+            h_times=batch.history_times,
             edge_index=self._edge_index_dict(),
             i_static_feats=self.get_buffer("i_static_feats"),
             u_static_feats=self.get_buffer("u_static_feats"),

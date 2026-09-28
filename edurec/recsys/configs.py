@@ -7,7 +7,10 @@ from typing import Any, Literal, Self
 import yaml
 
 from .. import settings
+from .archs.modules.causal_transformer import CausalTransformerConfig
+from .archs.modules.item_encoder import ItemEncoderConfig
 from .archs.modules.kg_encoder import EdgeType, GraphEncoderConfig
+from .archs.modules.multi_interest import MultiInterestConfig
 from .archs.modules.scorer import ScorerConfig
 from .archs.modules.seq_encoder import SeqEncoderConfig
 from .archs.modules.user_profile import UserProfileConfig
@@ -54,6 +57,7 @@ class ModelArch(StrEnum):
     """Available recommendation architectures."""
 
     KG_RNN = "kg_rnn"
+    MI_TRANSFORMER = "mi_transformer"
 
 
 @dataclass
@@ -95,6 +99,16 @@ class ModelConfig(BaseConfig):
     gru_layers: int = settings.GRU_LAYERS
     seq_cell: Literal["gru", "lstm"] = settings.SEQ_CELL
 
+    # Causal transformer defaults
+    transformer_layers: int = settings.TRANSFORMER_LAYERS
+    transformer_heads: int = settings.TRANSFORMER_HEADS
+    transformer_ffn_dim: int = settings.TRANSFORMER_FFN_DIM
+
+    # Multi-interest defaults
+    num_interests: int = settings.NUM_INTERESTS
+    use_temporal_features: bool = True
+    max_seq_len: int = settings.MAX_HISTORY_LEN
+
     # Scorer defaults
     hidden_dims: list[int] = field(
         default_factory=lambda: [settings.EMB_DIM * 2, settings.EMB_DIM]
@@ -106,6 +120,48 @@ class ModelConfig(BaseConfig):
         if self.use_text_features:
             return self.num_item_dense_feats
         return self.num_item_dense_feats - self.num_item_text_feats
+
+    @property
+    def num_item_meta_feats(self) -> int:
+        """Numeric item metadata, i.e. the non-text dense block."""
+        return self.num_item_dense_feats - self.num_item_text_feats
+
+    @property
+    def item_encoder(self) -> ItemEncoderConfig:
+        edge_types: list[EdgeType] = [
+            (edge[0], edge[1], edge[2]) for edge in self.kg_edge_types
+        ]
+        return ItemEncoderConfig(
+            num_items=self.num_items,
+            emb_dim=self.emb_dim,
+            meta_dim=self.num_item_meta_feats,
+            text_dim=self.num_item_text_feats if self.use_text_features else 0,
+            num_layers=self.gnn_layers,
+            node_counts=dict(self.kg_node_counts),
+            edge_types=edge_types,
+            graph_mode=self.graph_mode,
+            dropout=self.dropout,
+        )
+
+    @property
+    def transformer(self) -> CausalTransformerConfig:
+        return CausalTransformerConfig(
+            emb_dim=self.emb_dim,
+            num_layers=self.transformer_layers,
+            num_heads=self.transformer_heads,
+            ffn_dim=self.transformer_ffn_dim,
+            dropout=self.dropout,
+            max_len=self.max_seq_len,
+            use_temporal=self.use_temporal_features,
+        )
+
+    @property
+    def multi_interest(self) -> MultiInterestConfig:
+        return MultiInterestConfig(
+            emb_dim=self.emb_dim,
+            num_interests=self.num_interests,
+            dropout=self.dropout,
+        )
 
     @property
     def kg_encoder(self) -> GraphEncoderConfig:

@@ -1,13 +1,16 @@
 from ..configs import ModelConfig
 from .base import BaseRecArch
 from .kg_rnn import KGRNN
+from .mi_transformer import MITransformer
 
 ARCHS: dict[str, type[BaseRecArch]] = {
     "kg_rnn": KGRNN,
+    "mi_transformer": MITransformer,
 }
 
 ARCH_LABELS: dict[str, str] = {
     "kg_rnn": "KGRNN",
+    "mi_transformer": "MI-Transformer",
 }
 
 
@@ -29,8 +32,8 @@ def build_model(cfg: ModelConfig) -> BaseRecArch:
 
     if not cfg.has_history:
         raise ValueError(
-            "KGRNN requires sequential history: the dataset must provide a "
-            "chronological timestamp."
+            f"{arch_label(cfg)} requires sequential history: the dataset must "
+            "provide a chronological timestamp."
         )
 
     return arch_cls(cfg)
@@ -45,6 +48,7 @@ __all__ = [
     "ARCH_LABELS",
     "KGRNN",
     "BaseRecArch",
+    "MITransformer",
     "arch_label",
     "build_model",
 ]

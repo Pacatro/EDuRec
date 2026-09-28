@@ -24,7 +24,7 @@ from .preprocessing import (
     split_data,
 )
 from .recsys_dataset import RecSysDataset
-from .user_history import build_histories
+from .user_history import History, build_histories
 
 
 class ElearningDataModule(L.LightningDataModule):
@@ -140,15 +140,14 @@ class ElearningDataModule(L.LightningDataModule):
     def _make_dataset(
         self,
         interactions: pd.DataFrame,
-        history: tuple[torch.Tensor, torch.Tensor],
+        history: History,
         negative_item_ids: np.ndarray | None = None,
     ) -> RecSysDataset:
-        history_items, history_valid_mask = history
-
         return RecSysDataset(
             interactions=interactions,
-            history_items=history_items,
-            history_valid_mask=history_valid_mask,
+            history_items=history.items,
+            history_valid_mask=history.mask,
+            history_times=history.times,
             negative_item_ids=negative_item_ids,
         )
 

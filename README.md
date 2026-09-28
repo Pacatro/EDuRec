@@ -187,10 +187,11 @@ configs/train/<dataset>_<arch>.yaml   Training hyperparameters (epochs, lr,
                                       adaptive-k)
 ```
 
-`<arch>` is `kg_rnn` (the only architecture). When a config file exists for the
-dataset and architecture being run, training, evaluation, and ablation commands
-load it. Explicit CLI flags always take precedence over the saved
-configurations, which in turn take precedence over the global defaults in
+`<arch>` is one of the registered architectures: `kg_rnn` (knowledge-graph GRU)
+or `mi_transformer` (multi-interest causal transformer). When a config file
+exists for the dataset and architecture being run, training, evaluation, and
+ablation commands load it. Explicit CLI flags always take precedence over the
+saved configurations, which in turn take precedence over the global defaults in
 `edurec/settings.py`.
 
 ### Run Ablations
@@ -219,13 +220,22 @@ excluded from the plots. Aggregated outputs are saved to
 
 ![EDuRec model architecture](model-diagram.png)
 
-EDuRec exposes a single architecture through the `arch` field of the model
-configuration (currently only `kg_rnn`): the knowledge-graph encoder refines the
-item embeddings, each user's chronological history is gathered from those
-representations and encoded by a GRU, and the resulting user state is scored
-against the item embeddings.
+EDuRec exposes its architectures through the `arch` field of the model
+configuration. Two architectures are registered:
 
-The sections below describe the modules.
+- **`kg_rnn`**: the knowledge-graph encoder refines the item embeddings, each
+  user's chronological history is gathered from those representations and
+  encoded by a GRU or LSTM, and the resulting user state is scored against the
+  item embeddings with an MLP or dot product.
+- **`mi_transformer`**: a multi-interest architecture. Each item is encoded from
+  its course identifier, numeric metadata and multilingual text embedding,
+  refined by relation-aware GraphSAGE; the user history is encoded by a causal
+  transformer with positional and temporal information; a bank of learned
+  queries pools the hidden states into `K` interest vectors, an optional static
+  profile is gated into them, and every item is scored by its best-matching
+  interest over the full catalog.
+
+The sections below describe the shared modules.
 
 - **Knowledge-graph encoder**: a heterogeneous item-item graph is derived from
   each dataset schema. Items are nodes, and every categorical or list-valued
@@ -239,11 +249,15 @@ The sections below describe the modules.
   co-occur in a row (for example COCO category levels). Reverse edges and edge
   cleanup are delegated to PyTorch Geometric. Numeric and text embeddings
   initialize the item nodes.
-- **Sequential encoder**: a GRU encodes each user's recent item history. Because
-  the graph only contains items, this sequence is the sole source of user
+- **Sequential encoder**: `kg_rnn` uses a GRU/LSTM to encode each user's recent
+  item history, while `mi_transformer` uses a causal transformer over the same
+  item representations plus positional and elapsed-time embeddings. Because the
+  graph only contains items, this sequence is the sole source of user
   representations, so a chronological timestamp is required.
-- **Scorer**: the user and item embeddings are scored with either an MLP scorer
-  or a dot-product scorer. An optional item bias can be added.
+- **Scorer**: `kg_rnn` scores the user and item embeddings with either an MLP
+  scorer or a dot-product scorer; `mi_transformer` uses a multi-interest dot
+  product that keeps the best-matching interest per item. An optional item bias
+  can be added in both cases.
 
 Module availability is inferred from each processed dataset when the model
 configuration is built. The knowledge graph automatically reflects the fields
