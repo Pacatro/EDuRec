@@ -187,11 +187,15 @@ configs/train/<dataset>_<arch>.yaml   Training hyperparameters (epochs, lr,
                                       adaptive-k)
 ```
 
-`<arch>` is `kg_rnn` (the only architecture). When a config file exists for the
+`<arch>` can be `kg_rnn` or `kg_transformer`. When a config file exists for the
 dataset and architecture being run, training, evaluation, and ablation commands
 load it. Explicit CLI flags always take precedence over the saved
 configurations, which in turn take precedence over the global defaults in
 `edurec/settings.py`.
+
+The model config's `scorer_type` can be `mlp`, `dot`, or `candidate_attention`.
+The candidate-attention scorer attends from each candidate course to the
+encoded history and ranks it using the resulting candidate-specific context.
 
 ### Run Ablations
 
@@ -209,6 +213,8 @@ Implemented main variants:
 - `no_text`: removes the text embeddings from the item node features.
 - `no_item_bias`: removes the learned item-popularity bias.
 - `dot_product`: replaces the MLP scorer with dot-product scoring.
+- `candidate_attention`: attends from each candidate course to the encoded
+  history before scoring the user-course pair.
 
 Variants that disable a module the dataset does not provide (for example
 `no_text` on a dataset without text features) are marked as not applicable and
@@ -219,11 +225,11 @@ excluded from the plots. Aggregated outputs are saved to
 
 ![EDuRec model architecture](model-diagram.png)
 
-EDuRec exposes a single architecture through the `arch` field of the model
-configuration (currently only `kg_rnn`): the knowledge-graph encoder refines the
-item embeddings, each user's chronological history is gathered from those
-representations and encoded by a GRU, and the resulting user state is scored
-against the item embeddings.
+EDuRec exposes `kg_rnn` and `kg_transformer` through the `arch` field of the
+model configuration. Both architectures refine item embeddings with the
+knowledge graph and encode each user's chronological history with either a
+GRU/LSTM or Transformer. The `scorer_type` setting selects an MLP, dot product,
+or candidate-conditioned attention scorer.
 
 The sections below describe the modules.
 
@@ -242,8 +248,10 @@ The sections below describe the modules.
 - **Sequential encoder**: a GRU encodes each user's recent item history. Because
   the graph only contains items, this sequence is the sole source of user
   representations, so a chronological timestamp is required.
-- **Scorer**: the user and item embeddings are scored with either an MLP scorer
-  or a dot-product scorer. An optional item bias can be added.
+- **Scorer**: `scorer_type` selects an MLP, dot product, or candidate-attention
+  scorer. Candidate attention queries the encoded history with each course
+  candidate and scores the user, candidate, and attended context together. An
+  optional item bias can be added.
 
 Module availability is inferred from each processed dataset when the model
 configuration is built. The knowledge graph automatically reflects the fields

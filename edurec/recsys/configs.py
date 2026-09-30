@@ -9,7 +9,10 @@ import yaml
 from edurec import settings
 from edurec.recsys.archs.modules.kg_encoder import EdgeType, GraphEncoderConfig
 from edurec.recsys.archs.modules.scorer import ScorerConfig
-from edurec.recsys.archs.modules.seq_encoder import SeqEncoderConfig
+from edurec.recsys.archs.modules.seq_encoder import (
+    SeqEncoderConfig,
+    TransformerSeqEncoderConfig,
+)
 from edurec.recsys.archs.modules.user_profile import UserProfileConfig
 
 
@@ -54,6 +57,7 @@ class ModelArch(StrEnum):
     """Available recommendation architectures."""
 
     KG_RNN = "kg_rnn"
+    KG_TRANSFORMER = "kg_transformer"
 
 
 @dataclass
@@ -80,7 +84,8 @@ class ModelConfig(BaseConfig):
     graph_mode: Literal["kg", "id"] = "kg"
     use_text_features: bool = True
     use_user_features: bool = True
-    scorer_type: Literal["mlp", "dot"] = "mlp"
+    scorer_type: Literal["mlp", "dot", "candidate_attention"] = settings.SCORER_TYPE
+    use_attention_pooling: bool = settings.USE_ATTENTION_POOLING
 
     # User profile
     user_fusion: Literal["gate", "concat"] = "gate"
@@ -94,6 +99,12 @@ class ModelConfig(BaseConfig):
     gru_hidden_dim: int = settings.GRU_HIDDEN_DIM
     gru_layers: int = settings.GRU_LAYERS
     seq_cell: Literal["gru", "lstm"] = settings.SEQ_CELL
+
+    # Transformer defaults
+    transformer_hidden_dim: int = settings.TRANSFORMER_HIDDEN_DIM
+    transformer_layers: int = settings.TRANSFORMER_LAYERS
+    transformer_heads: int = settings.TRANSFORMER_HEADS
+    max_history_len: int = settings.MAX_HISTORY_LEN
 
     # Scorer defaults
     hidden_dims: list[int] = field(
@@ -133,21 +144,39 @@ class ModelConfig(BaseConfig):
         )
 
     @property
-    def seq_encoder(self) -> SeqEncoderConfig:
-        condition_dim = (
-            self.emb_dim
-            if self.use_user_features
+    def condition_dim(self) -> int:
+        """Sequence condition width, set when the profile drives the encoder."""
+        if (
+            self.use_user_features
             and self.condition_seq_on_profile
             and self.user_profile.is_active
-            else 0
-        )
+        ):
+            return self.emb_dim
+        return 0
+
+    @property
+    def seq_encoder(self) -> SeqEncoderConfig:
         return SeqEncoderConfig(
             emb_dim=self.emb_dim,
             hidden_dim=self.gru_hidden_dim,
             num_layers=self.gru_layers,
             dropout=self.dropout,
             cell_type=self.seq_cell,
-            condition_dim=condition_dim,
+            condition_dim=self.condition_dim,
+            use_attention_pooling=self.use_attention_pooling,
+        )
+
+    @property
+    def transformer_seq_encoder(self) -> TransformerSeqEncoderConfig:
+        return TransformerSeqEncoderConfig(
+            emb_dim=self.emb_dim,
+            hidden_dim=self.transformer_hidden_dim,
+            num_layers=self.transformer_layers,
+            num_heads=self.transformer_heads,
+            dropout=self.dropout,
+            condition_dim=self.condition_dim,
+            max_history_len=self.max_history_len,
+            use_attention_pooling=self.use_attention_pooling,
         )
 
     @property

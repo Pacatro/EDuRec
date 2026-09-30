@@ -1,12 +1,5 @@
-from dataclasses import dataclass
-
 import torch
 from torch import nn
-
-
-@dataclass
-class AttentionPoolingConfig:
-    dim: int
 
 
 class AttentionPooling(nn.Module):
@@ -16,9 +9,9 @@ class AttentionPooling(nn.Module):
     returns the weighted sum of the sequence.
     """
 
-    def __init__(self, cfg: AttentionPoolingConfig):
+    def __init__(self, dim: int):
         super().__init__()
-        self.attn = nn.Linear(cfg.dim, 1)
+        self.attn = nn.Linear(dim, 1)
 
     def forward(
         self,
@@ -38,3 +31,16 @@ class AttentionPooling(nn.Module):
             scores = scores.masked_fill(~mask.bool(), float("-inf"))
         weights = torch.nan_to_num(scores.softmax(dim=1))
         return torch.einsum("bl,blh->bh", weights, sequence)
+
+
+def masked_mean_pool(sequence: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    """Uniform mean over valid steps with shape ``[batch, dim]``.
+
+    Args:
+        sequence: Hidden states with shape ``[batch, seq_len, dim]``.
+        mask: Boolean mask with shape ``[batch, seq_len]``. True values indicate
+            valid steps; padded steps are ignored. Rows with no valid step
+            receive a zero vector.
+    """
+    weights = mask.bool().unsqueeze(-1).to(sequence.dtype)
+    return (sequence * weights).sum(dim=1) / weights.sum(dim=1).clamp(min=1.0)

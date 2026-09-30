@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -21,6 +22,10 @@ def seed_everything(seed: int | None) -> int | None:
 
 
 # Logging
+PROJECT_ROOT: Path = Path(__file__).resolve().parents[1]
+MLFLOW_TRACKING_URI: str = os.getenv(
+    "MLFLOW_TRACKING_URI", f"sqlite:///{PROJECT_ROOT / 'mlflow.db'}"
+)
 EXPERIMENT_NAME: str = "TFM"
 
 # Filenames and Folders
@@ -101,8 +106,13 @@ GNN_LAYERS: int = 2
 SEQ_CELL: Literal["gru", "lstm"] = "gru"
 GRU_HIDDEN_DIM: int = 128
 GRU_LAYERS: int = 1
+TRANSFORMER_HIDDEN_DIM: int = 128
+TRANSFORMER_LAYERS: int = 2
+TRANSFORMER_HEADS: int = 4
 DROPOUT: float = 0.15
 MAX_HISTORY_LEN: int = 50
+USE_ATTENTION_POOLING: bool = True
+SCORER_TYPE: Literal["mlp", "dot", "candidate_attention"] = "mlp"
 
 # Embeddings
 EMB_DIM: int = 128

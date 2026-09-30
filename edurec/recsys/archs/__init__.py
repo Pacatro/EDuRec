@@ -1,13 +1,16 @@
 from edurec.recsys.archs.base import BaseRecArch
 from edurec.recsys.archs.kgseq import KGSeq
+from edurec.recsys.archs.kgtransformer import KGTransformer
 from edurec.recsys.configs import ModelConfig
 
 ARCHS: dict[str, type[BaseRecArch]] = {
     "kg_rnn": KGSeq,
+    "kg_transformer": KGTransformer,
 }
 
 ARCH_LABELS: dict[str, str] = {
     "kg_rnn": "KGSeq",
+    "kg_transformer": "KGTransformer",
 }
 
 
@@ -29,8 +32,8 @@ def build_model(cfg: ModelConfig) -> BaseRecArch:
 
     if not cfg.has_history:
         raise ValueError(
-            "KGSeq requires sequential history: the dataset must provide a "
-            "chronological timestamp."
+            "This architecture requires sequential history: the dataset must "
+            "provide a chronological timestamp."
         )
 
     return arch_cls(cfg)
@@ -45,6 +48,7 @@ __all__ = [
     "ARCH_LABELS",
     "BaseRecArch",
     "KGSeq",
+    "KGTransformer",
     "arch_label",
     "build_model",
 ]

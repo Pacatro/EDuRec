@@ -27,7 +27,7 @@ class KGSeq(BaseRecArch):
         self.cfg = cfg
 
         self.kg = GraphEncoder(cfg.kg_encoder)
-        self.seq_encoder = SeqEncoder(cfg.seq_encoder)
+        self.seq_encoder = self._build_seq_encoder(cfg)
 
         self.user_profile = (
             UserProfileEncoder(cfg.user_profile) if cfg.use_user_features else None
@@ -52,6 +52,10 @@ class KGSeq(BaseRecArch):
             nn.Parameter(torch.zeros(cfg.num_items)) if cfg.use_item_bias else None
         )
         self.scorer = Scorer(cfg.scorer)
+
+    def _build_seq_encoder(self, cfg: ModelConfig) -> nn.Module:
+        """Build the sequential encoder; subclasses may swap in another module."""
+        return SeqEncoder(cfg.seq_encoder)
 
     def _fuse(
         self, user_emb: torch.Tensor, profile: torch.Tensor | None
@@ -89,10 +93,22 @@ class KGSeq(BaseRecArch):
             if self.user_profile is not None
             else None
         )
-        user_emb = self.seq_encoder(hist, h_mask, condition=profile)
+        history_states = None
+        if self.cfg.scorer_type == "candidate_attention":
+            user_emb, history_states = self.seq_encoder(
+                hist, h_mask, condition=profile, return_sequence=True
+            )
+        else:
+            user_emb = self.seq_encoder(hist, h_mask, condition=profile)
         user_emb = self._fuse(user_emb, profile)
 
-        scores = self.scorer(user_emb, item_emb, item_ids=candidate_item_ids)
+        scores = self.scorer(
+            user_emb,
+            item_emb,
+            item_ids=candidate_item_ids,
+            history_states=history_states,
+            history_mask=h_mask if history_states is not None else None,
+        )
 
         if self.item_bias is not None:
             if candidate_item_ids is not None:

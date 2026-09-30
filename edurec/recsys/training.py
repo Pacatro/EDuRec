@@ -14,7 +14,7 @@ from edurec.datasets import ElearningDataModule
 
 
 def log_datasets(logger: MLFlowLogger, dm: ElearningDataModule) -> None:
-    mlflow.set_tracking_uri(logger._tracking_uri)
+    mlflow.set_tracking_uri(settings.MLFLOW_TRACKING_URI)
     with mlflow.start_run(run_id=logger.run_id):
         for context, df in dm.artifacts.splits().items():
             dataset = from_pandas(
@@ -65,7 +65,7 @@ def train_model(
         MLFlowLogger(
             experiment_name=settings.EXPERIMENT_NAME,
             run_name=experiment_name,
-            tracking_uri="sqlite:///mlflow.db",
+            tracking_uri=settings.MLFLOW_TRACKING_URI,
         )
         if experiment_name is not None and not debug
         else None

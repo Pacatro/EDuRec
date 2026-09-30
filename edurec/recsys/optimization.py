@@ -60,10 +60,11 @@ def objective(
         "emb_dim", sorted({64, settings.EMB_DIM, 256, 512})
     )
 
-    # The scorer is either a dot product (no hidden layers) or an MLP whose
-    # depth is tuned through a named shape.
-    scorer_type = trial.suggest_categorical("scorer_type", ["mlp", "dot"])
-    if scorer_type == "mlp":
+    # Candidate attention conditions history pooling on each candidate item.
+    scorer_type = trial.suggest_categorical(
+        "scorer_type", ["mlp", "dot", "candidate_attention"]
+    )
+    if scorer_type in {"mlp", "candidate_attention"}:
         scorer_shape = trial.suggest_categorical(
             "scorer_shape", ["linear", "single", "funnel"]
         )

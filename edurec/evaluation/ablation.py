@@ -9,6 +9,7 @@ FULL_ABLATION: dict[str, Any] = {
     "use_user_features": True,
     "use_item_bias": True,
     "scorer_type": "mlp",
+    "use_attention_pooling": True,
 }
 
 
@@ -18,7 +19,12 @@ ABLATIONS: dict[str, dict[str, Any]] = {
     "no_text": {**FULL_ABLATION, "use_text_features": False},
     "no_user": {**FULL_ABLATION, "use_user_features": False},
     "no_item_bias": {**FULL_ABLATION, "use_item_bias": False},
+    "no_attention_pooling": {**FULL_ABLATION, "use_attention_pooling": False},
     "dot_product": {**FULL_ABLATION, "scorer_type": "dot"},
+    "candidate_attention": {
+        **FULL_ABLATION,
+        "scorer_type": "candidate_attention",
+    },
 }
 
 
