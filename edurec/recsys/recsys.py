@@ -203,7 +203,7 @@ class RecSys(L.LightningModule):
         )
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
-            mode="max",
+            mode="min" if self.monitor.lower().endswith("loss") else "max",
             factor=0.5,
             patience=3,
         )

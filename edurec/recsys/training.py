@@ -3,12 +3,27 @@ from pathlib import Path
 from typing import cast
 
 import lightning as L
+import mlflow
 import torch
 from lightning.pytorch.callbacks import Callback, EarlyStopping, ModelCheckpoint, Timer
 from lightning.pytorch.loggers import MLFlowLogger
+from mlflow.data.pandas_dataset import from_pandas
 
 from edurec import settings
 from edurec.datasets import ElearningDataModule
+
+
+def log_datasets(logger: MLFlowLogger, dm: ElearningDataModule) -> None:
+    mlflow.set_tracking_uri(logger._tracking_uri)
+    with mlflow.start_run(run_id=logger.run_id):
+        for context, df in dm.artifacts.splits().items():
+            dataset = from_pandas(
+                df,
+                name=f"{dm.data_variant}",
+                source=f"{settings.PROCESSED_FOLDER}/{dm.data_variant}",
+                targets=settings.RELEVANT_COL,
+            )
+            mlflow.log_input(dataset, context=context)
 
 
 def train_model(
@@ -29,16 +44,18 @@ def train_model(
     if compile:
         model = cast(L.LightningModule, torch.compile(model))
 
+    mode = "min" if monitor.lower().endswith("loss") else "max"
+
     early_stopping = EarlyStopping(
         monitor=monitor,
         patience=patience,
-        mode="max",
+        mode=mode,
         min_delta=settings.DELTA,
         verbose=True,
     )
     checkpoint = ModelCheckpoint(
         monitor=monitor,
-        mode="max",
+        mode=mode,
         save_top_k=1,
         filename=f"best_{model_name}",
         save_weights_only=True,
@@ -70,6 +87,9 @@ def train_model(
         enable_progress_bar=verbose,
         default_root_dir=default_root_dir,
     )
+
+    if logger is not None:
+        log_datasets(logger, dm)
 
     trainer.fit(model, datamodule=dm)
 

@@ -5,10 +5,6 @@ from typing import Annotated
 import typer
 
 from edurec import settings
-from edurec.datasets import DatasetName, ElearningDataModule
-from edurec.recsys import ModelArch, ModelConfig, RecSys, arch_label, train_model
-from edurec.recsys.configs import monitor_topk, resolve_train_config
-from edurec.recsys.io import save_metrics, save_model
 from edurec.cli.utils import (
     build_config,
     config_paths,
@@ -17,6 +13,10 @@ from edurec.cli.utils import (
     print_data_summary,
     print_model_modules,
 )
+from edurec.datasets import DatasetName, ElearningDataModule
+from edurec.recsys import ModelArch, ModelConfig, RecSys, arch_label, train_model
+from edurec.recsys.configs import monitor_topk, resolve_train_config
+from edurec.recsys.io import save_metrics, save_model
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -124,9 +124,9 @@ def train(
     for dataset_idx, dataset_name in enumerate(datasets, start=1):
         run_name = dataset_name.value
         resolved_arch = arch if arch is not None else ModelArch.KG_RNN
-        dataset_experiment_name = (
-            f"{experiment_name}_{run_name}" if experiment_name else None
-        )
+        # dataset_experiment_name = (
+        #     f"{experiment_name}_{run_name}" if experiment_name else None
+        # )
         model_config_path, train_config_path = config_paths(
             configs_folder, run_name, resolved_arch
         )
@@ -158,8 +158,8 @@ def train(
                 f"adaptive_k={train_cfg.adaptive_k}, debug={debug}"
             )
 
-            if dataset_experiment_name:
-                print(f"[TRAIN] Logger: MLflow, run_name={dataset_experiment_name}")
+            if experiment_name:
+                print(f"[TRAIN] Logger: MLflow, run_name={experiment_name}")
 
             print(
                 "[TRAIN] Data config: "
@@ -219,7 +219,7 @@ def train(
             debug=debug,
             epochs=train_cfg.epochs,
             patience=train_cfg.patience,
-            experiment_name=dataset_experiment_name,
+            experiment_name=experiment_name,
             monitor=recsys.monitor,
             compile=compile,
             verbose=verbose,
