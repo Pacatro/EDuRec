@@ -7,11 +7,10 @@ from torch import nn
 class BaseRecArch(nn.Module, ABC):
     """Common interface for the recommendation architectures.
 
-    Every architecture owns a knowledge-graph encoder (``kg``) over item nodes
-    and maps a history batch to item scores. Users are represented solely by the
-    output of the sequential history encoder.
+    Every architecture owns a collaborative knowledge-graph encoder (``kg``)
+    over users, items and attributes, and maps a history batch to item scores.
+    Graph users are fused with sequential states and optional static profiles.
     """
-
 
     @abstractmethod
     def forward(

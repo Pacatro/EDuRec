@@ -14,6 +14,7 @@ EdgeType = tuple[str, str, str]
 class GraphEncoderConfig:
     num_items: int
     emb_dim: int
+    num_users: int = 0
     item_feat_dim: int = 0
     num_layers: int = settings.GNN_LAYERS
     node_counts: dict[str, int] = field(default_factory=dict)
@@ -22,14 +23,15 @@ class GraphEncoderConfig:
 
 
 class GraphEncoder(nn.Module):
-    """Item knowledge-graph encoder.
+    """GraphSAGE encoder over users, items and typed attribute nodes.
 
     Item nodes start from a learned identifier embedding plus a projection of
     their numeric/text features. Categorical and list-valued metadata become
     attribute nodes with their own embeddings. Stacked heterogeneous
     convolutions propagate information across every typed edge, so items that
-    share an attribute value become neighbours. Only items feed the graph; user
-    representations are built by the sequential encoder.
+    share an attribute value become neighbours. Training interactions connect
+    users and items. Relation messages are combined with learned weights, with
+    one external residual connection per layer.
     """
 
     def __init__(self, cfg: GraphEncoderConfig):
@@ -37,6 +39,7 @@ class GraphEncoder(nn.Module):
         self.cfg = cfg
 
         self.item_emb = nn.Embedding(cfg.num_items, cfg.emb_dim)
+        self.user_emb = nn.Embedding(cfg.num_users, cfg.emb_dim)
         self.item_proj = (
             nn.Linear(cfg.item_feat_dim, cfg.emb_dim) if cfg.item_feat_dim > 0 else None
         )
@@ -53,11 +56,20 @@ class GraphEncoder(nn.Module):
         self.convs = nn.ModuleList(
             HeteroConv(
                 {
-                    edge_type: SAGEConv(cfg.emb_dim, cfg.emb_dim)
+                    edge_type: SAGEConv(
+                        (cfg.emb_dim, cfg.emb_dim),
+                        cfg.emb_dim,
+                        root_weight=False,
+                        bias=False,
+                    )
                     for edge_type in cfg.edge_types
                 },
-                aggr="sum",
+                aggr=None,
             )
+            for _ in range(cfg.num_layers)
+        )
+        self.relation_logits = nn.ParameterList(
+            nn.Parameter(torch.zeros(len(cfg.edge_types)))
             for _ in range(cfg.num_layers)
         )
 
@@ -65,12 +77,12 @@ class GraphEncoder(nn.Module):
         self,
         edge_index: dict[EdgeType, torch.Tensor],
         item_feats: torch.Tensor,
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         item = self.item_emb.weight
         if self.item_proj is not None:
             item = item + self.item_proj(item_feats)
 
-        x = {"item": item}
+        x = {"item": item, "user": self.user_emb.weight}
 
         for node_type, embedding in self.attr_embs.items():
             x[node_type] = cast(torch.Tensor, embedding.weight)
@@ -78,13 +90,22 @@ class GraphEncoder(nn.Module):
         x = {node_type: self.input_norm(value) for node_type, value in x.items()}
 
         if self.cfg.graph_mode == "kg":
-            for conv in self.convs:
+            for conv, logits in zip(self.convs, self.relation_logits):
                 out = conv(x, edge_index)
+                messages = {}
+                for node_type, stacked in out.items():
+                    relations = [
+                        idx
+                        for idx, edge_type in enumerate(self.cfg.edge_types)
+                        if edge_type[2] == node_type and edge_type in edge_index
+                    ]
+                    weights = logits[relations].softmax(dim=0)
+                    messages[node_type] = (stacked * weights[None, :, None]).sum(dim=1)
                 x = {
                     node_type: self.output_norm(
-                        value + out.get(node_type, torch.zeros_like(value))
+                        value + messages.get(node_type, torch.zeros_like(value))
                     )
                     for node_type, value in x.items()
                 }
 
-        return x["item"]
+        return x["item"], x["user"]

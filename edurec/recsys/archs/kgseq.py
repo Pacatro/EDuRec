@@ -2,6 +2,7 @@ import torch
 from torch import nn
 
 from edurec.recsys.archs.base import BaseRecArch
+from edurec.recsys.archs.modules.graph_user_fusion import GraphUserFusion
 from edurec.recsys.archs.modules.kg_encoder import GraphEncoder
 from edurec.recsys.archs.modules.scorer import Scorer
 from edurec.recsys.archs.modules.seq_encoder import SeqEncoder
@@ -12,10 +13,10 @@ from edurec.recsys.configs import ModelConfig
 class KGSeq(BaseRecArch):
     """Knowledge-graph educational recommender.
 
-    The knowledge-graph encoder refines the item embeddings, each user's
+    The collaborative knowledge-graph encoder refines users and items. Each user's
     chronological history is gathered from those representations and encoded by
     a GRU or LSTM (``cfg.seq_encoder.cell_type``), and the resulting user state
-    is scored against the item embeddings by a final MLP.
+    is fused with the graph user before profile fusion and item scoring.
 
     When user features are available, a static profile is encoded separately and
     fused with the sequential state through a learned gate, so cold-start users
@@ -27,6 +28,7 @@ class KGSeq(BaseRecArch):
         self.cfg = cfg
 
         self.kg = GraphEncoder(cfg.kg_encoder)
+        self.graph_user_fusion = GraphUserFusion(cfg.emb_dim)
         self.seq_encoder = self._build_seq_encoder(cfg)
 
         self.user_profile = (
@@ -83,7 +85,7 @@ class KGSeq(BaseRecArch):
     ) -> torch.Tensor:
         item_feats = i_static_feats[:, : self.cfg.effective_item_dense_feats]
 
-        item_emb = self.kg(edge_index, item_feats)
+        item_emb, graph_users = self.kg(edge_index, item_feats)
 
         padded = torch.cat([item_emb.new_zeros(1, item_emb.size(1)), item_emb])
         hist = padded[h_ids.clamp(min=0)]
@@ -100,7 +102,20 @@ class KGSeq(BaseRecArch):
             )
         else:
             user_emb = self.seq_encoder(hist, h_mask, condition=profile)
+        has_history = h_mask.bool().any(dim=1)
+        user_emb, has_graph = self.graph_user_fusion(
+            user_emb,
+            graph_users,
+            user_ids,
+            has_history,
+            edge_index,
+            enabled=self.cfg.graph_mode == "kg",
+        )
         user_emb = self._fuse(user_emb, profile)
+        if profile is not None:
+            user_emb = torch.where(
+                (has_history | has_graph)[:, None], user_emb, profile
+            )
 
         scores = self.scorer(
             user_emb,
