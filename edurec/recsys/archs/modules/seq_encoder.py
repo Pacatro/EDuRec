@@ -6,7 +6,7 @@ from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 from edurec import settings
-from edurec.recsys.archs.modules.attention_pooling import (
+from edurec.recsys.archs.modules.attn_pooling import (
     AttentionPooling,
     masked_mean_pool,
 )
