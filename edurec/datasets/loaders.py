@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from edurec import settings
+from edurec.datasets.synthetic import SYNTHETIC_SCHEMA
 
 
 class DatasetName(StrEnum):
@@ -18,6 +19,7 @@ class DatasetName(StrEnum):
     DORIS = "doris"
     MOOCCUBEX = "mooccubex"
     COCO = "coco"
+    SYNTHETIC = "synthetic"
 
 
 type Schema = dict[str, dict[str, Any]]
@@ -584,3 +586,34 @@ def load_raw_data(dataset_name: DatasetName) -> RawData:
         raise ValueError(f"Dataset {dataset_name} not supported.")
 
     return loader()
+
+
+@register_dataset(DatasetName.SYNTHETIC)
+def load_synthetic() -> RawData:
+    """Load the synthetic e-learning dataset.
+
+    Reads the CSVs produced by
+    :func:`edurec.datasets.synthetic.generate_synthetic_raw`. Item, user and
+    interaction frames already use the canonical column names; the timestamp is
+    converted to epoch seconds like the other loaders.
+    """
+    folder = settings.RAW_DATA_FOLDER / DatasetName.SYNTHETIC.value
+    interactions = pd.read_csv(folder / "interactions.csv")
+    items = pd.read_csv(folder / "items.csv")
+    users = pd.read_csv(folder / "users.csv")
+
+    interactions.rename(columns={"created_at": settings.TIME_COL}, inplace=True)
+
+    if settings.TIME_COL in interactions.columns:
+        timestamp_seconds = _to_epoch_seconds(interactions[settings.TIME_COL])
+        valid = timestamp_seconds.notna() & timestamp_seconds.ge(0)
+        interactions = interactions.loc[valid].copy()
+        interactions[settings.TIME_COL] = timestamp_seconds.loc[valid].astype(np.int64)
+        interactions = interactions.reset_index(drop=True)
+
+    return RawData(
+        interactions=interactions,
+        item_features=items,
+        user_features=users,
+        schema=SYNTHETIC_SCHEMA,
+    )

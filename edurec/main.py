@@ -9,6 +9,7 @@ from edurec.cli import (
     ablation_app,
     dataset_app,
     eval_app,
+    generate_app,
     optim_app,
     test_app,
     train_app,
@@ -30,6 +31,7 @@ app.add_typer(dataset_app)
 app.add_typer(eval_app)
 app.add_typer(optim_app)
 app.add_typer(ablation_app)
+app.add_typer(generate_app)
 
 
 class Device(StrEnum):
