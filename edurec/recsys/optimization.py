@@ -1,5 +1,6 @@
 import hashlib
 import json
+import math
 from collections.abc import Mapping
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -12,19 +13,22 @@ from torch_geometric.data import HeteroData
 
 from edurec import settings
 from edurec.datasets import ElearningDataModule
-from edurec.recsys.configs import ModelConfig, TrainConfig
+from edurec.recsys.configs import ModelArch, ModelConfig, TrainConfig
 from edurec.recsys.recsys import RecSys
 from edurec.recsys.training import train_model
 
 # Bump whenever the search space or the objective changes so old studies are
 # not silently resumed with incompatible trials.
-OPTIMIZER_VERSION = 3
+OPTIMIZER_VERSION = 4
 
 
 def _optim_digest(
     base_config: ModelConfig,
     base_train_config: TrainConfig,
     cache_params: Mapping[str, Any] | None,
+    *,
+    val_topk: int = settings.TOP_K,
+    compile: bool = settings.COMPILE_MODEL,
 ) -> str:
     """Namespace a study by base config, processed data and optimizer version."""
     payload = {
@@ -32,6 +36,10 @@ def _optim_digest(
         "model": asdict(base_config),
         "train": asdict(base_train_config),
         "cache_params": cache_params,
+        "val_topk": val_topk,
+        "compile": compile,
+        "random_state": settings.state["random_state"],
+        "early_stopping_delta": settings.DELTA,
     }
     encoded = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha1(encoded.encode("utf-8")).hexdigest()
@@ -44,20 +52,15 @@ def _save_trials_callback(output_path: Path):
     return callback
 
 
-def objective(
+def _suggest_configs(
     trial: optuna.Trial,
     base_config: ModelConfig,
     base_train_config: TrainConfig,
-    datamodule: ElearningDataModule,
-    knowledge_graph: HeteroData,
-    epochs: int,
-    patience: int,
-    val_topk: int = settings.TOP_K,
-    verbose: bool = False,
-    compile: bool = settings.COMPILE_MODEL,
-) -> float:
+) -> tuple[ModelConfig, TrainConfig]:
+    """Sample only parameters used by the selected architecture."""
+    arch = ModelArch(base_config.arch)
     emb_dim = trial.suggest_categorical(
-        "emb_dim", sorted({64, settings.EMB_DIM, 256, 512})
+        "emb_dim", sorted({64, base_config.emb_dim, 256, 512})
     )
 
     # Candidate attention conditions history pooling on each candidate item.
@@ -76,36 +79,64 @@ def objective(
     else:
         hidden_dims = []
 
-    # The user-profile encoder and its fusion only exist when the dataset
-    # provides user features, so those dimensions are dataset-dependent.
+    # An ID embedding can activate the profile even without static user features.
     profile_overrides: dict[str, Any] = {}
-    if base_config.user_profile.is_active:
-        profile_overrides = {
-            "user_fusion": trial.suggest_categorical("user_fusion", ["gate", "concat"]),
-            "use_user_id_embedding": trial.suggest_categorical(
-                "use_user_id_embedding", [False, True]
+    if base_config.use_user_features:
+        use_id = trial.suggest_categorical("use_user_id_embedding", [False, True])
+        profile_overrides["use_user_id_embedding"] = use_id
+        if replace(base_config, use_user_id_embedding=use_id).user_profile.is_active:
+            profile_overrides.update(
+                user_fusion=trial.suggest_categorical("user_fusion", ["gate", "concat"]),
+                condition_seq_on_profile=trial.suggest_categorical(
+                    "condition_seq_on_profile", [False, True]
+                ),
+            )
+
+    sequence_overrides: dict[str, Any] = {
+        "use_attention_pooling": trial.suggest_categorical(
+            "use_attention_pooling", [False, True]
+        ),
+    }
+    if arch == ModelArch.KG_RNN:
+        sequence_overrides.update(
+            seq_cell=trial.suggest_categorical("seq_cell", ["gru", "lstm"]),
+            gru_hidden_dim=trial.suggest_categorical(
+                "gru_hidden_dim",
+                sorted({64, base_config.gru_hidden_dim, 128, 256, 512, 1024}),
             ),
-            "condition_seq_on_profile": trial.suggest_categorical(
-                "condition_seq_on_profile", [False, True]
+            gru_layers=trial.suggest_categorical(
+                "gru_layers", sorted({1, base_config.gru_layers, 2, 3})
             ),
-        }
+        )
+    else:
+        # Fixed distributions across trials; every width is divisible by every head count.
+        heads = sorted({1, 2, 4, 8, base_config.transformer_heads})
+        if any(head <= 0 for head in heads):
+            raise ValueError("Transformer head counts must be positive.")
+        widths = sorted({64, 128, 256, 512, base_config.transformer_hidden_dim})
+        widths = [width for width in widths if all(width % head == 0 for head in heads)]
+        if not widths:
+            raise ValueError("No Transformer width is compatible with the head search space.")
+        sequence_overrides.update(
+            transformer_hidden_dim=trial.suggest_categorical("transformer_hidden_dim", widths
+            ),
+            transformer_heads=trial.suggest_categorical("transformer_heads", heads),
+            transformer_layers=trial.suggest_categorical(
+                "transformer_layers", sorted({1, base_config.transformer_layers, 2, 3, 4})
+            ),
+        )
+
+    graph_overrides: dict[str, Any] = {}
+    if base_config.graph_mode == "kg":
+        graph_overrides["gnn_layers"] = trial.suggest_categorical(
+            "gnn_layers", sorted({1, base_config.gnn_layers, 2, 3, 4})
+        )
 
     config = replace(
         base_config,
         emb_dim=emb_dim,
-        # Knowledge-graph encoder
-        gnn_layers=trial.suggest_categorical(
-            "gnn_layers", sorted({1, settings.GNN_LAYERS, 3, 4})
-        ),
-        # Recurrent sequence encoder
-        seq_cell=trial.suggest_categorical("seq_cell", ["gru", "lstm"]),
-        gru_hidden_dim=trial.suggest_categorical(
-            "gru_hidden_dim",
-            sorted({64, settings.GRU_HIDDEN_DIM, 256, 2 * emb_dim}),
-        ),
-        gru_layers=trial.suggest_categorical(
-            "gru_layers", sorted({1, settings.GRU_LAYERS, 2, 3})
-        ),
+        **graph_overrides,
+        **sequence_overrides,
         # Scorer
         scorer_type=scorer_type,
         hidden_dims=hidden_dims,
@@ -113,7 +144,7 @@ def objective(
         **profile_overrides,
         # Regularization
         dropout=trial.suggest_categorical(
-            "dropout", sorted({0.0, 0.1, settings.DROPOUT, 0.3, 0.5})
+            "dropout", sorted({0.0, 0.1, base_config.dropout, 0.3, 0.5})
         ),
         # Item bias
         use_item_bias=trial.suggest_categorical("use_item_bias", [True, False]),
@@ -122,14 +153,42 @@ def objective(
     train_config = replace(
         base_train_config,
         # Optimizer
-        lr=trial.suggest_categorical("lr", sorted({1e-4, settings.LR, 5e-4, 1e-3})),
+        lr=trial.suggest_categorical(
+            "lr", sorted({1e-4, base_train_config.lr, 5e-4, 1e-3})
+        ),
         weight_decay=trial.suggest_categorical(
-            "weight_decay", sorted({0.0, 1e-5, settings.WEIGHT_DECAY, 1e-3})
+            "weight_decay", sorted({0.0, 1e-5, base_train_config.weight_decay, 1e-3})
         ),
     )
 
+    return config, train_config
+
+
+def objective(
+    trial: optuna.Trial,
+    base_config: ModelConfig,
+    base_train_config: TrainConfig,
+    datamodule: ElearningDataModule,
+    knowledge_graph: HeteroData,
+    epochs: int,
+    patience: int,
+    val_topk: int = settings.TOP_K,
+    verbose: bool = False,
+    compile: bool = settings.COMPILE_MODEL,
+) -> float:
+    base_train_config = replace(
+        base_train_config,
+        epochs=epochs,
+        patience=patience,
+        batch_size=datamodule.batch_size,
+    )
+    config, train_config = _suggest_configs(trial, base_config, base_train_config)
+    # Model initialization must not depend on earlier trials or resumed runs.
+    settings.seed_everything(settings.state["random_state"])
     trial.set_user_attr("config", asdict(config))
     trial.set_user_attr("train_config", asdict(train_config))
+    trial.set_user_attr("val_topk", val_topk)
+    trial.set_user_attr("random_state", settings.state["random_state"])
 
     model = RecSys(
         cfg=config,
@@ -154,14 +213,18 @@ def objective(
             default_root_dir=root_dir,
         )
 
-    assert isinstance(trainer.checkpoint_callback, ModelCheckpoint)
+    if not isinstance(trainer.checkpoint_callback, ModelCheckpoint):
+        raise TypeError("Training did not provide a ModelCheckpoint callback.")
 
     score = trainer.checkpoint_callback.best_model_score
 
     if score is None:
         raise RuntimeError(f"Metric {model.monitor!r} was not recorded.")
 
-    return score.item()
+    value = float(score.item())
+    if not math.isfinite(value):
+        raise RuntimeError(f"Metric {model.monitor!r} is not finite: {value}.")
+    return value
 
 
 def optimize_model(
@@ -176,7 +239,16 @@ def optimize_model(
     results_path: Path | None = None,
     compile: bool = settings.COMPILE_MODEL,
 ) -> optuna.Study:
-    assert dm.is_processed, "Data must be processed before optimizing the model."
+    if not dm.is_processed:
+        raise ValueError("Data must be processed before optimizing the model.")
+    if n_trials < 1 or epochs < 1 or patience < 1 or val_topk < 1:
+        raise ValueError("n_trials, epochs, patience and val_topk must be positive.")
+    ModelArch(base_config.arch)
+    if not base_config.has_history:
+        raise ValueError("Optimization requires chronological history.")
+    base_train_config = replace(
+        base_train_config, epochs=epochs, patience=patience, batch_size=dm.batch_size
+    )
 
     knowledge_graph = dm.knowledge_graph
     storage = None
@@ -187,17 +259,20 @@ def optimize_model(
         storage = f"sqlite:///{results_path / 'study.db'}"
         callbacks = [_save_trials_callback(results_path / "trials.csv")]
 
-    digest = _optim_digest(base_config, base_train_config, dm.cache_params)
+    digest = _optim_digest(
+        base_config, base_train_config, dm.cache_params, val_topk=val_topk, compile=compile
+    )
 
     study = optuna.create_study(
         direction="maximize",
-        study_name=f"edurec-{dm.dataset_name.value}-{digest[:10]}",
+        study_name=f"edurec-{dm.dataset_name.value}-{digest}",
         storage=storage,
         load_if_exists=True,
         sampler=optuna.samplers.TPESampler(
             seed=settings.state["random_state"],
-            n_startup_trials=min(10, n_trials),
+            n_startup_trials=10,
             multivariate=True,
+            group=True,
         ),
     )
     study.set_user_attr("search_space_hash", digest)
