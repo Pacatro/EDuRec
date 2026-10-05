@@ -1,9 +1,10 @@
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any, cast
 
 import matplotlib.pyplot as plt
 import networkx as nx
 import typer
+from matplotlib.lines import Line2D
 from torch_geometric.utils import to_networkx
 
 from edurec import settings
@@ -149,18 +150,28 @@ def kg_image_command(
 
     width = min(24, max(10, len(nx_graph) ** 0.5 * 0.7))
     fig, ax = plt.subplots(figsize=(width, width * 0.72))
-    edge_list = (
-        list(nx_graph.edges(data=True, keys=True))
-        if nx_graph.is_multigraph()
-        else [(*edge, data) for *edge, data in nx_graph.edges(data=True)]
-    )
+    if nx_graph.is_multigraph():
+        multi_graph = cast(nx.MultiDiGraph, nx_graph)
+        edge_list: list[tuple[Any, Any, Any, dict[str, Any]]] = [
+            (source, target, key, attrs)
+            for source, target, key, attrs in multi_graph.edges(data=True, keys=True)
+        ]
+        edgelist: list[Any] = [
+            (source, target, key) for source, target, key, _ in edge_list
+        ]
+    else:
+        simple_graph = cast(nx.DiGraph, nx_graph)
+        edge_list = [
+            (source, target, None, attrs)
+            for source, target, attrs in simple_graph.edges(data=True)
+        ]
+        edgelist = [(source, target) for source, target, _, _ in edge_list]
+
     nx.draw_networkx_edges(
         nx_graph,
         positions,
         ax=ax,
-        edgelist=[(source, target, key) for source, target, key, _ in edge_list]
-        if nx_graph.is_multigraph()
-        else [(source, target) for source, target, _ in edge_list],
+        edgelist=edgelist,
         edge_color=[edge_colors[int(attrs["edge_type"])] for *_, attrs in edge_list],
         alpha=0.28,
         arrows=False,
@@ -177,7 +188,7 @@ def kg_image_command(
     )
     ax.add_artist(node_legend)
     edge_handles = [
-        plt.Line2D([0], [0], color=edge_colors[index], label=" · ".join(edge_type))
+        Line2D([0], [0], color=edge_colors[index], label=" · ".join(edge_type))
         for index, edge_type in enumerate(edge_types)
         if any(int(attrs["edge_type"]) == index for *_, attrs in edge_list)
     ]
