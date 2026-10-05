@@ -119,38 +119,6 @@ def filter_sparse(
     )
 
 
-def get_relevance_threshold(train_df: pd.DataFrame) -> tuple[pd.Series, float] | None:
-    """Fit per-user relevance thresholds using the training split only."""
-    if settings.RATING_COL not in train_df.columns:
-        return None
-
-    user_mean = train_df.groupby(settings.USER_COL)[settings.RATING_COL].mean()
-    global_mean = train_df[settings.RATING_COL].mean()
-
-    return user_mean, global_mean
-
-
-def add_relevance(
-    df: pd.DataFrame,
-    thresholds: tuple[pd.Series, float] | None,
-) -> pd.DataFrame:
-    """Normalize explicit ratings or implicit events to binary relevance."""
-    df = df.copy()
-
-    if settings.RATING_COL not in df.columns:
-        df[settings.RELEVANT_COL] = 1
-        return df.reset_index(drop=True)
-
-    if thresholds is None:
-        raise RuntimeError("Relevance thresholds are required for explicit feedback.")
-
-    user_mean, global_mean = thresholds
-    threshold = df[settings.USER_COL].map(user_mean).fillna(global_mean)
-    df[settings.RELEVANT_COL] = df[settings.RATING_COL] >= threshold
-
-    return df.reset_index(drop=True)
-
-
 def generate_negative_samples(
     interactions: pd.DataFrame,
     item_ids: pd.Series | np.ndarray | list[int],
@@ -172,11 +140,6 @@ def generate_negative_samples(
         raise ValueError(f"Interactions are missing required columns: {missing}.")
     if num_negatives < 0:
         raise ValueError("num_negatives must be greater than or equal to zero.")
-    if (
-        settings.RELEVANT_COL in interactions.columns
-        and not interactions[settings.RELEVANT_COL].gt(0).all()
-    ):
-        raise ValueError("Negative sampling expects only positive interactions.")
 
     negatives = np.empty((len(interactions), num_negatives), dtype=np.int64)
     if num_negatives == 0 or interactions.empty:

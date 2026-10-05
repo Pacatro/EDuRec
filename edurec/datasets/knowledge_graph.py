@@ -28,7 +28,7 @@ def build_knowledge_graph(
     item field (``attr::<field>``). Each item connects to its attribute values
     through an edge named after the field, so items that share an attribute
     value become neighbours through that shared attribute node. User-item
-    interactions use processed IDs and only relevant training events. User
+    interactions use processed IDs and all observed training events. User
     categorical/list attributes have separate vocabularies from item attributes.
     Extra relations are declared in the dataset schema (``refs`` and ``cooc``)
     and resolved by the same row-wise primitive. PyG handles reverse edges and
@@ -53,8 +53,6 @@ def build_knowledge_graph(
         )
     if train_interactions is not None:
         train = train_interactions
-        if settings.RELEVANT_COL in train:
-            train = train.loc[train[settings.RELEVANT_COL] > 0]
         pairs = train[[settings.USER_COL, settings.ITEM_COL]].drop_duplicates()
         valid = (
             pairs[settings.USER_COL].between(0, len(processor.user_id_map) - 1)

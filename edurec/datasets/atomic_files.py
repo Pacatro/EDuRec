@@ -38,7 +38,7 @@ def save_atomic_files(
     atomic_files: dict[str, Path] = {}
 
     combined = pd.concat(
-        [_positive_interactions(df) for df in split_frames.values() if df is not None],
+        [df for df in split_frames.values() if df is not None],
         axis=0,
         ignore_index=True,
     )
@@ -52,9 +52,7 @@ def save_atomic_files(
 
         path = output_dir / f"{dataset_name}.{split_name}.inter"
         atomic_files[f"{split_name}.inter"] = path
-        _inter_id_frame(_positive_interactions(split_df)).to_csv(
-            path, sep="\t", index=False
-        )
+        _inter_id_frame(split_df).to_csv(path, sep="\t", index=False)
 
     atomic_files["user"] = output_dir / f"{dataset_name}.user"
     _id_frame(
@@ -71,13 +69,6 @@ def save_atomic_files(
     ).to_csv(atomic_files["item"], sep="\t", index=False)
 
     return atomic_files
-
-
-def _positive_interactions(df: pd.DataFrame) -> pd.DataFrame:
-    if settings.RELEVANT_COL not in df.columns:
-        return df.reset_index(drop=True)
-
-    return df.loc[df[settings.RELEVANT_COL] > 0].reset_index(drop=True)
 
 
 def _inter_id_frame(df: pd.DataFrame) -> pd.DataFrame:

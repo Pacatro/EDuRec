@@ -248,7 +248,6 @@ class DataProcessor:
             settings.USER_COL,
             settings.ITEM_COL,
             settings.RATING_COL,
-            settings.RELEVANT_COL,
             settings.TIME_COL,
         }
 
@@ -293,7 +292,6 @@ class DataProcessor:
             settings.USER_COL,
             settings.ITEM_COL,
             settings.RATING_COL,
-            settings.RELEVANT_COL,
             settings.TIME_COL,
         ]
 

@@ -475,7 +475,7 @@ def load_coco() -> RawData:
     """Load the COCO course-review dataset.
 
     Ratings live in ``evaluate_latest.csv``; the free-text reviewer comment is
-    dropped because it is written after the rating and would leak the relevance
+    dropped because it is written after the rating and would leak the rating
     target. Course metadata is enriched with curriculum and instructor
     aggregates so the item encoder receives course-level signals.
     """

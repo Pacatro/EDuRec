@@ -44,7 +44,6 @@ ITEM_COL: str = "item_id"
 USER_COL: str = "user_id"
 TIME_COL: str = "timestamp"
 RATING_COL: str = "rating"
-RELEVANT_COL: str = "relevant"
 MIN_INTERACTIONS: int = 3
 TRAIN_NEGATIVES_PER_POSITIVE: int = 4
 RAW_DATA_FOLDER = Path(DATA_FOLDER) / "raw"

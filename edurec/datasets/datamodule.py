@@ -15,15 +15,13 @@ from edurec.datasets.downloaders import download_raw_data
 from edurec.datasets.knowledge_graph import build_knowledge_graph
 from edurec.datasets.loaders import DatasetName, RawData, load_raw_data
 from edurec.datasets.preprocessing import (
-    add_relevance,
     clean_cols,
     filter_sparse,
     generate_negative_samples,
-    get_relevance_threshold,
     preprocess,
     split_data,
 )
-from edurec.datasets.recsys_dataset import RecSysDataset
+from edurec.datasets.recsys_dataset import RecSysDataset, rating_sample_weights
 from edurec.datasets.user_history import build_histories
 
 
@@ -98,20 +96,18 @@ class ElearningDataModule(L.LightningDataModule):
                 output_dir=self.atomic_folder,
             )
 
-        relevant_splits = {
-            split: df.loc[df[settings.RELEVANT_COL] > 0].reset_index(drop=True)
-            for split, df in self.artifacts.splits().items()
-        }
+        splits = self.artifacts.splits()
+        sample_weights = rating_sample_weights(splits)
 
-        histories = build_histories(relevant_splits, enabled=self.has_temporal_order)
+        histories = build_histories(splits, enabled=self.has_temporal_order)
 
         if stage in ("fit", None):
             train_negatives = None
 
             if not self.is_explicit:
-                train_interactions = relevant_splits["train"]
+                train_interactions = splits["train"]
                 all_observed = pd.concat(
-                    relevant_splits.values(),
+                    splits.values(),
                     ignore_index=True,
                 )
 
@@ -124,17 +120,21 @@ class ElearningDataModule(L.LightningDataModule):
                 )
 
             self.train_ds = self._make_dataset(
-                relevant_splits["train"],
+                splits["train"],
                 histories["train"],
                 negative_item_ids=train_negatives,
+                sample_weights=sample_weights["train"],
             )
 
-            self.val_ds = self._make_dataset(relevant_splits["val"], histories["val"])
+            self.val_ds = self._make_dataset(
+                splits["val"], histories["val"], sample_weights=sample_weights["val"]
+            )
 
         elif stage == "test":
             self.test_ds = self._make_dataset(
-                relevant_splits["test"],
+                splits["test"],
                 histories["test"],
+                sample_weights=sample_weights["test"],
             )
 
     def _make_dataset(
@@ -142,6 +142,7 @@ class ElearningDataModule(L.LightningDataModule):
         interactions: pd.DataFrame,
         history: tuple[torch.Tensor, torch.Tensor],
         negative_item_ids: np.ndarray | None = None,
+        sample_weights: torch.Tensor | None = None,
     ) -> RecSysDataset:
         history_items, history_valid_mask = history
 
@@ -150,6 +151,7 @@ class ElearningDataModule(L.LightningDataModule):
             history_items=history_items,
             history_valid_mask=history_valid_mask,
             negative_item_ids=negative_item_ids,
+            sample_weights=sample_weights,
         )
 
     def _process_raw_data(self) -> None:
@@ -176,7 +178,7 @@ class ElearningDataModule(L.LightningDataModule):
             )
 
         self.artifacts.train, self.artifacts.val, self.artifacts.test = (
-            self._split_with_relevance(interactions)
+            self._split_interactions(interactions)
         )
 
         self.artifacts = preprocess(
@@ -193,24 +195,16 @@ class ElearningDataModule(L.LightningDataModule):
             manifest=self.cache_params,
         )
 
-    def _split_with_relevance(
+    def _split_interactions(
         self,
         interactions: pd.DataFrame,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        train, val, test = split_data(
+        return split_data(
             interactions,
             test_ratio=self.test_ratio,
             val_ratio=self.val_ratio,
             min_interactions=self.min_interactions,
             random_state=self.random_state,
-        )
-
-        thresholds = get_relevance_threshold(train)
-
-        return (
-            add_relevance(train, thresholds),
-            add_relevance(val, thresholds),
-            add_relevance(test, thresholds),
         )
 
     @property
