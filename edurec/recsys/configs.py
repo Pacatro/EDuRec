@@ -124,6 +124,7 @@ class ModelConfig(BaseConfig):
             (edge[0], edge[1], edge[2]) for edge in self.kg_edge_types
         ]
         return GraphEncoderConfig(
+            num_users=self.num_users,
             num_items=self.num_items,
             emb_dim=self.emb_dim,
             item_feat_dim=self.effective_item_dense_feats,

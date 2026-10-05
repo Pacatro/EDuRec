@@ -19,17 +19,23 @@ def build_knowledge_graph(
     item_frame: pd.DataFrame,
     item_feats: torch.Tensor,
     processor: DataProcessor,
+    user_frame: pd.DataFrame | None = None,
+    train_interactions: pd.DataFrame | None = None,
 ) -> HeteroData:
-    """Build the item-item knowledge graph from already-processed data.
+    """Build a collaborative knowledge graph from metadata and training data.
 
     Nodes are items and one attribute node type per categorical or list-valued
     item field (``attr::<field>``). Each item connects to its attribute values
     through an edge named after the field, so items that share an attribute
     value become neighbours through that shared attribute node. User-item
-    interactions are not modeled: the graph only captures item-item relations.
+    interactions use processed IDs and only relevant training events. User
+    categorical/list attributes have separate vocabularies from item attributes.
     Extra relations are declared in the dataset schema (``refs`` and ``cooc``)
     and resolved by the same row-wise primitive. PyG handles reverse edges and
     edge cleanup.
+
+    This is a static training graph, not a temporal snapshot per history prefix.
+    Validation and test interactions must never be passed to this builder.
     """
     data = HeteroData()
     data["item"].x = item_feats
@@ -39,13 +45,32 @@ def build_knowledge_graph(
     _add_reference_edges(data, item_frame, node_ids, processor)
     _add_cooccurrence_edges(data, item_frame, node_ids, processor, vocab)
 
+    data["user"].num_nodes = len(processor.user_id_map)
+    if user_frame is not None:
+        user_ids = user_frame[settings.USER_COL].map(processor.user_id_map)
+        _add_attribute_edges(
+            data, user_frame, user_ids, processor, entity="user", prefix="users"
+        )
+    if train_interactions is not None:
+        train = train_interactions
+        if settings.RELEVANT_COL in train:
+            train = train.loc[train[settings.RELEVANT_COL] > 0]
+        pairs = train[[settings.USER_COL, settings.ITEM_COL]].drop_duplicates()
+        valid = (
+            pairs[settings.USER_COL].between(0, len(processor.user_id_map) - 1)
+            & pairs[settings.ITEM_COL].between(0, item_feats.size(0) - 1)
+        )
+        data["user", "interacts", "item"].edge_index = torch.as_tensor(
+            pairs.loc[valid].to_numpy(dtype=np.int64).T, dtype=torch.long
+        )
+
     _clean_edges(data)
     return ToUndirected()(data)
 
 
-def _field_kinds(processor: DataProcessor) -> dict[str, bool]:
-    """Map every item feature field to whether it is list-valued."""
-    groups = processor.column_groups.get("items", {})
+def _field_kinds(processor: DataProcessor, prefix: str = "items") -> dict[str, bool]:
+    """Map each entity feature field to whether it is list-valued."""
+    groups = processor.column_groups.get(prefix, {})
     kinds: dict[str, bool] = {col: False for col in groups.get("categorical", [])}
     for col in groups.get("list", []):
         kinds[col] = True
@@ -57,11 +82,13 @@ def _add_attribute_edges(
     item_frame: pd.DataFrame,
     node_ids: pd.Series,
     processor: DataProcessor,
+    entity: str = "item",
+    prefix: str = "items",
 ) -> dict[str, dict[str, int]]:
-    """Create one attribute node type per item field and return its vocabulary."""
+    """Create one attribute node type per entity field and return its vocabulary."""
     vocab: dict[str, dict[str, int]] = {}
 
-    for field, is_list in _field_kinds(processor).items():
+    for field, is_list in _field_kinds(processor, prefix).items():
         tokens = item_frame[field].map(
             _coerce_list_tokens if is_list else _single_token
         )
@@ -76,9 +103,9 @@ def _add_attribute_edges(
         codes, uniques = pd.factorize(long["token"].to_numpy(), sort=True)
         vocab[field] = {str(token): idx for idx, token in enumerate(uniques)}
 
-        attr_node = f"attr::{field}"
+        attr_node = f"attr::{field}" if entity == "item" else f"user_attr::{field}"
         data[attr_node].num_nodes = len(uniques)
-        data["item", field, attr_node].edge_index = torch.as_tensor(
+        data[entity, field, attr_node].edge_index = torch.as_tensor(
             np.stack([long["node"].to_numpy(), codes]),
             dtype=torch.long,
         )
