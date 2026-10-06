@@ -3,6 +3,7 @@ from edurec.recsys.archs import (
     BaseRecArch,
     KGSeq,
     KGTransformer,
+    SASRecText,
     arch_label,
     build_model,
 )
@@ -16,6 +17,7 @@ __all__ = [
     "BaseRecArch",
     "KGSeq",
     "KGTransformer",
+    "SASRecText",
     "ModelArch",
     "ModelConfig",
     "RecSys",

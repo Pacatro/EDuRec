@@ -1,7 +1,7 @@
 from dataclasses import replace
 from typing import Any
 
-from edurec.recsys.configs import ModelConfig
+from edurec.recsys.configs import ModelArch, ModelConfig
 
 FULL_ABLATION: dict[str, Any] = {
     "graph_mode": "kg",
@@ -48,6 +48,10 @@ def ablation_applicable(base_cfg: ModelConfig, variant: str) -> bool:
     """
     if variant == "full":
         return True
+
+    if base_cfg.arch == ModelArch.SASREC_TEXT:
+        # Only content removal changes this fixed causal/dot architecture.
+        return variant == "no_text" and base_cfg.num_item_text_feats > 0
 
     candidate = get_ablation_config(base_cfg, variant)
     full = get_ablation_config(base_cfg, "full")

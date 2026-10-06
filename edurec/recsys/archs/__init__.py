@@ -1,16 +1,19 @@
 from edurec.recsys.archs.base import BaseRecArch
 from edurec.recsys.archs.kgseq import KGSeq
 from edurec.recsys.archs.kgtransformer import KGTransformer
+from edurec.recsys.archs.sasrec_text import SASRecText
 from edurec.recsys.configs import ModelConfig
 
 ARCHS: dict[str, type[BaseRecArch]] = {
     "kg_rnn": KGSeq,
     "kg_transformer": KGTransformer,
+    "sasrec_text": SASRecText,
 }
 
 ARCH_LABELS: dict[str, str] = {
     "kg_rnn": "KGSeq",
     "kg_transformer": "KGTransformer",
+    "sasrec_text": "SASRecText",
 }
 
 
@@ -49,6 +52,7 @@ __all__ = [
     "BaseRecArch",
     "KGSeq",
     "KGTransformer",
+    "SASRecText",
     "arch_label",
     "build_model",
 ]

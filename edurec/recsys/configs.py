@@ -62,6 +62,7 @@ class ModelArch(StrEnum):
 
     KG_RNN = "kg_rnn"
     KG_TRANSFORMER = "kg_transformer"
+    SASREC_TEXT = "sasrec_text"
 
 
 @dataclass
@@ -114,6 +115,17 @@ class ModelConfig(BaseConfig):
     hidden_dims: list[int] = field(
         default_factory=lambda: [settings.EMB_DIM * 2, settings.EMB_DIM]
     )
+
+    def __post_init__(self) -> None:
+        if self.arch == ModelArch.SASREC_TEXT:
+            # These modules are fixed by the SASRec + content architecture.
+            self.graph_mode = "id"
+            self.use_user_features = False
+            self.use_user_id_embedding = False
+            self.condition_seq_on_profile = False
+            self.use_attention_pooling = False
+            self.scorer_type = "dot"
+            self.use_item_bias = False
 
     @property
     def effective_item_dense_feats(self) -> int:
@@ -182,6 +194,8 @@ class ModelConfig(BaseConfig):
             condition_dim=self.condition_dim,
             max_history_len=self.max_history_len,
             use_attention_pooling=self.use_attention_pooling,
+            causal=self.arch == ModelArch.SASREC_TEXT,
+            use_last_state=self.arch == ModelArch.SASREC_TEXT,
         )
 
     @property

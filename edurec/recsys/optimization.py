@@ -19,7 +19,7 @@ from edurec.recsys.training import train_model
 
 # Bump whenever the search space or the objective changes so old studies are
 # not silently resumed with incompatible trials.
-OPTIMIZER_VERSION = 4
+OPTIMIZER_VERSION = 5
 
 
 def _optim_digest(
@@ -59,12 +59,13 @@ def _suggest_configs(
 ) -> tuple[ModelConfig, TrainConfig]:
     """Sample only parameters used by the selected architecture."""
     arch = ModelArch(base_config.arch)
+    is_sasrec = arch == ModelArch.SASREC_TEXT
     emb_dim = trial.suggest_categorical(
         "emb_dim", sorted({64, base_config.emb_dim, 256, 512})
     )
 
     # Candidate attention conditions history pooling on each candidate item.
-    scorer_type = trial.suggest_categorical(
+    scorer_type = "dot" if is_sasrec else trial.suggest_categorical(
         "scorer_type", ["mlp", "dot", "candidate_attention"]
     )
     if scorer_type in {"mlp", "candidate_attention"}:
@@ -92,7 +93,7 @@ def _suggest_configs(
                 ),
             )
 
-    sequence_overrides: dict[str, Any] = {
+    sequence_overrides: dict[str, Any] = {} if is_sasrec else {
         "use_attention_pooling": trial.suggest_categorical(
             "use_attention_pooling", [False, True]
         ),
@@ -127,7 +128,7 @@ def _suggest_configs(
         )
 
     graph_overrides: dict[str, Any] = {}
-    if base_config.graph_mode == "kg":
+    if not is_sasrec and base_config.graph_mode == "kg":
         graph_overrides["gnn_layers"] = trial.suggest_categorical(
             "gnn_layers", sorted({1, base_config.gnn_layers, 2, 3, 4})
         )
@@ -147,7 +148,9 @@ def _suggest_configs(
             "dropout", sorted({0.0, 0.1, base_config.dropout, 0.3, 0.5})
         ),
         # Item bias
-        use_item_bias=trial.suggest_categorical("use_item_bias", [True, False]),
+        use_item_bias=False if is_sasrec else trial.suggest_categorical(
+            "use_item_bias", [True, False]
+        ),
     )
 
     train_config = replace(

@@ -150,6 +150,8 @@ class TransformerSeqEncoderConfig:
     condition_dim: int = 0
     max_history_len: int = settings.MAX_HISTORY_LEN
     use_attention_pooling: bool = True
+    causal: bool = False
+    use_last_state: bool = False
 
 
 class TransformerSeqEncoder(nn.Module):
@@ -164,6 +166,8 @@ class TransformerSeqEncoder(nn.Module):
         super().__init__()
         self.hidden_dim = cfg.hidden_dim
         self.max_history_len = cfg.max_history_len
+        self.causal = cfg.causal
+        self.use_last_state = cfg.use_last_state
 
         self.input_proj = nn.Linear(cfg.emb_dim, cfg.hidden_dim)
         self.pos_emb = nn.Embedding(cfg.max_history_len, cfg.hidden_dim)
@@ -218,6 +222,22 @@ class TransformerSeqEncoder(nn.Module):
         history_mask = history_mask.bool()
         seq_len = history_emb.size(1)
 
+        if self.causal and seq_len > self.max_history_len:
+            # Dataset histories are right-padded: keep each row's latest valid
+            # courses, rather than slicing off short histories with the padding.
+            start = (history_mask.sum(1) - self.max_history_len).clamp(min=0)
+            indices = start[:, None] + torch.arange(
+                self.max_history_len, device=history_emb.device
+            )
+            history_emb = history_emb.gather(
+                1, indices.unsqueeze(-1).expand(-1, -1, history_emb.size(-1))
+            )
+            history_mask = history_mask.gather(1, indices)
+            seq_len = history_emb.size(1)
+        if seq_len == 0:
+            state = history_emb.new_zeros(history_emb.size(0), self.proj.out_features)
+            return (state, state.unsqueeze(1)[:, :0]) if return_sequence else state
+
         x = self.input_proj(history_emb)
         positions = torch.arange(seq_len, device=x.device).clamp(
             max=self.max_history_len - 1
@@ -233,12 +253,24 @@ class TransformerSeqEncoder(nn.Module):
         empty = ~history_mask.any(dim=1)
         padding_mask = padding_mask.masked_fill(empty.unsqueeze(1), False)
 
-        encoded = self.encoder(x, src_key_padding_mask=padding_mask)
-        pooled = (
-            self.pool(encoded, history_mask | empty.unsqueeze(1))
-            if self.pool is not None
-            else masked_mean_pool(encoded, history_mask)
+        causal_mask = (
+            torch.ones(seq_len, seq_len, dtype=torch.bool, device=x.device).triu(1)
+            if self.causal
+            else None
         )
+        encoded = self.encoder(
+            x, mask=causal_mask, src_key_padding_mask=padding_mask
+        )
+        if self.use_last_state:
+            positions = torch.arange(seq_len, device=x.device)
+            last = positions.expand_as(history_mask).masked_fill(~history_mask, 0).amax(1)
+            pooled = encoded[torch.arange(x.size(0), device=x.device), last]
+        else:
+            pooled = (
+                self.pool(encoded, history_mask | empty.unsqueeze(1))
+                if self.pool is not None
+                else masked_mean_pool(encoded, history_mask)
+            )
 
         seq_user_emb = self.norm(self.proj(pooled))
         seq_user_emb = seq_user_emb * (~empty).unsqueeze(-1)

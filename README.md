@@ -211,7 +211,7 @@ configs/train/<dataset>_<arch>.yaml   Training hyperparameters (epochs, lr,
                                       adaptive-k)
 ```
 
-`<arch>` can be `kg_rnn` or `kg_transformer`. When a config file exists for the
+`<arch>` can be `kg_rnn`, `kg_transformer`, or `sasrec_text`. When a config file exists for the
 dataset and architecture being run, training, evaluation, and ablation commands
 load it. Explicit CLI flags always take precedence over the saved
 configurations, which in turn take precedence over the global defaults in
@@ -256,6 +256,25 @@ GRU/LSTM or Transformer. The `scorer_type` setting selects an MLP, dot product,
 or candidate-conditioned attention scorer.
 
 The sections below describe the modules.
+
+The `sasrec_text` architecture implements a content-enhanced SASRec:
+`course_emb = ID embedding + projected content features`. Content features reuse
+the preprocessing pipeline's frozen pretrained text embeddings (text fields
+are joined with their field names) and numeric course metadata. Both history
+and candidates use the same course embedding table. A causal Transformer with
+learned positions produces the user state from the last valid history position;
+dot products with candidates produce scores for Top-K ranking. Graph, user
+profile, attention pooling, and item bias are disabled for this architecture.
+Empty histories produce a zero state and tied scores. If no content features
+are available, the model uses course ID embeddings alone. Only `full` and
+`no_text` (when text is available) apply in the ablation command.
+
+```bash
+uv run edurec train --dataset doris --arch sasrec_text
+```
+
+Use the existing `transformer_hidden_dim`, `transformer_layers`,
+`transformer_heads`, `max_history_len`, `emb_dim`, and `dropout` model settings.
 
 - **Knowledge-graph encoder**: a heterogeneous item-item graph is derived from
   each dataset schema. Items are nodes, and every categorical or list-valued

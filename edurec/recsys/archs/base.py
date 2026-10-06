@@ -7,9 +7,8 @@ from torch import nn
 class BaseRecArch(nn.Module, ABC):
     """Common interface for the recommendation architectures.
 
-    Every architecture owns a collaborative knowledge-graph encoder (``kg``)
-    over users, items and attributes, and maps a history batch to item scores.
-    Graph users are fused with sequential states and optional static profiles.
+    Maps a history batch to item scores. Architectures may use graph encoders
+    and static user profiles or encode only the sequence of course embeddings.
     """
 
     @abstractmethod
