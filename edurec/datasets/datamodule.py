@@ -190,10 +190,7 @@ class ElearningDataModule(L.LightningDataModule):
             test=self.artifacts.test,
         )
 
-        self.artifacts.save(
-            self.processed_folder,
-            manifest=self.cache_params,
-        )
+        self.artifacts.save(self.processed_folder, manifest=self.cache_params)
 
     def _split_interactions(
         self,
