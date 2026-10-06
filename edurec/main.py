@@ -40,12 +40,15 @@ class Device(StrEnum):
     CUDA = "cuda"
 
 
+DEFAULT_DEVICE = Device(settings.state["device"])
+
+
 @app.callback()
 def main(
     device: Annotated[
         Device,
         typer.Option("--device", "-d", help="Device to use"),
-    ] = Device(settings.state["device"]),
+    ] = DEFAULT_DEVICE,
     random_state: Annotated[
         int | None,
         typer.Option("--random-state", "-r", help="Random state"),

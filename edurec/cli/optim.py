@@ -4,9 +4,6 @@ from typing import Annotated
 import typer
 
 from edurec import settings
-from edurec.datasets import DatasetName, ElearningDataModule
-from edurec.recsys import ModelArch, ModelConfig, optimize_model
-from edurec.recsys.configs import TrainConfig
 from edurec.cli.utils import (
     build_config,
     config_paths,
@@ -14,6 +11,9 @@ from edurec.cli.utils import (
     print_data_summary,
     print_model_modules,
 )
+from edurec.datasets import DatasetName, ElearningDataModule
+from edurec.recsys import ModelArch, ModelConfig, optimize_model
+from edurec.recsys.configs import TrainConfig
 
 app = typer.Typer(no_args_is_help=True)
 
