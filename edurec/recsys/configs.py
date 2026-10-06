@@ -23,8 +23,12 @@ class BaseConfig:
     def save(self, path: Path | str) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            key: value.value if isinstance(value, StrEnum) else value
+            for key, value in asdict(self).items()
+        }
         with open(path, "w") as f:
-            yaml.dump(asdict(self), f)
+            yaml.safe_dump(payload, f)
 
     @classmethod
     def load(cls, path: Path | str) -> Self:
