@@ -56,30 +56,14 @@ class Scorer(nn.Module):
                 whole catalog.
         """
         if item_ids is not None:
-            return self._score_candidates(user_emb, item_emb, item_ids)
-        return self._score_catalog(user_emb, item_emb)
+            if item_ids.numel() == 0:
+                return user_emb.new_empty((user_emb.size(0), 0))
 
-    def _score_candidates(
-        self,
-        user_emb: torch.Tensor,
-        item_emb: torch.Tensor,
-        item_ids: torch.Tensor,
-    ) -> torch.Tensor:
-        """Score one candidate set per user: ``[batch, num_candidates]``."""
-        if item_ids.numel() == 0:
-            return user_emb.new_empty((user_emb.size(0), 0))
+            cand_emb = item_emb[item_ids]
+            batch_size, num_candidates = item_ids.shape
+            user = user_emb.unsqueeze(1).expand(batch_size, num_candidates, -1)
+            return self.mlp(torch.cat([user, cand_emb], dim=-1)).squeeze(-1)
 
-        cand_emb = item_emb[item_ids]
-        batch_size, num_candidates = item_ids.shape
-        user = user_emb.unsqueeze(1).expand(batch_size, num_candidates, -1)
-        return self.mlp(torch.cat([user, cand_emb], dim=-1)).squeeze(-1)
-
-    def _score_catalog(
-        self,
-        user_emb: torch.Tensor,
-        item_emb: torch.Tensor,
-    ) -> torch.Tensor:
-        """Score the full catalog in chunks: ``[batch, num_items]``."""
         batch_size = user_emb.shape[0]
         num_items = item_emb.shape[0]
         chunk_size = self.chunk_size if self.chunk_size > 0 else num_items

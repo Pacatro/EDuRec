@@ -24,7 +24,7 @@ class InteractionContextEncoder(nn.Module):
     categorical column gets its own embedding table. The ``OrdinalEncoder``
     codes are shifted by one so that the unknown value ``-1`` maps to the
     padding row. All contributions are summed and normalised, mirroring
-    :class:`~edurec.recsys.archs.modules.user_profile.UserProfileEncoder`.
+    :class:`~edurec.recsys.archs.modules.user_state.UserProfileEncoder`.
     """
 
     def __init__(self, cfg: InteractionContextConfig):

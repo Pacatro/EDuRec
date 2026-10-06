@@ -11,12 +11,11 @@ from edurec.recsys.archs.modules.seq_encoder import (
     TransformerSeqEncoder,
     TransformerSeqEncoderConfig,
 )
-from edurec.recsys.archs.modules.time_features import TimeEncoder
-from edurec.recsys.archs.modules.user_profile import (
-    UserProfileConfig,
+from edurec.recsys.archs.modules.user_state import (
     UserProfileEncoder,
+    UserStateConfig,
+    UserStateEncoder,
 )
-from edurec.recsys.archs.modules.user_state import UserStateConfig, UserStateEncoder
 
 __all__ = [
     "AttentionPooling",
@@ -28,10 +27,8 @@ __all__ = [
     "ScorerConfig",
     "SeqEncoder",
     "SeqEncoderConfig",
-    "TimeEncoder",
     "TransformerSeqEncoder",
     "TransformerSeqEncoderConfig",
-    "UserProfileConfig",
     "UserProfileEncoder",
     "UserStateConfig",
     "UserStateEncoder",
