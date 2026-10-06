@@ -19,7 +19,7 @@ from edurec.recsys.training import train_model
 
 # Bump whenever the search space or the objective changes so old studies are
 # not silently resumed with incompatible trials.
-OPTIMIZER_VERSION = 5
+OPTIMIZER_VERSION = 6
 
 
 def _optim_digest(
@@ -64,49 +64,42 @@ def _suggest_configs(
         "emb_dim", sorted({64, base_config.emb_dim, 256, 512})
     )
 
-    # Candidate attention conditions history pooling on each candidate item.
-    scorer_type = "dot" if is_sasrec else trial.suggest_categorical(
-        "scorer_type", ["mlp", "dot", "candidate_attention"]
+    scorer_shape = trial.suggest_categorical(
+        "scorer_shape", ["linear", "single", "funnel"]
     )
-    if scorer_type in {"mlp", "candidate_attention"}:
-        scorer_shape = trial.suggest_categorical(
-            "scorer_shape", ["linear", "single", "funnel"]
-        )
-        hidden_dims = {
-            "linear": [],
-            "single": [2 * emb_dim],
-            "funnel": [2 * emb_dim, emb_dim],
-        }[scorer_shape]
-    else:
-        hidden_dims = []
+    hidden_dims = {
+        "linear": [],
+        "single": [2 * emb_dim],
+        "funnel": [2 * emb_dim, emb_dim],
+    }[scorer_shape]
 
     # An ID embedding can activate the profile even without static user features.
     profile_overrides: dict[str, Any] = {}
     if base_config.use_user_features:
-        use_id = trial.suggest_categorical("use_user_id_embedding", [False, True])
-        profile_overrides["use_user_id_embedding"] = use_id
-        if replace(base_config, use_user_id_embedding=use_id).user_profile.is_active:
-            profile_overrides.update(
-                user_fusion=trial.suggest_categorical("user_fusion", ["gate", "concat"]),
-                condition_seq_on_profile=trial.suggest_categorical(
-                    "condition_seq_on_profile", [False, True]
-                ),
-            )
+        profile_overrides["use_user_id_embedding"] = trial.suggest_categorical(
+            "use_user_id_embedding", [False, True]
+        )
 
     sequence_overrides: dict[str, Any] = {} if is_sasrec else {
         "use_attention_pooling": trial.suggest_categorical(
             "use_attention_pooling", [False, True]
         ),
+        "use_interaction_features": trial.suggest_categorical(
+            "use_interaction_features", [False, True]
+        ),
+        "use_time_features": trial.suggest_categorical(
+            "use_time_features", [False, True]
+        ),
     }
     if arch == ModelArch.KG_RNN:
         sequence_overrides.update(
-            seq_cell=trial.suggest_categorical("seq_cell", ["gru", "lstm"]),
-            gru_hidden_dim=trial.suggest_categorical(
-                "gru_hidden_dim",
-                sorted({64, base_config.gru_hidden_dim, 128, 256, 512, 1024}),
+            rnn_type=trial.suggest_categorical("rnn_type", ["gru", "lstm"]),
+            rnn_hidden_dim=trial.suggest_categorical(
+                "rnn_hidden_dim",
+                sorted({64, base_config.rnn_hidden_dim, 128, 256, 512, 1024}),
             ),
-            gru_layers=trial.suggest_categorical(
-                "gru_layers", sorted({1, base_config.gru_layers, 2, 3})
+            rnn_layers=trial.suggest_categorical(
+                "rnn_layers", sorted({1, base_config.rnn_layers, 2, 3})
             ),
         )
     else:
@@ -132,6 +125,10 @@ def _suggest_configs(
         graph_overrides["gnn_layers"] = trial.suggest_categorical(
             "gnn_layers", sorted({1, base_config.gnn_layers, 2, 3, 4})
         )
+        head_space = [head for head in (1, 2, 4, 8) if emb_dim % head == 0]
+        graph_overrides["gnn_heads"] = trial.suggest_categorical(
+            "gnn_heads", head_space
+        )
 
     config = replace(
         base_config,
@@ -139,9 +136,8 @@ def _suggest_configs(
         **graph_overrides,
         **sequence_overrides,
         # Scorer
-        scorer_type=scorer_type,
         hidden_dims=hidden_dims,
-        # User profile fusion
+        # User profile initial state
         **profile_overrides,
         # Regularization
         dropout=trial.suggest_categorical(

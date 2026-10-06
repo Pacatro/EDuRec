@@ -7,13 +7,14 @@ from typing import Any, Literal, Self, get_type_hints
 import yaml
 
 from edurec import settings
+from edurec.recsys.archs.modules.interaction_context import InteractionContextConfig
 from edurec.recsys.archs.modules.kg_encoder import EdgeType, GraphEncoderConfig
 from edurec.recsys.archs.modules.scorer import ScorerConfig
 from edurec.recsys.archs.modules.seq_encoder import (
     SeqEncoderConfig,
     TransformerSeqEncoderConfig,
 )
-from edurec.recsys.archs.modules.user_profile import UserProfileConfig
+from edurec.recsys.archs.modules.user_state import UserStateConfig
 
 
 @dataclass
@@ -74,26 +75,35 @@ class TrainConfig(BaseConfig):
     weight_decay: float = settings.WEIGHT_DECAY
     topks: list[int] = field(default_factory=lambda: list(settings.TOP_KS))
     adaptive_k: bool = settings.ADAPTIVE_K
+    max_history: int = settings.MAX_HISTORY_LEN
+    deduplicate_interactions: bool = settings.DEDUPLICATE_INTERACTIONS
 
 
 class ModelArch(StrEnum):
     """Available recommendation architectures."""
 
     KG_RNN = "kg_rnn"
-    KG_TRANSFORMER = "kg_transformer"
     SASREC_TEXT = "sasrec_text"
 
 
 @dataclass
 class ModelConfig(BaseConfig):
-    """Model architecture configuration."""
+    """Model architecture configuration.
+
+    The ``kg_rnn`` architecture combines an item knowledge graph encoded by a
+    relational GNN, an event sequence (item embedding + interaction context +
+    time gap) encoded by a GRU/LSTM, a user profile that initialises the
+    recurrent state, and an MLP scorer.
+    """
 
     num_users: int
     num_items: int
     num_item_dense_feats: int
     num_item_text_feats: int
     num_user_dense_feats: int = 0
+    num_interaction_dense_feats: int = 0
     user_cat_cardinalities: list[int] = field(default_factory=list)
+    interaction_cat_cardinalities: list[int] = field(default_factory=list)
     has_history: bool = True
     kg_node_counts: dict[str, int] = field(default_factory=dict)
     kg_edge_types: list[list[str]] = field(default_factory=list)
@@ -104,27 +114,30 @@ class ModelConfig(BaseConfig):
     # Architecture selection
     arch: ModelArch = ModelArch.KG_RNN
 
-    # Ablations
+    # Ablations / feature toggles
     graph_mode: Literal["kg", "id"] = "kg"
     use_text_features: bool = True
+    use_item_features: bool = settings.USE_ITEM_FEATURES
     use_user_features: bool = True
-    scorer_type: Literal["mlp", "dot", "candidate_attention"] = settings.SCORER_TYPE
+    use_interaction_features: bool = settings.USE_INTERACTION_FEATURES
+    use_time_features: bool = settings.USE_TIME_FEATURES
     use_attention_pooling: bool = settings.USE_ATTENTION_POOLING
 
     # User profile
-    user_fusion: Literal["gate", "concat"] = "gate"
     use_user_id_embedding: bool = False
-    condition_seq_on_profile: bool = False
 
-    # GNN Defaults
+    # GNN defaults
     gnn_layers: int = settings.GNN_LAYERS
+    gnn_heads: int = settings.GNN_HEADS
+    gnn_dropout: float = settings.DROPOUT
 
-    # GRU Defaults
-    gru_hidden_dim: int = settings.GRU_HIDDEN_DIM
-    gru_layers: int = settings.GRU_LAYERS
-    seq_cell: Literal["gru", "lstm"] = settings.SEQ_CELL
+    # Recurrent sequence defaults
+    rnn_type: Literal["gru", "lstm"] = settings.SEQ_CELL
+    rnn_hidden_dim: int = settings.GRU_HIDDEN_DIM
+    rnn_layers: int = settings.GRU_LAYERS
+    rnn_dropout: float = settings.DROPOUT
 
-    # Transformer defaults
+    # Transformer defaults (SASRecText)
     transformer_hidden_dim: int = settings.TRANSFORMER_HIDDEN_DIM
     transformer_layers: int = settings.TRANSFORMER_LAYERS
     transformer_heads: int = settings.TRANSFORMER_HEADS
@@ -139,16 +152,19 @@ class ModelConfig(BaseConfig):
         if self.arch == ModelArch.SASREC_TEXT:
             # These modules are fixed by the SASRec + content architecture.
             self.graph_mode = "id"
+            self.use_item_features = True
             self.use_user_features = False
             self.use_user_id_embedding = False
-            self.condition_seq_on_profile = False
+            self.use_interaction_features = False
+            self.use_time_features = False
             self.use_attention_pooling = False
-            self.scorer_type = "dot"
             self.use_item_bias = False
 
     @property
     def effective_item_dense_feats(self) -> int:
         """Item dense features actually fed to the graph after ablations."""
+        if not self.use_item_features:
+            return 0
         if self.use_text_features:
             return self.num_item_dense_feats
         return self.num_item_dense_feats - self.num_item_text_feats
@@ -159,20 +175,39 @@ class ModelConfig(BaseConfig):
             (edge[0], edge[1], edge[2]) for edge in self.kg_edge_types
         ]
         return GraphEncoderConfig(
-            num_users=self.num_users,
             num_items=self.num_items,
             emb_dim=self.emb_dim,
             item_feat_dim=self.effective_item_dense_feats,
             num_layers=self.gnn_layers,
+            heads=self.gnn_heads,
+            dropout=self.gnn_dropout,
             node_counts=dict(self.kg_node_counts),
             edge_types=edge_types,
             graph_mode=self.graph_mode,
         )
 
     @property
-    def user_profile(self) -> UserProfileConfig:
-        return UserProfileConfig(
+    def interaction_context(self) -> InteractionContextConfig:
+        if not self.use_interaction_features:
+            return InteractionContextConfig(emb_dim=self.emb_dim)
+        return InteractionContextConfig(
             emb_dim=self.emb_dim,
+            dense_dim=self.num_interaction_dense_feats,
+            cat_cardinalities=list(self.interaction_cat_cardinalities),
+        )
+
+    @property
+    def user_state(self) -> UserStateConfig:
+        if not self.use_user_features:
+            return UserStateConfig(
+                emb_dim=self.emb_dim,
+                hidden_dim=self.rnn_hidden_dim,
+                num_layers=self.rnn_layers,
+            )
+        return UserStateConfig(
+            emb_dim=self.emb_dim,
+            hidden_dim=self.rnn_hidden_dim,
+            num_layers=self.rnn_layers,
             num_dense_feats=self.num_user_dense_feats,
             cat_cardinalities=list(self.user_cat_cardinalities),
             num_users=self.num_users,
@@ -180,25 +215,13 @@ class ModelConfig(BaseConfig):
         )
 
     @property
-    def condition_dim(self) -> int:
-        """Sequence condition width, set when the profile drives the encoder."""
-        if (
-            self.use_user_features
-            and self.condition_seq_on_profile
-            and self.user_profile.is_active
-        ):
-            return self.emb_dim
-        return 0
-
-    @property
     def seq_encoder(self) -> SeqEncoderConfig:
         return SeqEncoderConfig(
             emb_dim=self.emb_dim,
-            hidden_dim=self.gru_hidden_dim,
-            num_layers=self.gru_layers,
-            dropout=self.dropout,
-            cell_type=self.seq_cell,
-            condition_dim=self.condition_dim,
+            hidden_dim=self.rnn_hidden_dim,
+            num_layers=self.rnn_layers,
+            dropout=self.rnn_dropout,
+            cell_type=self.rnn_type,
             use_attention_pooling=self.use_attention_pooling,
         )
 
@@ -210,7 +233,7 @@ class ModelConfig(BaseConfig):
             num_layers=self.transformer_layers,
             num_heads=self.transformer_heads,
             dropout=self.dropout,
-            condition_dim=self.condition_dim,
+            condition_dim=0,
             max_history_len=self.max_history_len,
             use_attention_pooling=self.use_attention_pooling,
             causal=self.arch == ModelArch.SASREC_TEXT,
@@ -223,7 +246,6 @@ class ModelConfig(BaseConfig):
             emb_dim=self.emb_dim,
             hidden_dims=self.hidden_dims,
             dropout=self.dropout,
-            scorer_type=self.scorer_type,
         )
 
 

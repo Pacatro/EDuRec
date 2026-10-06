@@ -9,26 +9,50 @@ from edurec import settings
 
 
 class RecSysQuery(NamedTuple):
+    """One recommendation query with its strictly-past history.
+
+    ``history_*`` tensors are aligned by history step: entry ``t`` of every
+    history field describes the same past event. The target interaction never
+    contributes to any history field.
+    """
+
     query_id: torch.Tensor
     user_id: torch.Tensor
     history_items: torch.Tensor
     history_valid_mask: torch.Tensor
+    history_dense_features: torch.Tensor
+    history_cat_features: torch.Tensor
+    history_timestamps: torch.Tensor
+    history_delta_times: torch.Tensor
     target_item_id: torch.Tensor
     negative_item_ids: torch.Tensor
     sample_weight: torch.Tensor
 
 
 class RecSysDataset(Dataset):
+    """Dataset over interactions with precomputed, leakage-free histories.
+
+    Interaction context and timestamps are not duplicated per history: each
+    dataset stores only a ``history_context_index`` into the global interaction
+    feature tables, and gathers the aligned features on the fly.
+    """
+
     def __init__(
         self,
         interactions: pd.DataFrame,
         history_items: torch.Tensor,
         history_valid_mask: torch.Tensor,
+        history_context_index: torch.Tensor,
+        interaction_dense: np.ndarray | torch.Tensor,
+        interaction_cat: np.ndarray | torch.Tensor,
+        interaction_timestamps: np.ndarray | torch.Tensor,
         negative_item_ids: np.ndarray | torch.Tensor | None = None,
         sample_weights: torch.Tensor | None = None,
     ):
         if len(history_items) != len(interactions):
             raise RuntimeError("Precomputed history must align with interactions.")
+        if history_items.shape != history_context_index.shape:
+            raise RuntimeError("History context index must align with history items.")
 
         interactions = interactions.reset_index(drop=True)
         self.user_ids = interactions[settings.USER_COL].to_numpy(copy=True)
@@ -62,16 +86,52 @@ class RecSysDataset(Dataset):
 
         self.history_items = history_items
         self.history_valid_mask = history_valid_mask
+        self.history_context_index = history_context_index.long()
+        self.interaction_dense = torch.as_tensor(
+            interaction_dense, dtype=torch.float32
+        )
+        self.interaction_cat = torch.as_tensor(interaction_cat, dtype=torch.long)
+        self.interaction_timestamps = torch.as_tensor(
+            interaction_timestamps, dtype=torch.float64
+        )
 
     def __len__(self) -> int:
         return self.n_interactions
 
+    def _gather_context(
+        self, context_index: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Gather aligned ``(dense, cat, timestamps, delta)`` for one history."""
+        valid = context_index >= 0
+        valid_f = valid.unsqueeze(-1).to(torch.float32)
+        safe = context_index.clamp(min=0)
+
+        dense = self.interaction_dense[safe] * valid_f
+        cat = self.interaction_cat[safe] * valid.unsqueeze(-1)
+
+        # Compute gaps in float64 (epoch seconds lose seconds at float32) and
+        # only cast the small delta back to float32.
+        timestamps64 = self.interaction_timestamps[safe] * valid.to(torch.float64)
+        delta64 = torch.zeros_like(timestamps64)
+        if timestamps64.numel() > 1:
+            delta64[1:] = (timestamps64[1:] - timestamps64[:-1]).clamp(min=0.0)
+        timestamps = (timestamps64 * valid.to(torch.float64)).to(torch.float32)
+        delta = (delta64 * valid.to(torch.float64)).to(torch.float32)
+        return dense, cat, timestamps, delta
+
     def __getitem__(self, idx: int) -> RecSysQuery:
+        context_index = self.history_context_index[idx]
+        dense, cat, timestamps, delta = self._gather_context(context_index)
+
         return RecSysQuery(
             query_id=torch.tensor(idx, dtype=torch.long),
             user_id=torch.tensor(int(self.user_ids[idx]), dtype=torch.long),
             history_items=self.history_items[idx],
             history_valid_mask=self.history_valid_mask[idx],
+            history_dense_features=dense,
+            history_cat_features=cat,
+            history_timestamps=timestamps,
+            history_delta_times=delta,
             target_item_id=torch.tensor(
                 int(self.target_item_ids[idx]), dtype=torch.long
             ),

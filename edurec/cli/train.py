@@ -178,6 +178,8 @@ def train(
             min_interactions=min_interactions,
             remove_sparse=remove_sparse,
             save_atomic_files=True,
+            max_history=train_cfg.max_history,
+            deduplicate_interactions=train_cfg.deduplicate_interactions,
         )
 
         dm.prepare_data()

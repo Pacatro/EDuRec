@@ -12,6 +12,10 @@ from edurec.datasets.atomic_files import save_atomic_files
 from edurec.datasets.cache import CACHE_VERSION, ProcessedData, processed_cache_exists
 from edurec.datasets.dataprocessor import DataProcessor
 from edurec.datasets.downloaders import download_raw_data
+from edurec.datasets.interaction_features import (
+    InteractionFeatureTables,
+    build_interaction_features,
+)
 from edurec.datasets.knowledge_graph import build_knowledge_graph
 from edurec.datasets.loaders import DatasetName, RawData, load_raw_data
 from edurec.datasets.preprocessing import (
@@ -37,6 +41,8 @@ class ElearningDataModule(L.LightningDataModule):
         use_processed_data: bool = False,
         save_atomic_files: bool = False,
         random_state: int | None = None,
+        max_history: int = settings.MAX_HISTORY_LEN,
+        deduplicate_interactions: bool = settings.DEDUPLICATE_INTERACTIONS,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -50,6 +56,8 @@ class ElearningDataModule(L.LightningDataModule):
         self.use_processed_data = use_processed_data
         self.save_atomic_files = save_atomic_files
         self.random_state = random_state
+        self.max_history = max_history
+        self.deduplicate_interactions = deduplicate_interactions
         self.data_variant = dataset.value
 
         self.cache_params = {
@@ -60,11 +68,12 @@ class ElearningDataModule(L.LightningDataModule):
             "val_ratio": val_ratio,
             "random_state": random_state,
             "remove_sparse": remove_sparse,
+            "deduplicate_interactions": deduplicate_interactions,
             "feature_types": list(settings.PREPROCESS_FEATURE_TYPES),
             "text_embedding_model": settings.TEXT_EMBEDDING_MODEL,
             "text_embedding_dim": settings.TEXT_EMBEDDING_DIM,
             "text_max_tokens": settings.TEXT_MAX_TOKENS,
-            "max_history_len": settings.MAX_HISTORY_LEN,
+            "max_history_len": max_history,
         }
 
         self.processed_folder = Path(settings.PROCESSED_FOLDER) / self.data_variant
@@ -73,6 +82,7 @@ class ElearningDataModule(L.LightningDataModule):
         self.raw_dataset: RawData | None = None
         self.artifacts = ProcessedData()
         self._knowledge_graph: HeteroData | None = None
+        self._interaction_tables: InteractionFeatureTables | None = None
 
     def prepare_data(self) -> None:
         if self.use_processed_data and processed_cache_exists(self.processed_folder):
@@ -98,8 +108,15 @@ class ElearningDataModule(L.LightningDataModule):
 
         splits = self.artifacts.splits()
         sample_weights = rating_sample_weights(splits)
+        self._interaction_tables = build_interaction_features(
+            splits, self.data_processor
+        )
 
-        histories = build_histories(splits, enabled=self.has_temporal_order)
+        histories = build_histories(
+            splits,
+            max_history=self.max_history,
+            enabled=self.has_temporal_order,
+        )
 
         if stage in ("fit", None):
             train_negatives = None
@@ -140,16 +157,21 @@ class ElearningDataModule(L.LightningDataModule):
     def _make_dataset(
         self,
         interactions: pd.DataFrame,
-        history: tuple[torch.Tensor, torch.Tensor],
+        history: tuple[torch.Tensor, torch.Tensor, torch.Tensor],
         negative_item_ids: np.ndarray | None = None,
         sample_weights: torch.Tensor | None = None,
     ) -> RecSysDataset:
-        history_items, history_valid_mask = history
+        history_items, history_valid_mask, history_context_index = history
+        tables = self.interaction_tables
 
         return RecSysDataset(
             interactions=interactions,
             history_items=history_items,
             history_valid_mask=history_valid_mask,
+            history_context_index=history_context_index,
+            interaction_dense=tables.dense,
+            interaction_cat=tables.cat,
+            interaction_timestamps=tables.timestamps,
             negative_item_ids=negative_item_ids,
             sample_weights=sample_weights,
         )
@@ -175,6 +197,7 @@ class ElearningDataModule(L.LightningDataModule):
                 items,
                 interactions,
                 min_interactions=self.min_interactions,
+                deduplicate=self.deduplicate_interactions,
             )
 
         self.artifacts.train, self.artifacts.val, self.artifacts.test = (
@@ -202,6 +225,7 @@ class ElearningDataModule(L.LightningDataModule):
             val_ratio=self.val_ratio,
             min_interactions=self.min_interactions,
             random_state=self.random_state,
+            deduplicate=self.deduplicate_interactions,
         )
 
     @property
@@ -211,15 +235,11 @@ class ElearningDataModule(L.LightningDataModule):
 
             if artifacts.i_static_feats is None or artifacts.item_features is None:
                 raise RuntimeError("Knowledge graph requires item data.")
-            if artifacts.train is None or artifacts.user_features is None:
-                raise RuntimeError("Knowledge graph requires users and training data.")
 
             self._knowledge_graph = build_knowledge_graph(
                 artifacts.item_features,
                 artifacts.i_static_feats,
                 self.data_processor,
-                user_frame=artifacts.user_features,
-                train_interactions=artifacts.train,
             )
 
         return self._knowledge_graph
@@ -441,6 +461,23 @@ class ElearningDataModule(L.LightningDataModule):
             if metadata is None
             else (len(metadata.numeric_cols) + len(metadata.text_embedding_cols))
         )
+
+    @property
+    def interaction_tables(self) -> InteractionFeatureTables:
+        if self._interaction_tables is None:
+            self._interaction_tables = build_interaction_features(
+                self.artifacts.splits(), self.data_processor
+            )
+
+        return self._interaction_tables
+
+    @property
+    def num_interaction_dense_feats(self) -> int:
+        return len(self.interaction_tables.dense_cols)
+
+    @property
+    def interaction_cat_cardinalities(self) -> list[int]:
+        return list(self.interaction_tables.cat_cardinalities)
 
     @property
     def num_user_text_feats(self) -> int:

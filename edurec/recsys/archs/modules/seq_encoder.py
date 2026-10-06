@@ -3,7 +3,6 @@ from typing import Literal
 
 import torch
 from torch import nn
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 from edurec import settings
 from edurec.recsys.archs.modules.attn_pooling import (
@@ -19,14 +18,15 @@ class SeqEncoderConfig:
     num_layers: int = settings.GRU_LAYERS
     dropout: float = 0.1
     cell_type: Literal["gru", "lstm"] = settings.SEQ_CELL
-    condition_dim: int = 0
-    use_attention_pooling: bool = True
+    use_attention_pooling: bool = False
 
 
 class SeqEncoder(nn.Module):
     """Recurrent encoder over a user's chronological item history.
 
-    Supports GRU and LSTM cells, selected via ``cfg.cell_type``.
+    Supports GRU and LSTM cells, selected via ``cfg.cell_type``. The history is
+    run through the recurrent network over the full padded sequence and the
+    last valid step is read off as the user state.
     """
 
     def __init__(self, cfg: SeqEncoderConfig):
@@ -43,101 +43,63 @@ class SeqEncoder(nn.Module):
             batch_first=True,
             dropout=cfg.dropout if cfg.num_layers > 1 else 0.0,
         )
-        self.state_proj = (
-            nn.Linear(cfg.condition_dim, cfg.hidden_dim * cfg.num_layers)
-            if cfg.condition_dim > 0
-            else None
-        )
         self.pool = (
             AttentionPooling(cfg.hidden_dim) if cfg.use_attention_pooling else None
         )
         self.proj = nn.Linear(cfg.hidden_dim, cfg.emb_dim)
         self.norm = nn.LayerNorm(cfg.emb_dim)
 
-    def _initial_hidden(
-        self,
-        condition: torch.Tensor,
-        order: torch.Tensor,
-    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-        assert self.state_proj is not None
-        state = self.state_proj(condition)[order]
-        state = state.view(-1, self.num_layers, self.hidden_dim).permute(1, 0, 2)
-        state = state.contiguous()
-        if self.cell_type == "lstm":
-            return state, torch.zeros_like(state)
-        return state
-
     def forward(
         self,
-        history_emb: torch.Tensor,
+        event_emb: torch.Tensor,
         history_mask: torch.Tensor,
-        condition: torch.Tensor | None = None,
-        return_sequence: bool = False,
-    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        initial_state: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """Encode a user interaction history.
 
         Args:
-            history_emb: Item representations with shape
+            event_emb: Item representations with shape
                 ``[batch_size, history_len, emb_dim]``.
             history_mask: Boolean mask with shape
                 ``[batch_size, history_len]``. True values indicate valid
-                interactions.
-            condition: Optional ``[batch_size, condition_dim]`` profile used to
-                initialise the recurrent hidden state.
+                interactions; right padding is ignored.
+            initial_state: Optional ``[num_layers, batch_size, hidden_dim]``
+                recurrent state used to start the sequence.
         Returns:
             Sequential user state with shape ``[batch_size, emb_dim]``.
             Users without history receive a zero vector.
         """
-        history_mask = history_mask.bool()
-        lengths = history_mask.sum(dim=1)
+        mask = history_mask.bool()
+        lengths = mask.sum(dim=1)
         has_history = lengths > 0
 
-        # pack_padded_sequence requires at least one step per row, so empty
-        # histories are encoded with a length of one and masked out afterwards.
-        safe_lengths = lengths.clamp(min=1)
-        sorted_lengths, order = safe_lengths.sort(descending=True)
+        # Zero the right padding before the RNN so the placeholder steps do not
+        # leak into the running state of later valid steps.
+        event_emb = event_emb * mask.unsqueeze(-1).to(event_emb.dtype)
 
-        packed = pack_padded_sequence(
-            history_emb[order],
-            sorted_lengths.cpu(),
-            batch_first=True,
-            enforce_sorted=True,
-        )
-        if self.state_proj is not None and condition is not None:
-            packed_out, _ = self.rnn(packed, self._initial_hidden(condition, order))
+        batch_size = event_emb.size(0)
+        if initial_state is None:
+            hidden = event_emb.new_zeros(self.num_layers, batch_size, self.hidden_dim)
         else:
-            packed_out, _ = self.rnn(packed)
+            hidden = initial_state
 
-        outputs, _ = pad_packed_sequence(
-            packed_out, batch_first=True, total_length=history_emb.size(1)
-        )
+        # Right padding does not affect earlier valid steps, so the full padded
+        # sequence can be run without packing.
+        if self.cell_type == "lstm":
+            cell = event_emb.new_zeros(self.num_layers, batch_size, self.hidden_dim)
+            outputs, _ = self.rnn(event_emb, (hidden, cell))
+        else:
+            outputs, _ = self.rnn(event_emb, hidden)
 
-        # ``outputs`` follows the sorted batch order. Pool every recurrent
-        # state while masking out the padding steps.
-        step_mask = torch.arange(outputs.size(1), device=outputs.device)[
-            None, :
-        ] < sorted_lengths.unsqueeze(1)
-        sorted_pooled = (
-            self.pool(outputs, step_mask)
-            if self.pool is not None
-            else masked_mean_pool(outputs, step_mask)
-        )
+        if self.pool is not None:
+            pooled = self.pool(outputs, mask)
+        else:
+            # Read the last valid hidden state of each row.
+            last = (lengths - 1).clamp(min=0)
+            pooled = outputs[torch.arange(batch_size, device=outputs.device), last]
 
-        # Restore the input batch order.
-        pooled = sorted_pooled.new_empty(sorted_pooled.shape)
-        pooled[order] = sorted_pooled
-
-        seq_user_emb = self.norm(self.proj(pooled))
-        seq_user_emb = seq_user_emb * has_history.unsqueeze(-1)
-        if not return_sequence:
-            return seq_user_emb
-
-        sequence = outputs.new_empty(
-            (outputs.size(0), outputs.size(1), outputs.size(2))
-        )
-        sequence[order] = outputs
-        sequence = self.norm(self.proj(sequence))
-        return seq_user_emb, sequence
+        user = self.norm(self.proj(pooled)) * has_history.unsqueeze(-1)
+        return user
 
 
 @dataclass

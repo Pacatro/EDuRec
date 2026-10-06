@@ -97,6 +97,9 @@ class RecSys(L.LightningModule):
             u_static_feats=self.get_buffer("u_static_feats"),
             u_cat_feats=self.get_buffer("u_cat_feats"),
             user_ids=batch.user_id,
+            h_dense=batch.history_dense_features,
+            h_cat=batch.history_cat_features,
+            h_delta=batch.history_delta_times,
             candidate_item_ids=candidate_item_ids,
         )
 

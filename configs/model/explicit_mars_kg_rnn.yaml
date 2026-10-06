@@ -1,10 +1,10 @@
 arch: kg_rnn
 dropout: 0.15
 emb_dim: 128
+gnn_dropout: 0.15
+gnn_heads: 4
 gnn_layers: 1
 graph_mode: kg
-gru_hidden_dim: 256
-gru_layers: 2
 has_history: true
 hidden_dims:
   - 256
@@ -16,7 +16,10 @@ num_item_text_feats: 384
 num_items: 1609
 num_user_dense_feats: 0
 num_users: 4741
-scorer_type: mlp
-seq_cell: gru
+rnn_hidden_dim: 256
+rnn_layers: 2
+rnn_type: gru
+use_interaction_features: true
 use_item_bias: false
 use_text_features: true
+use_time_features: true

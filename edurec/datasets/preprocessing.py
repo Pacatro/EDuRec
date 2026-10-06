@@ -45,10 +45,15 @@ def split_data(
     val_ratio: float,
     min_interactions: int,
     random_state: int | None,
+    deduplicate: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    df = deduplicate_interactions(df)
-    rng = np.random.default_rng(random_state)
+    # Preserve real, temporally distinct repeated interactions when a timestamp
+    # is available. Without timestamps repeated pairs cannot be ordered, so they
+    # are collapsed to avoid leakage across a random split.
     has_time = settings.TIME_COL in df.columns
+    if deduplicate or not has_time:
+        df = deduplicate_interactions(df)
+    rng = np.random.default_rng(random_state)
     splits = {"train": [], "val": [], "test": []}
 
     for _, user_df in df.groupby(settings.USER_COL, sort=False):
@@ -87,10 +92,19 @@ def filter_sparse(
     items: pd.DataFrame,
     interactions: pd.DataFrame,
     min_interactions: int,
+    deduplicate: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Remove users and items with fewer than ``min_interactions``."""
+    """Remove users and items with fewer than ``min_interactions``.
 
-    filtered = deduplicate_interactions(interactions)
+    Repeated ``(user, item)`` events are only collapsed when explicitly
+    requested or when no timestamp can order them (see :func:`split_data`).
+    """
+
+    has_time = settings.TIME_COL in interactions.columns
+    if deduplicate or not has_time:
+        filtered = deduplicate_interactions(interactions)
+    else:
+        filtered = interactions.copy()
 
     while True:
         previous_size = len(filtered)

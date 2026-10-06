@@ -12,7 +12,7 @@ from edurec.datasets.dataprocessor import DataProcessor
 
 # Bump whenever the preprocessing logic changes in a way that invalidates
 # existing caches (e.g. deduplication or timestamp parsing changes).
-CACHE_VERSION = 5
+CACHE_VERSION = 6
 MANIFEST_FILENAME = "manifest.json"
 
 CACHE_FILES = (

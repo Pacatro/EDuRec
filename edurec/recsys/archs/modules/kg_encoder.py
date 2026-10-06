@@ -3,7 +3,7 @@ from typing import cast
 
 import torch
 from torch import nn
-from torch_geometric.nn import HeteroConv, SAGEConv
+from torch_geometric.nn import HGTConv
 
 from edurec import settings
 
@@ -14,24 +14,36 @@ EdgeType = tuple[str, str, str]
 class GraphEncoderConfig:
     num_items: int
     emb_dim: int
-    num_users: int = 0
     item_feat_dim: int = 0
     num_layers: int = settings.GNN_LAYERS
+    heads: int = 4
+    dropout: float = settings.DROPOUT
     node_counts: dict[str, int] = field(default_factory=dict)
     edge_types: list[EdgeType] = field(default_factory=list)
     graph_mode: str = "kg"
 
 
+def _valid_heads(emb_dim: int, requested: int) -> int:
+    """Largest divisor of ``emb_dim`` that is ``<= requested`` and ``>= 1``."""
+    for candidate in range(min(requested, emb_dim), 0, -1):
+        if emb_dim % candidate == 0:
+            return candidate
+    return 1
+
+
 class GraphEncoder(nn.Module):
-    """GraphSAGE encoder over users, items and typed attribute nodes.
+    """Relational item-knowledge-graph encoder built on :class:`HGTConv`.
 
     Item nodes start from a learned identifier embedding plus a projection of
-    their numeric/text features. Categorical and list-valued metadata become
-    attribute nodes with their own embeddings. Stacked heterogeneous
-    convolutions propagate information across every typed edge, so items that
-    share an attribute value become neighbours. Training interactions connect
-    users and items. Relation messages are combined with learned weights, with
-    one external residual connection per layer.
+    their dense features. Categorical and list-valued item metadata become
+    attribute nodes with their own embeddings. When ``graph_mode == "kg"``,
+    stacked heterogeneous graph transformer convolutions propagate information
+    over the typed item/attribute relations; every layer adds an explicit
+    residual followed by a per-layer LayerNorm. When ``graph_mode == "id"`` no
+    message passing is performed and the input item embeddings are returned.
+
+    Only item representations are exposed. User-item interactions never enter
+    the encoder.
     """
 
     def __init__(self, cfg: GraphEncoderConfig):
@@ -39,73 +51,60 @@ class GraphEncoder(nn.Module):
         self.cfg = cfg
 
         self.item_emb = nn.Embedding(cfg.num_items, cfg.emb_dim)
-        self.user_emb = nn.Embedding(cfg.num_users, cfg.emb_dim)
         self.item_proj = (
             nn.Linear(cfg.item_feat_dim, cfg.emb_dim) if cfg.item_feat_dim > 0 else None
         )
 
         self.input_norm = nn.LayerNorm(cfg.emb_dim)
-        self.output_norm = nn.LayerNorm(cfg.emb_dim)
-
         self.attr_embs = nn.ModuleDict(
             {
                 node_type: nn.Embedding(count, cfg.emb_dim)
                 for node_type, count in cfg.node_counts.items()
             }
         )
-        self.convs = nn.ModuleList(
-            HeteroConv(
-                {
-                    edge_type: SAGEConv(
-                        (cfg.emb_dim, cfg.emb_dim),
-                        cfg.emb_dim,
-                        root_weight=False,
-                        bias=False,
-                    )
-                    for edge_type in cfg.edge_types
-                },
-                aggr=None,
+
+        self.convs: nn.ModuleList = nn.ModuleList()
+        self.norms: nn.ModuleList = nn.ModuleList()
+        self.dropout = nn.Dropout(cfg.dropout)
+
+        if cfg.graph_mode == "kg" and cfg.edge_types:
+            heads = _valid_heads(cfg.emb_dim, cfg.heads)
+            node_types = [*cfg.node_counts.keys(), "item"]
+            self.convs = nn.ModuleList(
+                HGTConv(
+                    in_channels=cfg.emb_dim,
+                    out_channels=cfg.emb_dim,
+                    metadata=(node_types, list(cfg.edge_types)),
+                    heads=heads,
+                )
+                for _ in range(cfg.num_layers)
             )
-            for _ in range(cfg.num_layers)
-        )
-        self.relation_logits = nn.ParameterList(
-            nn.Parameter(torch.zeros(len(cfg.edge_types)))
-            for _ in range(cfg.num_layers)
-        )
+            self.norms = nn.ModuleList(
+                nn.LayerNorm(cfg.emb_dim) for _ in range(cfg.num_layers)
+            )
 
     def forward(
         self,
         edge_index: dict[EdgeType, torch.Tensor],
         item_feats: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> torch.Tensor:
         item = self.item_emb.weight
         if self.item_proj is not None:
             item = item + self.item_proj(item_feats)
 
-        x = {"item": item, "user": self.user_emb.weight}
-
+        x: dict[str, torch.Tensor] = {"item": item}
         for node_type, embedding in self.attr_embs.items():
             x[node_type] = cast(torch.Tensor, embedding.weight)
 
         x = {node_type: self.input_norm(value) for node_type, value in x.items()}
 
-        if self.cfg.graph_mode == "kg":
-            for conv, logits in zip(self.convs, self.relation_logits):
+        if self.cfg.graph_mode == "kg" and len(self.convs) > 0:
+            for conv, norm in zip(self.convs, self.norms):
                 out = conv(x, edge_index)
-                messages = {}
-                for node_type, stacked in out.items():
-                    relations = [
-                        idx
-                        for idx, edge_type in enumerate(self.cfg.edge_types)
-                        if edge_type[2] == node_type and edge_type in edge_index
-                    ]
-                    weights = logits[relations].softmax(dim=0)
-                    messages[node_type] = (stacked * weights[None, :, None]).sum(dim=1)
-                x = {
-                    node_type: self.output_norm(
-                        value + messages.get(node_type, torch.zeros_like(value))
-                    )
-                    for node_type, value in x.items()
-                }
+                for node_type in list(x.keys()):
+                    message = out.get(node_type)
+                    if message is None:
+                        continue
+                    x[node_type] = norm(x[node_type] + self.dropout(message))
 
-        return x["item"], x["user"]
+        return x["item"]

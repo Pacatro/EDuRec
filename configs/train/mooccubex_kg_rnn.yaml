@@ -8,3 +8,6 @@ topks:
   - 10
   - 20
 weight_decay: 0.001
+
+max_history: 50
+deduplicate_interactions: false

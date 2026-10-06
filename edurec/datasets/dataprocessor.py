@@ -341,6 +341,9 @@ class DataProcessor:
         parts: list[pd.DataFrame] = []
 
         for col in groups["passthrough"]:
+            # Epoch-second timestamps must keep full precision: casting them to
+            # float32 quantises gaps of a few seconds to zero near 1.7e9.
+            dtype = np.float64 if col == settings.TIME_COL else np.float32
             if col == settings.USER_COL:
                 values = df[col].map(self.user_id_map).fillna(-1)
             elif col == settings.ITEM_COL:
@@ -354,7 +357,7 @@ class DataProcessor:
             else:
                 values = pd.to_numeric(df[col], errors="coerce").fillna(0)
             parts.append(
-                pd.DataFrame({col: values.to_numpy(dtype=np.float32)}, index=df.index)
+                pd.DataFrame({col: values.to_numpy(dtype=dtype)}, index=df.index)
             )
 
         preprocessor = self.preprocessors[prefix]

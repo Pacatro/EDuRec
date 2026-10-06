@@ -8,3 +8,6 @@ topks:
   - 10
   - 20
 adaptive_k: false
+
+max_history: 50
+deduplicate_interactions: false

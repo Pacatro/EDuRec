@@ -43,8 +43,12 @@ class SASRecText(BaseRecArch):
         u_static_feats: torch.Tensor,
         u_cat_feats: torch.Tensor,
         user_ids: torch.Tensor,
+        h_dense: torch.Tensor | None = None,
+        h_cat: torch.Tensor | None = None,
+        h_delta: torch.Tensor | None = None,
         candidate_item_ids: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        # SASRecText is content+ID only; interaction context and time are unused.
         course_emb = self.course_embeddings(i_static_feats)
         padded = torch.cat([course_emb.new_zeros(1, course_emb.size(1)), course_emb])
         user_state = self.seq_encoder(padded[h_ids.clamp(min=0)], h_mask)

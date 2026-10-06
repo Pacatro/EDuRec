@@ -1,6 +1,6 @@
 import datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any, cast
 
 import pandas as pd
 import typer
@@ -55,7 +55,8 @@ def _load_seed_result(
         return None
 
     try:
-        result = pd.read_csv(path).iloc[0].to_dict()
+        # CSV column labels are always strings, so the returned row has str keys.
+        result = cast(dict[str, Any], pd.read_csv(path).iloc[0].to_dict())
     except (IndexError, pd.errors.EmptyDataError, OSError):
         return None
 
@@ -64,7 +65,7 @@ def _load_seed_result(
 
     result["model"] = str(result.get("model", model))
     result["seed"] = int(result.get("seed", seed))
-    return result  # type: ignore
+    return result
 
 
 def _pending_models_by_seed(
@@ -236,7 +237,7 @@ def eval_models(
         bool,
         typer.Option(
             "--only-proposed",
-            help="Only evaluate the proposed KGSeq model, skipping SOTA models.",
+            help="Only evaluate the proposed model, skipping SOTA models.",
         ),
     ] = False,
     adaptive_k: Annotated[
@@ -363,6 +364,8 @@ def eval_models(
                 use_processed_data=use_processed_data,
                 save_atomic_files=True,
                 random_state=seed,
+                max_history=train_cfg.max_history,
+                deduplicate_interactions=train_cfg.deduplicate_interactions,
             )
 
             dm.prepare_data()

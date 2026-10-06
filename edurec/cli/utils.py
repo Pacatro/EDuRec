@@ -55,7 +55,9 @@ def build_config(
         "num_item_dense_feats": dm.num_item_dense_feats,
         "num_item_text_feats": dm.num_item_text_feats,
         "num_user_dense_feats": dm.num_user_dense_feats,
+        "num_interaction_dense_feats": dm.num_interaction_dense_feats,
         "user_cat_cardinalities": dm.user_cat_cardinalities,
+        "interaction_cat_cardinalities": dm.interaction_cat_cardinalities,
         "kg_node_counts": dm.kg_node_counts,
         "kg_edge_types": [list(edge) for edge in dm.kg_edge_types],
         "has_history": dm.has_history,
@@ -71,15 +73,23 @@ def print_model_modules(prefix: str, cfg: ModelConfig) -> None:
     """Print the effective model modules in a compact form."""
     graph = "ON" if cfg.graph_mode == "kg" else "OFF"
     sequence = "ON" if cfg.has_history else "OFF"
-    user = "ON" if cfg.use_user_features and cfg.user_profile.is_active else "OFF"
+    user = "ON" if cfg.use_user_features and cfg.user_state.is_active else "OFF"
+    context = (
+        "ON" if cfg.use_interaction_features and cfg.interaction_context.is_active
+        else "OFF"
+    )
     options = (
         f"text={'ON' if cfg.use_text_features else 'OFF'}, "
+        f"graph={graph}, "
+        f"rnn={cfg.rnn_type}, "
         f"user={user}, "
-        f"scorer={cfg.scorer_type}, "
+        f"context={context}, "
+        f"time={'ON' if cfg.use_time_features else 'OFF'}, "
+        f"scorer=mlp, "
         f"item_bias={'ON' if cfg.use_item_bias else 'OFF'}"
     )
     print(
-        f"[{prefix}] Model modules: arch={cfg.arch}, graph={graph}, "
+        f"[{prefix}] Model modules: arch={cfg.arch}, "
         f"sequence={sequence}, {options}"
     )
 

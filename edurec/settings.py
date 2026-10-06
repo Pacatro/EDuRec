@@ -86,6 +86,10 @@ COCO_MAX_INTERACTIONS: int = 500_000
 PROCESSED_FOLDER: str = f"{DATA_FOLDER}/processed"
 ATOMICFILES_FOLDER: str = f"{DATA_FOLDER}/atomicfiles"
 REMOVE_SPARSE: bool = True
+# Collapse repeated (user, item) rows before splitting. Off by default so real,
+# temporally distinct events (view -> progress -> complete) are preserved; the
+# datamodule still deduplicates datasets without timestamps to avoid leakage.
+DEDUPLICATE_INTERACTIONS: bool = False
 PREPROCESS_FEATURE_TYPES: tuple[str, ...] = (
     "numeric",
     "categorical",
@@ -100,6 +104,7 @@ TEXT_MAX_TOKENS: int = 256
 
 # GNN
 GNN_LAYERS: int = 2
+GNN_HEADS: int = 4
 
 # RecSys
 SEQ_CELL: Literal["gru", "lstm"] = "gru"
@@ -110,8 +115,13 @@ TRANSFORMER_LAYERS: int = 2
 TRANSFORMER_HEADS: int = 4
 DROPOUT: float = 0.15
 MAX_HISTORY_LEN: int = 50
-USE_ATTENTION_POOLING: bool = True
-SCORER_TYPE: Literal["mlp", "dot", "candidate_attention"] = "mlp"
+# The main architecture reads the last valid hidden state; attention pooling is
+# kept only as an optional ablation.
+USE_ATTENTION_POOLING: bool = False
+# Feature toggles for the kg_rnn architecture.
+USE_ITEM_FEATURES: bool = True
+USE_INTERACTION_FEATURES: bool = True
+USE_TIME_FEATURES: bool = True
 
 # Embeddings
 EMB_DIM: int = 128

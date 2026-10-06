@@ -1,8 +1,36 @@
+"""Item knowledge-graph construction.
+
+The graph is strictly item-only: the :class:`~torch_geometric.data.HeteroData`
+holds an ``item`` node type plus one ``attr::<field>`` node type per
+categorical or list-valued item field. Items link to their attribute values
+through typed membership edges, and the dataset schema may declare extra
+``refs`` (item -> item) and ``cooc`` (attribute -> attribute) relations.
+
+User-item interactions never take part in message passing. They are used
+exclusively for history construction, prediction, training and evaluation, so
+this builder does not accept interactions at all and target/validation/test
+information cannot leak by construction. Every relation here is derived from
+static item metadata.
+
+Relation direction is semantic and preserved: instead of a blind
+symmetrisation, each forward edge type gets an explicit reverse edge type with
+a distinct ``rev_``-prefixed relation name. Attribute membership therefore
+yields ``(item, field, attr::<field>)`` together with ``(attr::<field>,
+rev_<field>, item)``; reference edges yield ``(item, ref::<field>, item)``
+together with ``(item, rev_ref::<field>, item)``; and co-occurrence edges yield
+``(attr::<left>, cooc::<left>::<right>, attr::<right>)`` together with
+``(attr::<right>, rev_cooc::<left>::<right>, attr::<left>)``.
+
+If an interaction-derived relation (for example item co-occurrence learned from
+co-view or co-purchase events) is ever added, it MUST be computed from the TRAIN
+split only. No such relation exists today: the current ``cooc`` relations are
+computed from item metadata (attribute co-occurrence) and are therefore static.
+"""
+
 import numpy as np
 import pandas as pd
 import torch
 from torch_geometric.data import HeteroData
-from torch_geometric.transforms import ToUndirected
 from torch_geometric.utils import coalesce, remove_self_loops
 
 from edurec import settings
@@ -19,23 +47,19 @@ def build_knowledge_graph(
     item_frame: pd.DataFrame,
     item_feats: torch.Tensor,
     processor: DataProcessor,
-    user_frame: pd.DataFrame | None = None,
-    train_interactions: pd.DataFrame | None = None,
 ) -> HeteroData:
-    """Build a collaborative knowledge graph from metadata and training data.
+    """Build the item-only knowledge graph from static item metadata.
 
     Nodes are items and one attribute node type per categorical or list-valued
     item field (``attr::<field>``). Each item connects to its attribute values
-    through an edge named after the field, so items that share an attribute
-    value become neighbours through that shared attribute node. User-item
-    interactions use processed IDs and all observed training events. User
-    categorical/list attributes have separate vocabularies from item attributes.
-    Extra relations are declared in the dataset schema (``refs`` and ``cooc``)
-    and resolved by the same row-wise primitive. PyG handles reverse edges and
-    edge cleanup.
+    through a relation named after the field, and explicit reverse relations
+    keep directionality meaningful. Extra relations declared in the dataset
+    schema (``refs`` and ``cooc``) are resolved by the same row-wise primitive.
 
-    This is a static training graph, not a temporal snapshot per history prefix.
-    Validation and test interactions must never be passed to this builder.
+    Interactions are intentionally absent: they are handled exclusively by
+    histories/prediction/training/eval and must never enter message passing.
+    Because this builder never receives interactions, leaking target or
+    validation/test information is structurally impossible.
     """
     data = HeteroData()
     data["item"].x = item_feats
@@ -45,25 +69,9 @@ def build_knowledge_graph(
     _add_reference_edges(data, item_frame, node_ids, processor)
     _add_cooccurrence_edges(data, item_frame, node_ids, processor, vocab)
 
-    data["user"].num_nodes = len(processor.user_id_map)
-    if user_frame is not None:
-        user_ids = user_frame[settings.USER_COL].map(processor.user_id_map)
-        _add_attribute_edges(
-            data, user_frame, user_ids, processor, entity="user", prefix="users"
-        )
-    if train_interactions is not None:
-        train = train_interactions
-        pairs = train[[settings.USER_COL, settings.ITEM_COL]].drop_duplicates()
-        valid = (
-            pairs[settings.USER_COL].between(0, len(processor.user_id_map) - 1)
-            & pairs[settings.ITEM_COL].between(0, item_feats.size(0) - 1)
-        )
-        data["user", "interacts", "item"].edge_index = torch.as_tensor(
-            pairs.loc[valid].to_numpy(dtype=np.int64).T, dtype=torch.long
-        )
-
+    _add_reverse_edges(data)
     _clean_edges(data)
-    return ToUndirected()(data)
+    return data
 
 
 def _field_kinds(processor: DataProcessor, prefix: str = "items") -> dict[str, bool]:
@@ -80,13 +88,11 @@ def _add_attribute_edges(
     item_frame: pd.DataFrame,
     node_ids: pd.Series,
     processor: DataProcessor,
-    entity: str = "item",
-    prefix: str = "items",
 ) -> dict[str, dict[str, int]]:
-    """Create one attribute node type per entity field and return its vocabulary."""
+    """Create one attribute node type per item field and return its vocabulary."""
     vocab: dict[str, dict[str, int]] = {}
 
-    for field, is_list in _field_kinds(processor, prefix).items():
+    for field, is_list in _field_kinds(processor).items():
         tokens = item_frame[field].map(
             _coerce_list_tokens if is_list else _single_token
         )
@@ -101,9 +107,9 @@ def _add_attribute_edges(
         codes, uniques = pd.factorize(long["token"].to_numpy(), sort=True)
         vocab[field] = {str(token): idx for idx, token in enumerate(uniques)}
 
-        attr_node = f"attr::{field}" if entity == "item" else f"user_attr::{field}"
+        attr_node = f"attr::{field}"
         data[attr_node].num_nodes = len(uniques)
-        data[entity, field, attr_node].edge_index = torch.as_tensor(
+        data["item", field, attr_node].edge_index = torch.as_tensor(
             np.stack([long["node"].to_numpy(), codes]),
             dtype=torch.long,
         )
@@ -170,6 +176,27 @@ def _add_cooccurrence_edges(
             np.stack([left_codes[valid], right_codes[valid]]),
             dtype=torch.long,
         )
+
+
+def _add_reverse_edges(data: HeteroData) -> None:
+    """Add an explicit reverse edge type for every forward relation.
+
+    The reverse relation is named ``rev_<relation>`` and its endpoints are the
+    swapped forward endpoints. A reverse edge type is only created when the
+    forward edge type exists and actually carries edges. Item -> item reference
+    edges therefore gain a distinct item -> item reverse relation instead of
+    being symmetrised blindly.
+    """
+    for source, relation, target in list(data.edge_types):
+        if relation.startswith("rev_"):
+            continue
+        reverse_key = (target, f"rev_{relation}", source)
+        if reverse_key in data.edge_types:
+            continue
+        forward = data[source, relation, target].edge_index
+        if forward.numel() == 0:
+            continue
+        data[reverse_key].edge_index = forward.flip(0)
 
 
 def _row_codes(values: pd.Series, vocab: dict[str, int]) -> np.ndarray:

@@ -211,15 +211,16 @@ configs/train/<dataset>_<arch>.yaml   Training hyperparameters (epochs, lr,
                                       adaptive-k)
 ```
 
-`<arch>` can be `kg_rnn`, `kg_transformer`, or `sasrec_text`. When a config file exists for the
+`<arch>` can be `kg_rnn` or `sasrec_text`. When a config file exists for the
 dataset and architecture being run, training, evaluation, and ablation commands
 load it. Explicit CLI flags always take precedence over the saved
 configurations, which in turn take precedence over the global defaults in
 `edurec/settings.py`.
 
-The model config's `scorer_type` can be `mlp`, `dot`, or `candidate_attention`.
-The candidate-attention scorer attends from each candidate course to the
-encoded history and ranks it using the resulting candidate-specific context.
+The scorer is always an MLP over `concat(user_state, candidate_item_embedding)`.
+Feature modules are toggled with `use_item_features`, `use_user_features`,
+`use_interaction_features`, `use_time_features`, `use_attention_pooling`,
+`graph_mode`, and `use_text_features`.
 
 ### Run Ablations
 
@@ -229,16 +230,18 @@ Evaluate EDuRec variants across multiple random seeds.
 uv run edurec ablation --dataset doris --seeds 13,42,77,101,2026 --use_processed
 ```
 
-Implemented main variants:
+Implemented main variants (all keep the item knowledge graph and the GRU):
 
-- `full`: full EDuRec architecture.
-- `no_graph`: drops the knowledge-graph structure (attribute nodes and
-  message passing), keeping only item ID embeddings and feature projections.
+- `item_kg`: item KG + GRU only.
+- `item_kg_user`: adds the static user-profile initial state (`h0`).
+- `item_kg_context`: adds the interaction context to each event.
+- `item_kg_time`: adds the time-gap signal to each event.
+- `full`: context + time + user profile (the default architecture).
+- `attention_pooling`: `full` + optional attention pooling.
+- `no_graph`: drops the knowledge-graph message passing, keeping only item ID
+  embeddings and feature projections.
 - `no_text`: removes the text embeddings from the item node features.
 - `no_item_bias`: removes the learned item-popularity bias.
-- `dot_product`: replaces the MLP scorer with dot-product scoring.
-- `candidate_attention`: attends from each candidate course to the encoded
-  history before scoring the user-course pair.
 
 Variants that disable a module the dataset does not provide (for example
 `no_text` on a dataset without text features) are marked as not applicable and
@@ -249,11 +252,12 @@ excluded from the plots. Aggregated outputs are saved to
 
 ![EDuRec model architecture](model-diagram.png)
 
-EDuRec exposes `kg_rnn` and `kg_transformer` through the `arch` field of the
-model configuration. Both architectures refine item embeddings with the
-knowledge graph and encode each user's chronological history with either a
-GRU/LSTM or Transformer. The `scorer_type` setting selects an MLP, dot product,
-or candidate-conditioned attention scorer.
+EDuRec exposes `kg_rnn` through the `arch` field of the model configuration. It
+refines item embeddings with a relation-aware item knowledge graph and encodes
+each user's chronological history with a GRU/LSTM. Each historical event is the
+sum of its item embedding, its interaction context and its time gap, the user
+profile initialises the recurrent state, and an MLP scores user/candidate
+pairs.
 
 The sections below describe the modules.
 
@@ -276,25 +280,48 @@ uv run edurec train --dataset doris --arch sasrec_text
 Use the existing `transformer_hidden_dim`, `transformer_layers`,
 `transformer_heads`, `max_history_len`, `emb_dim`, and `dropout` model settings.
 
-- **Knowledge-graph encoder**: a heterogeneous item-item graph is derived from
-  each dataset schema. Items are nodes, and every categorical or list-valued
-  item field becomes an attribute node type. Each item connects to its
-  attribute values through an edge named after the field, so items that share
-  an attribute value become neighbours through that shared attribute node.
-  User-item interactions are not modeled, and the graph contains no user nodes.
-  Extra relations are declared per dataset in the schema and resolved by the
-  same generic builder: `refs` links fields whose values name another entity
-  (for example DORIS course prerequisites) and `cooc` links two attributes that
-  co-occur in a row (for example COCO category levels). Reverse edges and edge
-  cleanup are delegated to PyTorch Geometric. Numeric and text embeddings
-  initialize the item nodes.
-- **Sequential encoder**: a GRU encodes each user's recent item history. Because
-  the graph only contains items, this sequence is the sole source of user
-  representations, so a chronological timestamp is required.
-- **Scorer**: `scorer_type` selects an MLP, dot product, or candidate-attention
-  scorer. Candidate attention queries the encoded history with each course
-  candidate and scores the user, candidate, and attended context together. An
-  optional item bias can be added.
+- **Item knowledge graph encoder**: a heterogeneous item-only graph is derived
+  from each dataset schema. Items are nodes, and every categorical or
+  list-valued item field becomes an attribute node type. Relation direction is
+  preserved: each forward edge type gets an explicit reverse edge type with a
+  distinct `rev_` name (for example `ref::prerequisites` and
+  `rev_ref::prerequisites`) instead of a blind symmetrisation. Extra relations
+  are declared per dataset in the schema: `refs` links fields whose values name
+  another entity (for example DORIS course prerequisites) and `cooc` links two
+  attributes that co-occur in a row (for example COCO category levels). The
+  graph is encoded by a stacked `HGTConv` (Heterogeneous Graph Transformer)
+  with residual connections and LayerNorm; the number of layers, heads and
+  dropout are configurable. Numeric and text embeddings initialise the item
+  nodes.
+- **Sequential encoder**: each history event is
+  `LayerNorm(item_emb[t] + context[t] + time[t])`, where the interaction context
+  comes from the preprocessed interaction features (rating, numeric,
+  categorical, precomputed text embeddings) and the time signal is
+  `Linear(log1p(delta_t))`. The static user profile is projected into the GRU's
+  initial hidden state `h0`; the default user state is the last valid hidden
+  state (attention pooling is an optional ablation). Missing signals are simply
+  omitted.
+- **Scorer**: an MLP over `concat(user_state, candidate_item_embedding)`. Full
+  catalog scoring is chunked to bound memory. An optional item bias can be
+  added.
+
+### Leakage prevention
+
+User-item interactions never enter the knowledge graph: `build_knowledge_graph`
+does not accept interactions at all, so target/validation/test information
+cannot leak into message passing. The item-item relations (`refs`, `cooc`) are
+computed from static item metadata; if an interaction-derived relation (for
+example item co-occurrence) is ever added it must be computed from the training
+split only. Histories are built strictly chronologically and a row's own event
+is never part of its own history (history, interaction context and timestamps
+are aligned per step and only contain earlier events). Interaction features are
+fitted on the training split by the `DataProcessor`.
+
+Repeated `(user, item)` rows are preserved by default
+(`deduplicate_interactions: false`) so real temporally-distinct events (view ->
+progress -> complete) remain distinct. Datasets without a timestamp are always
+deduplicated to avoid leakage across a random split; set
+`deduplicate_interactions: true` to force deduplication.
 
 Module availability is inferred from each processed dataset when the model
 configuration is built. The knowledge graph automatically reflects the fields

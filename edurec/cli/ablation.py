@@ -136,6 +136,8 @@ def run_ablation(
                 min_interactions=min_interactions,
                 remove_sparse=remove_sparse,
                 save_atomic_files=False,
+                max_history=train_cfg.max_history,
+                deduplicate_interactions=train_cfg.deduplicate_interactions,
             )
             dm.prepare_data()
             dm.setup()
@@ -178,9 +180,12 @@ def run_ablation(
                         "module_sequence": int(cfg.has_history),
                         "arch": str(cfg.arch),
                         "graph_mode": cfg.graph_mode,
-                        "scorer_type": cfg.scorer_type,
+                        "rnn_type": cfg.rnn_type,
                         "use_text_features": int(cfg.use_text_features),
                         "use_user_features": int(cfg.use_user_features),
+                        "use_interaction_features": int(cfg.use_interaction_features),
+                        "use_time_features": int(cfg.use_time_features),
+                        "use_attention_pooling": int(cfg.use_attention_pooling),
                         "use_item_bias": int(cfg.use_item_bias),
                         "num_parameters": 0,
                         "training_time_s": 0.0,
@@ -253,9 +258,12 @@ def run_ablation(
                     "module_sequence": int(cfg.has_history),
                     "arch": str(cfg.arch),
                     "graph_mode": cfg.graph_mode,
-                    "scorer_type": cfg.scorer_type,
+                    "rnn_type": cfg.rnn_type,
                     "use_text_features": int(cfg.use_text_features),
                     "use_user_features": int(cfg.use_user_features),
+                    "use_interaction_features": int(cfg.use_interaction_features),
+                    "use_time_features": int(cfg.use_time_features),
+                    "use_attention_pooling": int(cfg.use_attention_pooling),
                     "use_item_bias": int(cfg.use_item_bias),
                     **{
                         name.removeprefix("test/"): value
