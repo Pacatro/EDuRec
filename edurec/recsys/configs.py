@@ -2,7 +2,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, fields, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Literal, Self
+from typing import Any, Literal, Self, get_type_hints
 
 import yaml
 
@@ -19,6 +19,18 @@ from edurec.recsys.archs.modules.user_profile import UserProfileConfig
 @dataclass
 class BaseConfig:
     """Base class for all configs with common save/load methods."""
+
+    @staticmethod
+    def _coerce(value: Any, annotation: Any) -> Any:
+        """Coerce YAML scalars to the field's declared numeric type.
+
+        PyYAML follows the YAML 1.1 spec, which requires a dot in a float
+        mantissa. Literals like ``1e-5`` are therefore loaded as strings, which
+        would otherwise only fail later inside the optimizer.
+        """
+        if isinstance(value, str) and annotation in (float, int):
+            return annotation(value)
+        return value
 
     def save(self, path: Path | str) -> None:
         path = Path(path)
@@ -41,7 +53,14 @@ class BaseConfig:
 
         # Ignore fields left over from older config schemas instead of failing.
         known = {item.name for item in fields(cls)}
-        return cls(**{key: value for key, value in payload.items() if key in known})
+        hints = get_type_hints(cls)
+        return cls(
+            **{
+                key: cls._coerce(value, hints.get(key))
+                for key, value in payload.items()
+                if key in known
+            }
+        )
 
 
 @dataclass
