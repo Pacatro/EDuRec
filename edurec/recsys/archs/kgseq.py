@@ -10,17 +10,6 @@ from edurec.recsys.archs.modules.user_state import UserStateEncoder
 from edurec.recsys.configs import ModelConfig
 
 
-class TimeEncoder(nn.Module):
-    """Project non-negative time gaps after logarithmic compression."""
-
-    def __init__(self, emb_dim: int):
-        super().__init__()
-        self.proj = nn.Linear(1, emb_dim)
-
-    def forward(self, delta: torch.Tensor) -> torch.Tensor:
-        return self.proj(torch.log1p(delta.clamp(min=0.0)).unsqueeze(-1))
-
-
 class KGSeq(BaseRecArch):
     """Item-knowledge-graph educational recommender with a recurrent encoder.
 
@@ -41,8 +30,8 @@ class KGSeq(BaseRecArch):
 
         self.kg = GraphEncoder(cfg.kg_encoder)
         self.interaction_context = InteractionContextEncoder(cfg.interaction_context)
-        self.time_encoder = TimeEncoder(cfg.emb_dim) if cfg.use_time_features else None
         self.user_state = UserStateEncoder(cfg.user_state)
+        self.time_proj = nn.Linear(1, cfg.emb_dim) if cfg.use_time_features else None
         self.event_norm = nn.LayerNorm(cfg.emb_dim)
 
         self.seq_encoder = SeqEncoder(cfg.seq_encoder)
@@ -52,22 +41,21 @@ class KGSeq(BaseRecArch):
         )
         self.scorer = Scorer(cfg.scorer)
 
+    def _compute_item_embeddings(self) -> torch.Tensor:
+        item_feats = self.i_static_feats[:, : self.cfg.effective_item_dense_feats]
+        return self.kg(self.edge_index, item_feats)
+
     def forward(
         self,
         h_ids: torch.Tensor,
         h_mask: torch.Tensor,
-        edge_index: dict[tuple[str, str, str], torch.Tensor],
-        i_static_feats: torch.Tensor,
-        u_static_feats: torch.Tensor,
-        u_cat_feats: torch.Tensor,
         user_ids: torch.Tensor,
         h_dense: torch.Tensor | None = None,
         h_cat: torch.Tensor | None = None,
         h_delta: torch.Tensor | None = None,
         candidate_item_ids: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        item_feats = i_static_feats[:, : self.cfg.effective_item_dense_feats]
-        item_emb = self.kg(edge_index, item_feats)
+        item_emb = self.item_embeddings()
 
         padded = torch.cat([item_emb.new_zeros(1, item_emb.size(1)), item_emb])
         event = padded[h_ids.clamp(min=0)]
@@ -77,12 +65,12 @@ class KGSeq(BaseRecArch):
             if context is not None:
                 event = event + context
 
-        if self.time_encoder is not None and h_delta is not None:
-            event = event + self.time_encoder(h_delta)
+        if self.time_proj is not None and h_delta is not None:
+            event = event + self.time_proj(torch.log1p(h_delta.clamp(min=0.0)).unsqueeze(-1))
 
         event = self.event_norm(event)
 
-        initial_state = self.user_state(u_cat_feats, u_static_feats, user_ids)
+        initial_state = self.user_state(self.u_cat_feats, self.u_static_feats, user_ids)
         user_emb = self.seq_encoder(event, h_mask, initial_state=initial_state)
 
         scores = self.scorer(user_emb, item_emb, item_ids=candidate_item_ids)

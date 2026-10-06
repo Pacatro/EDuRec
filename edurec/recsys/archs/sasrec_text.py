@@ -26,11 +26,10 @@ class SASRecText(BaseRecArch):
         )
         self.seq_encoder = TransformerSeqEncoder(cfg.transformer_seq_encoder)
 
-    def course_embeddings(self, i_static_feats: torch.Tensor) -> torch.Tensor:
-        """Return the shared [num_items, emb_dim] history/candidate table."""
+    def _compute_item_embeddings(self) -> torch.Tensor:
         embeddings = self.item_embedding.weight
         if self.content_proj is not None:
-            content = i_static_feats[:, : self.cfg.effective_item_dense_feats]
+            content = self.i_static_feats[:, : self.cfg.effective_item_dense_feats]
             embeddings = embeddings + self.content_proj(content)
         return embeddings
 
@@ -38,10 +37,6 @@ class SASRecText(BaseRecArch):
         self,
         h_ids: torch.Tensor,
         h_mask: torch.Tensor,
-        edge_index: dict[tuple[str, str, str], torch.Tensor],
-        i_static_feats: torch.Tensor,
-        u_static_feats: torch.Tensor,
-        u_cat_feats: torch.Tensor,
         user_ids: torch.Tensor,
         h_dense: torch.Tensor | None = None,
         h_cat: torch.Tensor | None = None,
@@ -49,7 +44,7 @@ class SASRecText(BaseRecArch):
         candidate_item_ids: torch.Tensor | None = None,
     ) -> torch.Tensor:
         # SASRecText is content+ID only; interaction context and time are unused.
-        course_emb = self.course_embeddings(i_static_feats)
+        course_emb = self.item_embeddings()
         padded = torch.cat([course_emb.new_zeros(1, course_emb.size(1)), course_emb])
         user_state = self.seq_encoder(padded[h_ids.clamp(min=0)], h_mask)
         if candidate_item_ids is None:

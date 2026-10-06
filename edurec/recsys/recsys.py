@@ -49,17 +49,6 @@ class RecSys(L.LightningModule):
         self.topks = sorted(set(self.train_cfg.topks or [settings.TOP_K]))
         self.monitor = f"val/ndcg@{self.val_topk}"
 
-        self._edge_types = list(knowledge_graph.edge_types)
-        for idx, edge_type in enumerate(self._edge_types):
-            self.register_buffer(
-                f"edge_index_{idx}",
-                knowledge_graph[edge_type].edge_index,
-                persistent=False,
-            )
-        self.register_buffer("i_static_feats", i_static_feats, persistent=False)
-        self.register_buffer("u_static_feats", u_static_feats, persistent=False)
-        self.register_buffer("u_cat_feats", u_cat_feats, persistent=False)
-
         self.val_ranking_metrics = MetricCollection(
             {
                 f"ndcg@{self.val_topk}": RetrievalNormalizedDCG(
@@ -77,6 +66,15 @@ class RecSys(L.LightningModule):
         )
 
         self.model: BaseRecArch = build_model(cfg)
+        self.model.register_static(
+            edge_index={
+                edge_type: knowledge_graph[edge_type].edge_index
+                for edge_type in knowledge_graph.edge_types
+            },
+            i_static_feats=i_static_feats,
+            u_static_feats=u_static_feats,
+            u_cat_feats=u_cat_feats,
+        )
 
     def forward(
         self,
@@ -92,10 +90,6 @@ class RecSys(L.LightningModule):
         return self.model(
             h_ids=batch.history_items,
             h_mask=batch.history_valid_mask,
-            edge_index=self._edge_index_dict(),
-            i_static_feats=self.get_buffer("i_static_feats"),
-            u_static_feats=self.get_buffer("u_static_feats"),
-            u_cat_feats=self.get_buffer("u_cat_feats"),
             user_ids=batch.user_id,
             h_dense=batch.history_dense_features,
             h_cat=batch.history_cat_features,
@@ -194,12 +188,6 @@ class RecSys(L.LightningModule):
             )
 
         return rank_loss
-
-    def _edge_index_dict(self) -> dict[tuple[str, str, str], torch.Tensor]:
-        return {
-            edge_type: self.get_buffer(f"edge_index_{idx}")
-            for idx, edge_type in enumerate(self._edge_types)
-        }
 
     def predict_step(self, batch: RecSysQuery) -> torch.Tensor:
         return self(batch)
