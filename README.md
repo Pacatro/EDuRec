@@ -46,29 +46,6 @@ loaders currently support:
 - `data/raw/doris`
 - `data/raw/mooccubex`
 - `data/raw/coco`
-- `data/raw/synthetic` (generated locally, see below)
-
-### Synthetic Dataset
-
-A deterministic synthetic dataset with rich free-text features on users,
-items and interactions can be generated on the fly:
-
-```bash
-uv run edurec synthetic
-```
-
-It writes `users.csv`, `items.csv` and `interactions.csv` under
-`data/raw/synthetic` (about 100 users, 100 items and 1k explicit
-interactions, small enough to process in seconds). The first time a command
-needs it, the `synthetic` loader
-generates the files automatically. Use `--force` to regenerate and
-`--num-users`, `--num-items`, `--target-interactions` and `--seed` to change
-the size or the random seed:
-
-```bash
-uv run edurec synthetic --num-users 2000 --num-items 400 \
-  --target-interactions 60000 --seed 7 --force
-```
 
 ## Usage
 
@@ -98,7 +75,7 @@ uv run edurec dataset --dataset explicit_mars --max_rows 10
 Options:
 
 ```text
--d, --dataset [explicit_mars|implicit_mars|itm|doris|mooccubex|coco|synthetic]  Dataset to use
+-d, --dataset [explicit_mars|implicit_mars|itm|doris|mooccubex|coco]  Dataset to use
 -m, --max_rows INTEGER          Number of rows to show
 ```
 
@@ -114,7 +91,7 @@ uv run edurec train --dataset explicit_mars --use_processed --save_model
 Common options:
 
 ```text
--d, --dataset [explicit_mars|implicit_mars|itm|doris|mooccubex|coco|synthetic]
+-d, --dataset [explicit_mars|implicit_mars|itm|doris|mooccubex|coco]
 -e, --epochs INTEGER            Default: from saved train config
 -l, --lr FLOAT                  Default: from saved train config
 -b, --batch_size INTEGER        Default: from saved train config
@@ -167,7 +144,7 @@ Default SOTA models:
 Useful options:
 
 ```text
--d, --dataset [explicit_mars|implicit_mars|itm|doris|mooccubex|coco|synthetic]
+-d, --dataset [explicit_mars|implicit_mars|itm|doris|mooccubex|coco]
 -e, --epochs INTEGER            Default: from saved train config
 -l, --lr FLOAT                  Default: from saved train config
 -b, --batch-size INTEGER        Default: from saved train config

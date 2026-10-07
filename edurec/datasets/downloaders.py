@@ -10,10 +10,6 @@ from tqdm import tqdm
 
 from edurec import settings
 from edurec.datasets.loaders import DatasetName
-from edurec.datasets.synthetic import (
-    SYNTHETIC_REQUIRED_FILES,
-    generate_synthetic_raw,
-)
 
 type DownloadFn = Callable[[], Path]
 
@@ -147,20 +143,6 @@ def download_coco() -> Path:
         "The COCO dataset is not distributed through an automated download. "
         f"Place its CSV files in {dest}: {', '.join(settings.COCO_REQUIRED_FILES)}."
     )
-
-
-@register_dataset(DatasetName.SYNTHETIC)
-def download_synthetic() -> Path:
-    """Generate the synthetic dataset on first use.
-
-    The dataset is fully local and deterministic, so there is nothing to
-    download: the raw CSVs are synthesised if they are not already present.
-    """
-    dest = settings.RAW_DATA_FOLDER / DatasetName.SYNTHETIC.value
-    if all((dest / name).exists() for name in SYNTHETIC_REQUIRED_FILES):
-        return dest
-
-    return generate_synthetic_raw(dest)
 
 
 def download_raw_data(dataset_name: DatasetName) -> Path:
