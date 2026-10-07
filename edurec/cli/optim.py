@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 from typing import Annotated
 
@@ -38,6 +39,15 @@ def optimize(
             help="Number of training epochs used by all evaluated models.",
         ),
     ] = settings.EPOCHS,
+    search_epochs: Annotated[
+        int,
+        typer.Option(
+            "--search-epochs",
+            min=1,
+            help="Max epochs per optimization trial. The best configuration is "
+            "saved with the full --epochs budget for the final run.",
+        ),
+    ] = settings.OPTIM_SEARCH_EPOCHS,
     patience: Annotated[
         int,
         typer.Option(
@@ -95,6 +105,10 @@ def optimize(
     print(f"[OPTIM] Datasets: {', '.join(ds.value for ds in datasets)}")
     print(f"[OPTIM] Results folder: {results_root}")
     print(f"[OPTIM] Configs folder: {configs_folder}")
+    print(
+        f"[OPTIM] Trials: {n_trials} | Search epochs: {search_epochs} | "
+        f"Final epochs: {epochs}"
+    )
 
     for dataset_name in datasets:
         run_name = dataset_name.value
@@ -144,6 +158,7 @@ def optimize(
             n_trials=n_trials,
             epochs=epochs,
             patience=patience,
+            search_epochs=search_epochs,
             compile=compile,
             verbose=verbose,
             results_path=dataset_results_path,
@@ -156,6 +171,9 @@ def optimize(
             )
         best_cfg = ModelConfig(**best_attrs["config"])
         best_train_cfg = TrainConfig(**best_attrs["train_config"])
+        # Trials used the reduced search budget; the saved configuration keeps
+        # the full epoch budget so training and evaluation run to completion.
+        best_train_cfg = replace(best_train_cfg, epochs=epochs)
 
         print(
             f"[OPTIM] Best NDCG {study.best_value} in trial: {study.best_trial.number}"

@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import lightning as L
 import mlflow
@@ -38,6 +38,7 @@ def train_model(
     verbose: bool = False,
     callbacks: Sequence[Callback] = (),
     default_root_dir: Path | str | None = None,
+    limit_val_batches: float | None = None,
 ) -> tuple[L.Trainer, Path, Timer]:
     model_name = type(model).__name__
 
@@ -75,6 +76,10 @@ def train_model(
     if logger is not None and default_root_dir is None:
         default_root_dir = Path("mlflow_checkpoints")
 
+    trainer_kwargs: dict[str, Any] = {}
+    if limit_val_batches is not None:
+        trainer_kwargs["limit_val_batches"] = limit_val_batches
+
     trainer = L.Trainer(
         logger=logger,
         # profiler="simple",
@@ -86,6 +91,7 @@ def train_model(
         fast_dev_run=debug,
         enable_progress_bar=verbose,
         default_root_dir=default_root_dir,
+        **trainer_kwargs,
     )
 
     if logger is not None:

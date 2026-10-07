@@ -7,8 +7,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
+import lightning as L
 import optuna
-from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 from torch_geometric.data import HeteroData
 
 from edurec import settings
@@ -19,7 +20,12 @@ from edurec.recsys.training import train_model
 
 # Bump whenever the search space or the objective changes so old studies are
 # not silently resumed with incompatible trials.
-OPTIMIZER_VERSION = 6
+OPTIMIZER_VERSION = 7
+
+# Hyperband successive halving: keep one trial per ``reduction_factor`` at each
+# resource level, starting from a single epoch.
+_HYPERBAND_MIN_RESOURCE = 1
+_HYPERBAND_REDUCTION_FACTOR = 3
 
 
 def _optim_digest(
@@ -52,6 +58,30 @@ def _save_trials_callback(output_path: Path):
     return callback
 
 
+class _OptunaPruningCallback(Callback):
+    """Report the validation metric each epoch and stop pruned trials early."""
+
+    def __init__(self, trial: optuna.Trial, monitor: str) -> None:
+        self.trial = trial
+        self.monitor = monitor
+
+    def on_validation_end(
+        self, trainer: L.Trainer, pl_module: L.LightningModule
+    ) -> None:
+        metric = trainer.callback_metrics.get(self.monitor)
+        if metric is None:
+            return
+
+        value = float(metric)
+        if not math.isfinite(value):
+            return
+
+        step = trainer.current_epoch + 1
+        self.trial.report(value, step=step)
+        if self.trial.should_prune():
+            raise optuna.TrialPruned(f"Pruned {self.monitor} at epoch {step}.")
+
+
 def _suggest_configs(
     trial: optuna.Trial,
     base_config: ModelConfig,
@@ -80,17 +110,21 @@ def _suggest_configs(
             "use_user_id_embedding", [False, True]
         )
 
-    sequence_overrides: dict[str, Any] = {} if is_sasrec else {
-        "use_attention_pooling": trial.suggest_categorical(
-            "use_attention_pooling", [False, True]
-        ),
-        "use_interaction_features": trial.suggest_categorical(
-            "use_interaction_features", [False, True]
-        ),
-        "use_time_features": trial.suggest_categorical(
-            "use_time_features", [False, True]
-        ),
-    }
+    sequence_overrides: dict[str, Any] = (
+        {}
+        if is_sasrec
+        else {
+            "use_attention_pooling": trial.suggest_categorical(
+                "use_attention_pooling", [False, True]
+            ),
+            "use_interaction_features": trial.suggest_categorical(
+                "use_interaction_features", [False, True]
+            ),
+            "use_time_features": trial.suggest_categorical(
+                "use_time_features", [False, True]
+            ),
+        }
+    )
     if arch == ModelArch.KG_RNN:
         sequence_overrides.update(
             rnn_type=trial.suggest_categorical("rnn_type", ["gru", "lstm"]),
@@ -110,13 +144,17 @@ def _suggest_configs(
         widths = sorted({64, 128, 256, 512, base_config.transformer_hidden_dim})
         widths = [width for width in widths if all(width % head == 0 for head in heads)]
         if not widths:
-            raise ValueError("No Transformer width is compatible with the head search space.")
+            raise ValueError(
+                "No Transformer width is compatible with the head search space."
+            )
         sequence_overrides.update(
-            transformer_hidden_dim=trial.suggest_categorical("transformer_hidden_dim", widths
+            transformer_hidden_dim=trial.suggest_categorical(
+                "transformer_hidden_dim", widths
             ),
             transformer_heads=trial.suggest_categorical("transformer_heads", heads),
             transformer_layers=trial.suggest_categorical(
-                "transformer_layers", sorted({1, base_config.transformer_layers, 2, 3, 4})
+                "transformer_layers",
+                sorted({1, base_config.transformer_layers, 2, 3, 4}),
             ),
         )
 
@@ -144,9 +182,9 @@ def _suggest_configs(
             "dropout", sorted({0.0, 0.1, base_config.dropout, 0.3, 0.5})
         ),
         # Item bias
-        use_item_bias=False if is_sasrec else trial.suggest_categorical(
-            "use_item_bias", [True, False]
-        ),
+        use_item_bias=False
+        if is_sasrec
+        else trial.suggest_categorical("use_item_bias", [True, False]),
     )
 
     train_config = replace(
@@ -174,6 +212,7 @@ def objective(
     val_topk: int = settings.TOP_K,
     verbose: bool = False,
     compile: bool = settings.COMPILE_MODEL,
+    limit_val_batches: float | None = None,
 ) -> float:
     base_train_config = replace(
         base_train_config,
@@ -209,7 +248,9 @@ def objective(
             monitor=model.monitor,
             compile=compile,
             verbose=verbose,
+            callbacks=[_OptunaPruningCallback(trial, model.monitor)],
             default_root_dir=root_dir,
+            limit_val_batches=limit_val_batches,
         )
 
     if not isinstance(trainer.checkpoint_callback, ModelCheckpoint):
@@ -233,10 +274,12 @@ def optimize_model(
     n_trials: int,
     epochs: int,
     patience: int,
+    search_epochs: int | None = None,
     val_topk: int = settings.TOP_K,
     verbose: bool = False,
     results_path: Path | None = None,
     compile: bool = settings.COMPILE_MODEL,
+    limit_val_batches: float | None = settings.OPTIM_LIMIT_VAL_BATCHES,
 ) -> optuna.Study:
     if not dm.is_processed:
         raise ValueError("Data must be processed before optimizing the model.")
@@ -245,8 +288,17 @@ def optimize_model(
     ModelArch(base_config.arch)
     if not base_config.has_history:
         raise ValueError("Optimization requires chronological history.")
+    # Trials train with a reduced budget; the winning configuration is saved
+    # with the full ``epochs`` for the final run.
+    trial_epochs = epochs if search_epochs is None else min(search_epochs, epochs)
+    if trial_epochs < 1:
+        raise ValueError("search_epochs must be positive.")
+
     base_train_config = replace(
-        base_train_config, epochs=epochs, patience=patience, batch_size=dm.batch_size
+        base_train_config,
+        epochs=trial_epochs,
+        patience=patience,
+        batch_size=dm.batch_size,
     )
 
     knowledge_graph = dm.knowledge_graph
@@ -259,7 +311,11 @@ def optimize_model(
         callbacks = [_save_trials_callback(results_path / "trials.csv")]
 
     digest = _optim_digest(
-        base_config, base_train_config, dm.cache_params, val_topk=val_topk, compile=compile
+        base_config,
+        base_train_config,
+        dm.cache_params,
+        val_topk=val_topk,
+        compile=compile,
     )
 
     study = optuna.create_study(
@@ -273,6 +329,11 @@ def optimize_model(
             multivariate=True,
             group=True,
         ),
+        pruner=optuna.pruners.HyperbandPruner(
+            min_resource=_HYPERBAND_MIN_RESOURCE,
+            max_resource=trial_epochs,
+            reduction_factor=_HYPERBAND_REDUCTION_FACTOR,
+        ),
     )
     study.set_user_attr("search_space_hash", digest)
 
@@ -283,11 +344,12 @@ def optimize_model(
             base_train_config,
             dm,
             knowledge_graph,
-            epochs,
+            trial_epochs,
             patience,
             val_topk=val_topk,
             verbose=verbose,
             compile=compile,
+            limit_val_batches=limit_val_batches,
         ),
         n_trials=n_trials,
         gc_after_trial=True,

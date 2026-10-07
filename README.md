@@ -200,6 +200,11 @@ configuration for each dataset and architecture to
 the copies under `results/optimization/`, so they can be reused by training and
 evaluation. Use `--configs-folder` to choose a different folder.
 
+To keep the search affordable, each trial trains for at most `--search-epochs`
+epochs, validates on a fraction of the validation split, and a Hyperband pruner
+stops underperforming trials early. The winning configuration is saved with the
+full `--epochs` budget for the final run.
+
 ### Saved Configurations
 
 The `configs/` folder keeps one model configuration and one independent training

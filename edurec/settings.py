@@ -161,3 +161,8 @@ SOTA_GPU_ID: int = 1
 
 # Hyperparameter optimization
 OPTIM_N_TRIALS: int = 30
+# Trials train for at most this many epochs during the search; the winning
+# configuration is saved with the full ``EPOCHS`` budget for the final run.
+OPTIM_SEARCH_EPOCHS: int = 40
+# Fraction of validation batches used while searching, to cut per-epoch cost.
+OPTIM_LIMIT_VAL_BATCHES: float = 0.25
