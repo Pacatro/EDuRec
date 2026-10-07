@@ -1,3 +1,4 @@
+import os
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -96,7 +97,7 @@ def eval_sota_models(
             model=model,
             dataset_name=dataset_name,
             cfg_path=cfg_path,
-            config_dict=_config_for_model(model, base_config),
+            config_dict=_config_for_model(model, base_config, dm.max_history),
             dm=dm,
             adaptive_k=adaptive_k,
         )
@@ -424,6 +425,7 @@ def _is_sequential_model(model: str) -> bool:
 def _config_for_model(
     model: str,
     base_config: dict[str, object],
+    max_history: int,
 ) -> dict[str, object]:
     """Adapt the base configuration to a specific RecBole model."""
     config = dict(base_config)
@@ -444,7 +446,7 @@ def _config_for_model(
                 },
                 "ITEM_LIST_LENGTH_FIELD": "item_length",
                 "LIST_SUFFIX": "_list",
-                "MAX_ITEM_LIST_LENGTH": settings.MAX_HISTORY_LEN,
+                "MAX_ITEM_LIST_LENGTH": max_history,
                 "alias_of_item_id": [item_list_field],
                 "train_neg_sample_args": None,
             }
@@ -468,6 +470,25 @@ def _negative_sampling_config(input_type: InputType | None) -> dict[str, object]
     }
 
 
+def _sota_gpu_id() -> str:
+    """RecBole GPU selector, written to ``CUDA_VISIBLE_DEVICES``.
+
+    RecBole overwrites ``CUDA_VISIBLE_DEVICES`` with this value and derives the
+    device from ``torch.cuda.is_available()``, so an out-of-range index hides
+    every GPU and silently forces CPU. An explicit ``CUDA_VISIBLE_DEVICES``
+    restriction is honoured; otherwise the first GPU is selected. ``""`` forces
+    CPU execution.
+    """
+    if settings.state["device"] == "cpu":
+        return ""
+
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if visible is not None:
+        return visible.strip()
+
+    return "0" if torch.cuda.is_available() else ""
+
+
 def _build_config_dict(
     data_root: Path,
     epochs: int,
@@ -489,6 +510,8 @@ def _build_config_dict(
         "item": [settings.ITEM_COL],
     }
 
+    gpu_id = _sota_gpu_id()
+
     return {
         "data_path": str(data_root),
         "benchmark_filename": list(BENCHMARK_SPLITS),
@@ -497,10 +520,10 @@ def _build_config_dict(
         "load_col": load_col,
         "seed": settings.state["random_state"],
         "reproducibility": True,
-        # RecBole derives the device from gpu_id (ignoring use_gpu), so an
-        # empty gpu_id is what actually forces CPU execution.
-        "gpu_id": "" if settings.state["device"] == "cpu" else settings.SOTA_GPU_ID,
-        "use_gpu": settings.state["device"] != "cpu",
+        # RecBole derives the device from gpu_id (it ignores use_gpu), so the
+        # selector must point at a device this machine actually exposes.
+        "gpu_id": gpu_id,
+        "use_gpu": bool(gpu_id),
         "epochs": epochs,
         "train_batch_size": batch_size,
         "eval_batch_size": batch_size,
