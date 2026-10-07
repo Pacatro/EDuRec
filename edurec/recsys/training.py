@@ -78,6 +78,11 @@ def train_model(
 
     trainer_kwargs: dict[str, Any] = {}
     if limit_val_batches is not None:
+        if 0 < limit_val_batches < 1:
+            # Lightning rejects a fraction that maps to fewer than one batch, so
+            # resolve it to an explicit batch count of at least one.
+            num_val_batches = len(dm.val_dataloader())
+            limit_val_batches = max(1, int(limit_val_batches * num_val_batches))
         trainer_kwargs["limit_val_batches"] = limit_val_batches
 
     trainer = L.Trainer(
