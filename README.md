@@ -58,8 +58,9 @@ uv run edurec synthetic
 ```
 
 It writes `users.csv`, `items.csv` and `interactions.csv` under
-`data/raw/synthetic` (about 8k users, 1.2k items and 300k explicit
-interactions). The first time a command needs it, the `synthetic` loader
+`data/raw/synthetic` (about 100 users, 100 items and 1k explicit
+interactions, small enough to process in seconds). The first time a command
+needs it, the `synthetic` loader
 generates the files automatically. Use `--force` to regenerate and
 `--num-users`, `--num-items`, `--target-interactions` and `--seed` to change
 the size or the random seed:

@@ -13,9 +13,9 @@ SYNTHETIC_REQUIRED_FILES: tuple[str, ...] = (
     "interactions.csv",
 )
 DEFAULT_SEED = 42
-DEFAULT_NUM_USERS = 8_000
-DEFAULT_NUM_ITEMS = 1_200
-DEFAULT_TARGET_INTERACTIONS = 100_000
+DEFAULT_NUM_USERS = 100
+DEFAULT_NUM_ITEMS = 100
+DEFAULT_TARGET_INTERACTIONS = 1_000
 LIST_SEPARATOR = " | "
 
 # ``title`` is included as text and also used as the reference target for the
