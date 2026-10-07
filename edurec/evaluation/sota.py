@@ -174,6 +174,11 @@ def _fit_and_evaluate_model(
     show_progress = cast(bool, config["show_progress"])
     single_spec = cast(bool, config["single_spec"])
 
+    if device.type == "cuda":
+        print(f"[EVAL] {model_name} running on GPU ({device})")
+    else:
+        print(f"[EVAL] {model_name} running on CPU")
+
     init_seed(seed, reproducibility)
     init_logger(config)
 
