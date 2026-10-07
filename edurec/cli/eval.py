@@ -41,8 +41,11 @@ def _save_seed_results(results: pd.DataFrame, dataset_root: Path, seed: int) -> 
         pd.DataFrame([row]).to_csv(path, index=False)
 
 
-def _target_models(sota_models: list[str], proposed_label: str) -> list[str]:
-    return list(dict.fromkeys([proposed_label, *sota_models]))
+def _target_models(
+    sota_models: list[str], proposed_label: str, *, only_sota: bool = False
+) -> list[str]:
+    models = sota_models if only_sota else [proposed_label, *sota_models]
+    return list(dict.fromkeys(models))
 
 
 def _load_seed_result(
@@ -240,6 +243,13 @@ def eval_models(
             help="Only evaluate the proposed model, skipping SOTA models.",
         ),
     ] = False,
+    only_sota: Annotated[
+        bool,
+        typer.Option(
+            "--only-sota",
+            help="Only evaluate SOTA models, skipping the proposed model.",
+        ),
+    ] = False,
     adaptive_k: Annotated[
         bool | None,
         typer.Option(
@@ -266,6 +276,10 @@ def eval_models(
         ),
     ] = Path(settings.CONFIGS_FOLDER),
 ) -> None:
+    if only_proposed and only_sota:
+        raise typer.BadParameter(
+            "--only-proposed and --only-sota cannot be used together."
+        )
     parsed_seeds = parse_seeds(seeds)
     if only_proposed:
         sota_models = []
@@ -277,11 +291,11 @@ def eval_models(
 
     datasets = datasets_to_run(dataset)
 
-    models = _target_models(sota_models, proposed_label)
+    models = _target_models(sota_models, proposed_label, only_sota=only_sota)
 
     print("\n[EVAL] Evaluation run")
     print(f"[EVAL] Datasets: {', '.join(ds.value for ds in datasets)}")
-    print(f"[EVAL] Models: {proposed_label} + {len(sota_models)} SOTA")
+    print(f"[EVAL] Models: {', '.join(models)}")
     print(f"[EVAL] Seeds: {', '.join(str(seed) for seed in parsed_seeds)}")
     print(f"[EVAL] Results folder: {output_dir}")
     print(f"[EVAL] Configs folder: {configs_folder}\n")
@@ -308,7 +322,7 @@ def eval_models(
         )
         val_topk = monitor_topk(None, train_cfg)
         pending_by_seed = _pending_models_by_seed(dataset_root, models, parsed_seeds)
-        needs_proposed = any(
+        needs_proposed = not only_sota and any(
             proposed_label in pending_models
             for pending_models in pending_by_seed.values()
         )
@@ -320,10 +334,7 @@ def eval_models(
 
         print(f"[EVAL] [{dataset_idx}/{len(datasets)}] Dataset: {run_name}")
         print(f"[EVAL] Top-k: {train_cfg.topks} | val@{val_topk}")
-        print(
-            f"[EVAL] Models: {proposed_label}, "
-            f"{', '.join(sota_models) if sota_models else 'none'}"
-        )
+        print(f"[EVAL] Models: {', '.join(models)}")
         if not pending_by_seed:
             print("[EVAL] All requested seeds are already evaluated. Skipping runs.")
         if saved_cfg is not None:
@@ -373,7 +384,7 @@ def eval_models(
 
             print_data_summary("EVAL", dm)
 
-            if proposed_label in pending_models:
+            if not only_sota and proposed_label in pending_models:
                 cfg = build_config(dm, base=saved_cfg, arch=resolved_arch)
                 print_model_modules("EVAL", cfg)
                 settings.seed_everything(seed)
@@ -411,16 +422,9 @@ def eval_models(
 
         rows = _collect_seed_results(dataset_root, models, parsed_seeds)
         results = pd.DataFrame(rows)
-        csv_name = (
-            "evaluation_results.csv"
-            if not only_proposed
-            else "evaluation_results_proposed.csv"
-        )
-        summary_name = (
-            "evaluation_summary.csv"
-            if not only_proposed
-            else "evaluation_summary_proposed.csv"
-        )
+        suffix = "_sota" if only_sota else "_proposed" if only_proposed else ""
+        csv_name = f"evaluation_results{suffix}.csv"
+        summary_name = f"evaluation_summary{suffix}.csv"
 
         csv_path = dataset_root / csv_name
         results.to_csv(csv_path, index=False)
