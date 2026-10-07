@@ -20,7 +20,7 @@ from edurec.recsys.training import train_model
 
 # Bump whenever the search space or the objective changes so old studies are
 # not silently resumed with incompatible trials.
-OPTIMIZER_VERSION = 7
+OPTIMIZER_VERSION = 8
 
 # Hyperband successive halving: keep one trial per ``reduction_factor`` at each
 # resource level, starting from a single epoch.
@@ -110,21 +110,9 @@ def _suggest_configs(
             "use_user_id_embedding", [False, True]
         )
 
-    sequence_overrides: dict[str, Any] = (
-        {}
-        if is_sasrec
-        else {
-            "use_attention_pooling": trial.suggest_categorical(
-                "use_attention_pooling", [False, True]
-            ),
-            "use_interaction_features": trial.suggest_categorical(
-                "use_interaction_features", [False, True]
-            ),
-            "use_time_features": trial.suggest_categorical(
-                "use_time_features", [False, True]
-            ),
-        }
-    )
+    # Architecture-design switches (attention pooling, interaction and time
+    # features) keep their configured defaults; the ablation command covers them.
+    sequence_overrides: dict[str, Any] = {}
     if arch == ModelArch.KG_RNN:
         sequence_overrides.update(
             rnn_type=trial.suggest_categorical("rnn_type", ["gru", "lstm"]),
