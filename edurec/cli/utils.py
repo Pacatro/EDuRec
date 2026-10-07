@@ -19,11 +19,15 @@ def config_paths(
     run_name: str,
     arch: ModelArch | str,
 ) -> tuple[Path, Path]:
-    """Return the per-architecture model and training config paths for a run."""
+    """Return the per-architecture model and training config paths for a run.
+
+    File names match the copies written under ``results/optimization`` so a
+    dataset's saved configuration can be correlated across both folders.
+    """
     arch_value = ModelArch(arch).value
     return (
-        Path(configs_folder) / "model" / f"{run_name}_{arch_value}.yaml",
-        Path(configs_folder) / "train" / f"{run_name}_{arch_value}.yaml",
+        Path(configs_folder) / "model" / f"config-{run_name}-{arch_value}.yaml",
+        Path(configs_folder) / "train" / f"train-config-{run_name}-{arch_value}.yaml",
     )
 
 
@@ -75,7 +79,8 @@ def print_model_modules(prefix: str, cfg: ModelConfig) -> None:
     sequence = "ON" if cfg.has_history else "OFF"
     user = "ON" if cfg.use_user_features and cfg.user_state.is_active else "OFF"
     context = (
-        "ON" if cfg.use_interaction_features and cfg.interaction_context.is_active
+        "ON"
+        if cfg.use_interaction_features and cfg.interaction_context.is_active
         else "OFF"
     )
     options = (
@@ -88,10 +93,7 @@ def print_model_modules(prefix: str, cfg: ModelConfig) -> None:
         f"scorer=mlp, "
         f"item_bias={'ON' if cfg.use_item_bias else 'OFF'}"
     )
-    print(
-        f"[{prefix}] Model modules: arch={cfg.arch}, "
-        f"sequence={sequence}, {options}"
-    )
+    print(f"[{prefix}] Model modules: arch={cfg.arch}, sequence={sequence}, {options}")
 
 
 def print_data_summary(prefix: str, dm: ElearningDataModule) -> None:

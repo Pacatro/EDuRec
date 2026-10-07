@@ -4,7 +4,7 @@
 
 EDuRec uses Python 3.12+, PyTorch, PyTorch Geometric, and Lightning. Source lives in `edurec/`: `cli/` contains Typer commands, `datasets/` handles loading, preprocessing, caching, and histories, `recsys/archs/` defines models, and `evaluation/` implements benchmarks and ablations. Shared defaults live in `edurec/settings.py`.
 
-Keep dataset-specific YAML files in `configs/model/` and `configs/train/`, named `<dataset>_<arch>.yaml`. `notebooks/` contains experiment analysis; `model-diagram.png` illustrates the architecture. Local datasets, checkpoints, and results belong in the ignored `data/`, `models/`, and `results/` directories.
+Keep dataset-specific YAML files in `configs/model/` and `configs/train/`, named `config-<dataset>-<arch>.yaml` and `train-config-<dataset>-<arch>.yaml` respectively (matching the copies in `results/optimization/`). `notebooks/` contains experiment analysis; `model-diagram.png` illustrates the architecture. Local datasets, checkpoints, and results belong in the ignored `data/`, `models/`, and `results/` directories.
 
 ## Build, Test, and Development Commands
 

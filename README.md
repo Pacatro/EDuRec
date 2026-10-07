@@ -195,9 +195,10 @@ uv run edurec optim --dataset explicit_mars --trials 30 --use_processed
 The command saves the best model and training configurations, trial log, and
 study database under `results/optimization/<dataset>/`. It also writes the best
 configuration for each dataset and architecture to
-`configs/model/<dataset>_<arch>.yaml` and `configs/train/<dataset>_<arch>.yaml`,
-so they can be reused by training and evaluation. Use `--configs-folder` to
-choose a different folder.
+`configs/model/config-<dataset>-<arch>.yaml` and
+`configs/train/train-config-<dataset>-<arch>.yaml`, using the same file names as
+the copies under `results/optimization/`, so they can be reused by training and
+evaluation. Use `--configs-folder` to choose a different folder.
 
 ### Saved Configurations
 
@@ -205,10 +206,10 @@ The `configs/` folder keeps one model configuration and one independent training
 configuration per evaluated dataset **and architecture**:
 
 ```text
-configs/model/<dataset>_<arch>.yaml   Model architecture hyperparameters
-configs/train/<dataset>_<arch>.yaml   Training hyperparameters (epochs, lr,
-                                      batch size, patience, weight decay, top-k,
-                                      adaptive-k)
+configs/model/config-<dataset>-<arch>.yaml         Model architecture hyperparameters
+configs/train/train-config-<dataset>-<arch>.yaml   Training hyperparameters (epochs, lr,
+                                                   batch size, patience, weight decay,
+                                                   top-k, adaptive-k)
 ```
 
 `<arch>` can be `kg_rnn` or `sasrec_text`. When a config file exists for the
