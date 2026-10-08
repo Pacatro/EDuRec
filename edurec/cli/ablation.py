@@ -75,6 +75,15 @@ def run_ablation(
         int, typer.Option("--min_interactions", "-i")
     ] = settings.MIN_INTERACTIONS,
     adaptive_k: Annotated[bool | None, typer.Option("--adaptive_k", "-a")] = None,
+    gcl_weight: Annotated[
+        float | None,
+        typer.Option(
+            "--gcl-weight",
+            min=0.0,
+            help="Override the GCL loss weight for the base config. The "
+            "leave-one-out `no_gcl` variant disables GCL entirely.",
+        ),
+    ] = None,
     use_processed_data: Annotated[
         bool, typer.Option("--use_processed", "-P")
     ] = settings.SAVE_DATA,
@@ -150,13 +159,16 @@ def run_ablation(
                     dm,
                     base=ModelConfig.load(model_config_path),
                     arch=resolved_arch,
+                    gcl_weight=gcl_weight,
                 )
             else:
                 print(
                     "[ABLATION] No model config file found, creating new config for dataset:",
                     run_name,
                 )
-                base_cfg = build_config(dm, arch=resolved_arch)
+                base_cfg = build_config(
+                    dm, arch=resolved_arch, gcl_weight=gcl_weight
+                )
 
             for variant in variants:
                 settings.seed_everything(seed)
@@ -182,6 +194,9 @@ def run_ablation(
                         "graph_mode": cfg.graph_mode,
                         "rnn_type": cfg.rnn_type,
                         "use_text_features": int(cfg.use_text_features),
+                        "use_item_features": int(cfg.use_item_features),
+                        "use_gcl": int(cfg.gcl_enabled),
+                        "gcl_weight": cfg.gcl_weight,
                         "use_user_features": int(cfg.use_user_features),
                         "use_interaction_features": int(cfg.use_interaction_features),
                         "use_time_features": int(cfg.use_time_features),
@@ -260,6 +275,9 @@ def run_ablation(
                     "graph_mode": cfg.graph_mode,
                     "rnn_type": cfg.rnn_type,
                     "use_text_features": int(cfg.use_text_features),
+                    "use_item_features": int(cfg.use_item_features),
+                    "use_gcl": int(cfg.gcl_enabled),
+                    "gcl_weight": cfg.gcl_weight,
                     "use_user_features": int(cfg.use_user_features),
                     "use_interaction_features": int(cfg.use_interaction_features),
                     "use_time_features": int(cfg.use_time_features),

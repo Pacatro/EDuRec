@@ -4,7 +4,8 @@ from typing import Any
 from edurec.recsys.configs import ModelArch, ModelConfig
 
 # The default ("full") architecture: item KG + GRU, user-profile initial state,
-# interaction context and time gaps, last valid hidden state (no attention).
+# interaction context and time gaps, last valid hidden state (no attention),
+# item bias and GCL regularization (weight taken from the dataset config).
 FULL_ABLATION: dict[str, Any] = {
     "graph_mode": "kg",
     "use_text_features": True,
@@ -14,33 +15,35 @@ FULL_ABLATION: dict[str, Any] = {
     "use_time_features": True,
     "use_attention_pooling": False,
     "use_item_bias": True,
+    "use_gcl": True,
 }
 
-ITEM_KG_ONLY: dict[str, Any] = {
+# Everything switched off: a plain recurrent model over item-ID embeddings.
+SEQ_ONLY: dict[str, Any] = {
     **FULL_ABLATION,
+    "graph_mode": "id",
+    "use_text_features": False,
+    "use_item_features": False,
     "use_user_features": False,
     "use_interaction_features": False,
     "use_time_features": False,
+    "use_item_bias": False,
+    "use_gcl": False,
 }
 
 
 ABLATIONS: dict[str, dict[str, Any]] = {
-    # A. Item KG + GRU
-    "item_kg": dict(ITEM_KG_ONLY),
-    # B. A + user profile initialization
-    "item_kg_user": {**ITEM_KG_ONLY, "use_user_features": True},
-    # C. A + interaction context
-    "item_kg_context": {**ITEM_KG_ONLY, "use_interaction_features": True},
-    # D. A + time gaps
-    "item_kg_time": {**ITEM_KG_ONLY, "use_time_features": True},
-    # E. A + context + time + user profile (default architecture)
+    # Reference: the complete architecture.
     "full": dict(FULL_ABLATION),
-    # F. E + attention pooling
-    "attention_pooling": {**FULL_ABLATION, "use_attention_pooling": True},
-    # Structure ablations.
+    # Lower bound: no KG, no content features, no profile/context/time.
+    "seq_only": dict(SEQ_ONLY),
+    # Leave-one-out variants: each removes exactly one module so its marginal
+    # contribution can be read off directly against ``full``.
     "no_graph": {**FULL_ABLATION, "graph_mode": "id"},
-    "no_text": {**FULL_ABLATION, "use_text_features": False},
-    "no_item_bias": {**FULL_ABLATION, "use_item_bias": False},
+    "no_gcl": {**FULL_ABLATION, "use_gcl": False},
+    "no_context": {**FULL_ABLATION, "use_interaction_features": False},
+    "no_time": {**FULL_ABLATION, "use_time_features": False},
+    "no_user": {**FULL_ABLATION, "use_user_features": False},
 }
 
 
@@ -59,15 +62,17 @@ def ablation_applicable(base_cfg: ModelConfig, variant: str) -> bool:
     """Whether a variant actually changes the model for this dataset.
 
     Variants that disable a module the dataset does not provide (e.g.
-    ``no_text`` on a dataset without text features) would otherwise be silently
-    identical to ``full`` and report a meaningless zero importance.
+    ``no_graph`` on a dataset whose knowledge graph has no relations, or
+    ``no_gcl`` when GCL is disabled) would otherwise be silently identical to
+    ``full`` and report a meaningless zero importance.
     """
     if variant == "full":
         return True
 
     if base_cfg.arch == ModelArch.SASREC_TEXT:
-        # Only content removal changes this fixed causal/dot architecture.
-        return variant == "no_text" and base_cfg.num_item_text_feats > 0
+        # The current ablations target KGSeq modules that the fixed SASRec
+        # architecture does not expose, so none of them change it.
+        return False
 
     full = get_ablation_config(base_cfg, "full")
     user_active = full.use_user_features and full.user_state.is_active
@@ -76,18 +81,14 @@ def ablation_applicable(base_cfg: ModelConfig, variant: str) -> bool:
     )
 
     if variant == "no_graph":
-        return full.graph_mode == "kg"
-    if variant == "no_item_bias":
-        return full.use_item_bias
-    if variant == "no_text":
-        return full.num_item_text_feats > 0
-    if variant == "item_kg_user":
-        return user_active
-    if variant == "item_kg_context":
+        return full.graph_mode == "kg" and bool(full.kg_edge_types)
+    if variant == "no_gcl":
+        return full.gcl_enabled
+    if variant == "no_context":
         return context_active
-    if variant == "item_kg_time":
+    if variant == "no_time":
         return full.use_time_features
-    if variant == "attention_pooling":
-        return True
+    if variant == "no_user":
+        return user_active
 
     return full != get_ablation_config(base_cfg, variant)
