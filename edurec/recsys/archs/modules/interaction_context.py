@@ -6,7 +6,7 @@ from torch import nn
 
 
 @dataclass
-class InteractionContextConfig:
+class ContextConfig:
     emb_dim: int
     dense_dim: int = 0
     cat_cardinalities: list[int] = field(default_factory=list)
@@ -17,7 +17,7 @@ class InteractionContextConfig:
         return self.dense_dim > 0 or len(self.cat_cardinalities) > 0
 
 
-class InteractionContextEncoder(nn.Module):
+class ContextEncoder(nn.Module):
     """Encode per-interaction context features into a sequence representation.
 
     Dense context columns are projected with a linear layer and every
@@ -27,7 +27,7 @@ class InteractionContextEncoder(nn.Module):
     :class:`~edurec.recsys.archs.modules.user_state.UserProfileEncoder`.
     """
 
-    def __init__(self, cfg: InteractionContextConfig):
+    def __init__(self, cfg: ContextConfig):
         super().__init__()
         self.cfg = cfg
 
@@ -65,9 +65,7 @@ class InteractionContextEncoder(nn.Module):
 
         for idx, module in enumerate(self.cat_embs):
             embedding = cast(nn.Embedding, module)
-            codes = (cat[..., idx] + 1).clamp(
-                min=0, max=embedding.num_embeddings - 1
-            )
+            codes = (cat[..., idx] + 1).clamp(min=0, max=embedding.num_embeddings - 1)
             parts.append(embedding(codes))
 
         return self.norm(torch.stack(parts, dim=0).sum(dim=0))

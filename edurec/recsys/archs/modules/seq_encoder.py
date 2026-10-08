@@ -220,12 +220,12 @@ class TransformerSeqEncoder(nn.Module):
             if self.causal
             else None
         )
-        encoded = self.encoder(
-            x, mask=causal_mask, src_key_padding_mask=padding_mask
-        )
+        encoded = self.encoder(x, mask=causal_mask, src_key_padding_mask=padding_mask)
         if self.use_last_state:
             positions = torch.arange(seq_len, device=x.device)
-            last = positions.expand_as(history_mask).masked_fill(~history_mask, 0).amax(1)
+            last = (
+                positions.expand_as(history_mask).masked_fill(~history_mask, 0).amax(1)
+            )
             pooled = encoded[torch.arange(x.size(0), device=x.device), last]
         else:
             pooled = (

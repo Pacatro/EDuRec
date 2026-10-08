@@ -2,7 +2,11 @@ import torch
 from torch import nn
 
 from edurec.recsys.archs.base import BaseRecArch
-from edurec.recsys.archs.modules.interaction_context import InteractionContextEncoder
+from edurec.recsys.archs.modules.contrastive import (
+    drop_relation_edges,
+    item_contrastive_loss,
+)
+from edurec.recsys.archs.modules.interaction_context import ContextEncoder
 from edurec.recsys.archs.modules.kg_encoder import GraphEncoder
 from edurec.recsys.archs.modules.scorer import Scorer
 from edurec.recsys.archs.modules.seq_encoder import SeqEncoder
@@ -22,6 +26,10 @@ class KGSeq(BaseRecArch):
     The static user profile initialises the recurrent state
     (``h0 = P_user(profile)``), the GRU/LSTM produces the user state (last valid
     hidden state by default), and an MLP scores user/candidate pairs.
+
+    Optional GCL regularizes this same graph encoder using two independently
+    edge-dropped views. Recommendation always uses the complete knowledge
+    graph; the augmented embeddings only enter the auxiliary training loss.
     """
 
     def __init__(self, cfg: ModelConfig):
@@ -29,7 +37,7 @@ class KGSeq(BaseRecArch):
         self.cfg = cfg
 
         self.kg = GraphEncoder(cfg.kg_encoder)
-        self.interaction_context = InteractionContextEncoder(cfg.interaction_context)
+        self.interaction_context = ContextEncoder(cfg.interaction_context)
         self.user_state = UserStateEncoder(cfg.user_state)
         self.time_proj = nn.Linear(1, cfg.emb_dim) if cfg.use_time_features else None
         self.event_norm = nn.LayerNorm(cfg.emb_dim)
@@ -44,6 +52,38 @@ class KGSeq(BaseRecArch):
     def _compute_item_embeddings(self) -> torch.Tensor:
         item_feats = self.i_static_feats[:, : self.cfg.effective_item_dense_feats]
         return self.kg(self.edge_index, item_feats)
+
+    def auxiliary_loss(
+        self,
+        h_ids: torch.Tensor,
+        h_mask: torch.Tensor,
+        target_item_ids: torch.Tensor,
+    ) -> torch.Tensor | None:
+        """Unweighted GCL loss on training history items and targets.
+
+        History IDs are shifted by one (zero is padding), while target IDs
+        already index the item table. Targets select contrastive anchors only;
+        they do not become history events or graph edges.
+        """
+        if not self.training or not self.cfg.gcl_enabled:
+            return None
+
+        ids = torch.cat(
+            [h_ids[h_mask.bool()].long() - 1, target_item_ids.reshape(-1).long()]
+        ).unique()
+        if ids.numel() > self.cfg.gcl_max_items:
+            selected = torch.randperm(ids.numel(), device=ids.device)
+            ids = ids[selected[: self.cfg.gcl_max_items]]
+
+        item_feats = self.i_static_feats[:, : self.cfg.effective_item_dense_feats]
+        edges = self.edge_index
+        first = self.kg(
+            drop_relation_edges(edges, self.cfg.gcl_edge_dropout), item_feats
+        )
+        second = self.kg(
+            drop_relation_edges(edges, self.cfg.gcl_edge_dropout), item_feats
+        )
+        return item_contrastive_loss(first, second, ids, self.cfg.gcl_temperature)
 
     def forward(
         self,
@@ -66,7 +106,9 @@ class KGSeq(BaseRecArch):
                 event = event + context
 
         if self.time_proj is not None and h_delta is not None:
-            event = event + self.time_proj(torch.log1p(h_delta.clamp(min=0.0)).unsqueeze(-1))
+            event = event + self.time_proj(
+                torch.log1p(h_delta.clamp(min=0.0)).unsqueeze(-1)
+            )
 
         event = self.event_norm(event)
 

@@ -107,13 +107,9 @@ class UserStateEncoder(nn.Module):
         self.to_state: nn.Linear | None = None
         if cfg.is_active:
             self.profile = UserProfileEncoder(cfg)
-            self.to_state = nn.Linear(
-                cfg.emb_dim, cfg.hidden_dim * cfg.num_layers
-            )
+            self.to_state = nn.Linear(cfg.emb_dim, cfg.hidden_dim * cfg.num_layers)
 
-        self.learned_state = nn.Parameter(
-            torch.zeros(cfg.num_layers, cfg.hidden_dim)
-        )
+        self.learned_state = nn.Parameter(torch.zeros(cfg.num_layers, cfg.hidden_dim))
 
     def forward(
         self,
@@ -125,9 +121,7 @@ class UserStateEncoder(nn.Module):
         batch_size = user_ids.size(0)
         if self.profile is None:
             return (
-                self.learned_state.unsqueeze(1)
-                .expand(-1, batch_size, -1)
-                .contiguous()
+                self.learned_state.unsqueeze(1).expand(-1, batch_size, -1).contiguous()
             )
 
         profile = self.profile(cat_feats, dense_feats, user_ids)

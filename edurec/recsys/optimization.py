@@ -20,7 +20,7 @@ from edurec.recsys.training import train_model
 
 # Bump whenever the search space or the objective changes so old studies are
 # not silently resumed with incompatible trials.
-OPTIMIZER_VERSION = 8
+OPTIMIZER_VERSION = 9
 
 # Hyperband successive halving: keep one trial per ``reduction_factor`` at each
 # resource level, starting from a single epoch.
@@ -156,6 +156,15 @@ def _suggest_configs(
             "gnn_heads", head_space
         )
 
+    # GCL is part of the KGSeq model. Tune its strength over positive values so
+    # the reference configuration always carries the regularizer; the ablation
+    # command measures it by disabling ``use_gcl`` instead.
+    gcl_overrides: dict[str, Any] = {}
+    if arch == ModelArch.KG_RNN and base_config.use_gcl:
+        gcl_overrides["gcl_weight"] = trial.suggest_categorical(
+            "gcl_weight", [0.05, 0.1, 0.2, 0.5, 1.0]
+        )
+
     config = replace(
         base_config,
         emb_dim=emb_dim,
@@ -169,6 +178,7 @@ def _suggest_configs(
         dropout=trial.suggest_categorical(
             "dropout", sorted({0.0, 0.1, base_config.dropout, 0.3, 0.5})
         ),
+        **gcl_overrides,
         # Item bias
         use_item_bias=False
         if is_sasrec

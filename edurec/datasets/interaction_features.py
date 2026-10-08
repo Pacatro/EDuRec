@@ -53,9 +53,7 @@ def build_interaction_features(
     """
     metadata = processor.feature_metadata["inter"]
     available = [
-        (name, splits[name])
-        for name in SPLIT_ORDER
-        if splits.get(name) is not None
+        (name, splits[name]) for name in SPLIT_ORDER if splits.get(name) is not None
     ]
 
     dense_cols: list[str] = []
@@ -90,9 +88,7 @@ def build_interaction_features(
             else np.zeros((len(df), 0), dtype=np.int64)
         )
         timestamps = (
-            np.nan_to_num(
-                df[settings.TIME_COL].to_numpy(dtype=np.float64), nan=0.0
-            )
+            np.nan_to_num(df[settings.TIME_COL].to_numpy(dtype=np.float64), nan=0.0)
             if settings.TIME_COL in df.columns
             else np.zeros((len(df),), dtype=np.float64)
         )
@@ -115,7 +111,5 @@ def build_interaction_features(
         cat=np.ascontiguousarray(cat, dtype=np.int64),
         timestamps=np.ascontiguousarray(timestamps, dtype=np.float64),
         dense_cols=dense_cols,
-        cat_cardinalities=[
-            metadata.categorical_cardinalities[col] for col in cat_cols
-        ],
+        cat_cardinalities=[metadata.categorical_cardinalities[col] for col in cat_cols],
     )

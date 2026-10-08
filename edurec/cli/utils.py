@@ -86,6 +86,8 @@ def print_model_modules(prefix: str, cfg: ModelConfig) -> None:
     options = (
         f"text={'ON' if cfg.use_text_features else 'OFF'}, "
         f"graph={graph}, "
+        f"gcl={'ON' if cfg.gcl_enabled else 'OFF'}, "
+        f"gcl_weight={cfg.gcl_weight}, "
         f"rnn={cfg.rnn_type}, "
         f"user={user}, "
         f"context={context}, "

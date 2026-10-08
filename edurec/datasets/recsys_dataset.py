@@ -87,9 +87,7 @@ class RecSysDataset(Dataset):
         self.history_items = history_items
         self.history_valid_mask = history_valid_mask
         self.history_context_index = history_context_index.long()
-        self.interaction_dense = torch.as_tensor(
-            interaction_dense, dtype=torch.float32
-        )
+        self.interaction_dense = torch.as_tensor(interaction_dense, dtype=torch.float32)
         self.interaction_cat = torch.as_tensor(interaction_cat, dtype=torch.long)
         self.interaction_timestamps = torch.as_tensor(
             interaction_timestamps, dtype=torch.float64

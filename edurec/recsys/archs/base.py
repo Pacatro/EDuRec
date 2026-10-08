@@ -77,6 +77,15 @@ class BaseRecArch(nn.Module, ABC):
         self._item_emb_cache = None
         return super().train(mode)
 
+    def auxiliary_loss(
+        self,
+        h_ids: torch.Tensor,
+        h_mask: torch.Tensor,
+        target_item_ids: torch.Tensor,
+    ) -> torch.Tensor | None:
+        """Return an optional training regularizer; targets never enter history."""
+        return None
+
     @abstractmethod
     def forward(
         self,

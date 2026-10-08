@@ -1,4 +1,6 @@
 arch: kg_rnn
+# Set false to disable GCL without changing its configured weight.
+use_gcl: true
 dropout: 0.3
 emb_dim: 256
 gnn_dropout: 0.3

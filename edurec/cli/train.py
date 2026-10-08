@@ -100,6 +100,42 @@ def train(
         bool,
         typer.Option("--compile", help="Compile the model before training."),
     ] = settings.COMPILE_MODEL,
+    use_gcl: Annotated[
+        bool | None,
+        typer.Option(
+            "--gcl/--no-gcl",
+            help="Enable or disable GCL without changing its configured weight.",
+        ),
+    ] = None,
+    gcl_weight: Annotated[
+        float | None,
+        typer.Option(
+            "--gcl-weight",
+            min=0.0,
+            help="KGSeq contrastive loss weight; zero disables GCL.",
+        ),
+    ] = None,
+    gcl_temperature: Annotated[
+        float | None,
+        typer.Option("--gcl-temperature", help="Positive InfoNCE temperature."),
+    ] = None,
+    gcl_edge_dropout: Annotated[
+        float | None,
+        typer.Option(
+            "--gcl-edge-dropout",
+            min=0.0,
+            max=1.0,
+            help="Edge removal probability in each KG view.",
+        ),
+    ] = None,
+    gcl_max_items: Annotated[
+        int | None,
+        typer.Option(
+            "--gcl-max-items",
+            min=2,
+            help="Maximum unique contrastive anchors per batch.",
+        ),
+    ] = None,
     debug: Annotated[bool, typer.Option("--debug", "-D")] = False,
     save: Annotated[bool, typer.Option("--save_model", "-S")] = False,
     use_processed_data: Annotated[
@@ -187,15 +223,24 @@ def train(
 
         print_data_summary("TRAIN", dm)
 
+        gcl_overrides = {
+            "use_gcl": use_gcl,
+            "gcl_weight": gcl_weight,
+            "gcl_temperature": gcl_temperature,
+            "gcl_edge_dropout": gcl_edge_dropout,
+            "gcl_max_items": gcl_max_items,
+        }
+
         if model_config_path.exists():
             cfg = build_config(
                 dm,
                 base=ModelConfig.load(model_config_path),
                 arch=resolved_arch,
+                **gcl_overrides,
             )
             print(f"[TRAIN] Using saved model config: {model_config_path}")
         else:
-            cfg = build_config(dm, arch=resolved_arch)
+            cfg = build_config(dm, arch=resolved_arch, **gcl_overrides)
             print("[TRAIN] No saved model config found; using the full model.")
 
         if train_config_path.exists():

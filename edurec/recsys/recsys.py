@@ -142,12 +142,30 @@ class RecSys(L.LightningModule):
 
         # Weights use one training-fitted scale, not batch normalization, so
         # rating strength remains meaningful even in single-example batches.
-        rank_loss = (per_example_loss * batch.sample_weight).mean()
+        rec_loss = (per_example_loss * batch.sample_weight).mean()
+        loss = rec_loss
 
         if prefix == "train":
+            gcl_loss = self.model.auxiliary_loss(
+                batch.history_items,
+                batch.history_valid_mask,
+                batch.target_item_id,
+            )
+            if gcl_loss is not None:
+                loss = rec_loss + self.cfg.gcl_weight * gcl_loss
+                self.log_dict(
+                    {
+                        "train/RecLoss": rec_loss.detach(),
+                        "train/GCLloss": gcl_loss.detach(),
+                    },
+                    on_step=True,
+                    on_epoch=False,
+                    logger=True,
+                    sync_dist=True,
+                )
             self.log(
                 "train/Loss",
-                rank_loss.detach(),
+                loss.detach(),
                 on_step=True,
                 on_epoch=False,
                 prog_bar=True,
@@ -157,7 +175,7 @@ class RecSys(L.LightningModule):
         else:
             self.log(
                 f"{prefix}/Loss",
-                rank_loss.detach(),
+                rec_loss.detach(),
                 on_step=False,
                 on_epoch=True,
                 prog_bar=False,
@@ -187,7 +205,7 @@ class RecSys(L.LightningModule):
                 batch_size=scores.size(0),
             )
 
-        return rank_loss
+        return loss
 
     def predict_step(self, batch: RecSysQuery) -> torch.Tensor:
         return self(batch)

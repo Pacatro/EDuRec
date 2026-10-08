@@ -110,6 +110,43 @@ Common options:
 -E, --experiment-name TEXT      Optional logger experiment name
 ```
 
+KGSeq supports optional graph contrastive learning (GCL). Recommendation uses
+the complete knowledge graph; two independently edge-dropped views regularize
+the same HGT encoder during training only. Each edge is removed together with
+its explicit reverse relation. The objective is the existing weighted
+recommendation loss plus `gcl_weight * gcl_loss` (symmetric item InfoNCE).
+
+```bash
+uv run edurec --device cpu --random-state 42 train --dataset doris --arch kg_rnn --gcl-weight 0.01 --debug
+```
+
+Set these fields in `configs/model/config-<dataset>-kg_rnn.yaml`, or override
+them with `--gcl-weight`, `--gcl-temperature`, `--gcl-edge-dropout`, and
+`--gcl-max-items`:
+
+```yaml
+use_gcl: true
+gcl_weight: 0.01
+gcl_temperature: 0.2
+gcl_edge_dropout: 0.1
+gcl_max_items: 512
+```
+
+Set `use_gcl: false` to disable GCL while preserving its weight, temperature,
+dropout, and anchor limit. Set it back to `true` to restore those settings.
+The CLI flags `--gcl` / `--no-gcl` override the saved switch. A positive
+`gcl_weight` is also required to run GCL.
+
+GCL defaults to disabled (`gcl_weight: 0.0`) for compatibility with existing
+experiments and checkpoints. Anchors are unique history items and training
+targets, randomly capped by `gcl_max_items`; targets never enter the history
+or graph structure. Training logs `train/rec_loss`, `train/gcl_loss`, and the
+combined `train/Loss`. GCL adds two HGT passes per training batch; the anchor
+cap bounds the contrastive matrix, not graph encoding. Validation and inference
+use the complete graph and existing embedding cache. No data cache changes
+are required. With `graph_mode: id`, GCL regularizes item representations
+without structural augmentation.
+
 ### Test a Saved Model
 
 Load the most recent saved model for a dataset and evaluate it on the test

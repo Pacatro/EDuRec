@@ -7,7 +7,7 @@ from typing import Any, Literal, Self, get_type_hints
 import yaml
 
 from edurec import settings
-from edurec.recsys.archs.modules.interaction_context import InteractionContextConfig
+from edurec.recsys.archs.modules.interaction_context import ContextConfig
 from edurec.recsys.archs.modules.kg_encoder import EdgeType, GraphEncoderConfig
 from edurec.recsys.archs.modules.scorer import ScorerConfig
 from edurec.recsys.archs.modules.seq_encoder import (
@@ -131,6 +131,13 @@ class ModelConfig(BaseConfig):
     gnn_heads: int = settings.GNN_HEADS
     gnn_dropout: float = settings.DROPOUT
 
+    # Training-only graph contrastive regularization (zero preserves baselines).
+    use_gcl: bool = True
+    gcl_weight: float = 0.0
+    gcl_temperature: float = 0.2
+    gcl_edge_dropout: float = 0.1
+    gcl_max_items: int = 512
+
     # Recurrent sequence defaults
     rnn_type: Literal["gru", "lstm"] = settings.SEQ_CELL
     rnn_hidden_dim: int = settings.GRU_HIDDEN_DIM
@@ -149,6 +156,16 @@ class ModelConfig(BaseConfig):
     )
 
     def __post_init__(self) -> None:
+        if not 0.0 <= self.gcl_weight < float("inf"):
+            raise ValueError("gcl_weight must be finite and non-negative.")
+        if not 0.0 < self.gcl_temperature < float("inf"):
+            raise ValueError("gcl_temperature must be finite and positive.")
+        if not 0.0 <= self.gcl_edge_dropout <= 1.0:
+            raise ValueError("gcl_edge_dropout must be between 0 and 1.")
+        if self.gcl_max_items < 2:
+            raise ValueError("gcl_max_items must be at least 2.")
+        if self.gcl_enabled and self.arch != ModelArch.KG_RNN:
+            raise ValueError("GCL is only supported by the kg_rnn architecture.")
         if self.arch == ModelArch.SASREC_TEXT:
             # These modules are fixed by the SASRec + content architecture.
             self.graph_mode = "id"
@@ -159,6 +176,11 @@ class ModelConfig(BaseConfig):
             self.use_time_features = False
             self.use_attention_pooling = False
             self.use_item_bias = False
+
+    @property
+    def gcl_enabled(self) -> bool:
+        """Whether GCL runs; disabling it preserves its tuned hyperparameters."""
+        return self.use_gcl and self.gcl_weight > 0.0
 
     @property
     def effective_item_dense_feats(self) -> int:
@@ -187,10 +209,10 @@ class ModelConfig(BaseConfig):
         )
 
     @property
-    def interaction_context(self) -> InteractionContextConfig:
+    def interaction_context(self) -> ContextConfig:
         if not self.use_interaction_features:
-            return InteractionContextConfig(emb_dim=self.emb_dim)
-        return InteractionContextConfig(
+            return ContextConfig(emb_dim=self.emb_dim)
+        return ContextConfig(
             emb_dim=self.emb_dim,
             dense_dim=self.num_interaction_dense_feats,
             cat_cardinalities=list(self.interaction_cat_cardinalities),
