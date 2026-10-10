@@ -19,13 +19,15 @@ from edurec.datasets.interaction_features import (
 from edurec.datasets.knowledge_graph import build_knowledge_graph
 from edurec.datasets.loaders import DatasetName, RawData, load_raw_data
 from edurec.datasets.preprocessing import (
+    add_relevance,
     clean_cols,
     filter_sparse,
     generate_negative_samples,
+    get_relevance_threshold,
     preprocess,
     split_data,
 )
-from edurec.datasets.recsys_dataset import RecSysDataset, rating_sample_weights
+from edurec.datasets.recsys_dataset import RecSysDataset
 from edurec.datasets.user_history import build_histories
 
 
@@ -107,13 +109,16 @@ class ElearningDataModule(L.LightningDataModule):
             )
 
         splits = self.artifacts.splits()
-        sample_weights = rating_sample_weights(splits)
+        relevant_splits = {
+            split: df.loc[df[settings.RELEVANT_COL] > 0].reset_index(drop=True)
+            for split, df in splits.items()
+        }
         self._interaction_tables = build_interaction_features(
-            splits, self.data_processor
+            relevant_splits, self.data_processor
         )
 
         histories = build_histories(
-            splits,
+            relevant_splits,
             max_history=self.max_history,
             enabled=self.has_temporal_order,
         )
@@ -122,9 +127,9 @@ class ElearningDataModule(L.LightningDataModule):
             train_negatives = None
 
             if not self.is_explicit:
-                train_interactions = splits["train"]
+                train_interactions = relevant_splits["train"]
                 all_observed = pd.concat(
-                    splits.values(),
+                    relevant_splits.values(),
                     ignore_index=True,
                 )
 
@@ -137,21 +142,19 @@ class ElearningDataModule(L.LightningDataModule):
                 )
 
             self.train_ds = self._make_dataset(
-                splits["train"],
+                relevant_splits["train"],
                 histories["train"],
                 negative_item_ids=train_negatives,
-                sample_weights=sample_weights["train"],
             )
 
             self.val_ds = self._make_dataset(
-                splits["val"], histories["val"], sample_weights=sample_weights["val"]
+                relevant_splits["val"], histories["val"]
             )
 
         elif stage == "test":
             self.test_ds = self._make_dataset(
-                splits["test"],
+                relevant_splits["test"],
                 histories["test"],
-                sample_weights=sample_weights["test"],
             )
 
     def _make_dataset(
@@ -159,7 +162,6 @@ class ElearningDataModule(L.LightningDataModule):
         interactions: pd.DataFrame,
         history: tuple[torch.Tensor, torch.Tensor, torch.Tensor],
         negative_item_ids: np.ndarray | None = None,
-        sample_weights: torch.Tensor | None = None,
     ) -> RecSysDataset:
         history_items, history_valid_mask, history_context_index = history
         tables = self.interaction_tables
@@ -173,7 +175,6 @@ class ElearningDataModule(L.LightningDataModule):
             interaction_cat=tables.cat,
             interaction_timestamps=tables.timestamps,
             negative_item_ids=negative_item_ids,
-            sample_weights=sample_weights,
         )
 
     def _process_raw_data(self) -> None:
@@ -201,7 +202,7 @@ class ElearningDataModule(L.LightningDataModule):
             )
 
         self.artifacts.train, self.artifacts.val, self.artifacts.test = (
-            self._split_interactions(interactions)
+            self._split_with_relevance(interactions)
         )
 
         self.artifacts = preprocess(
@@ -215,17 +216,25 @@ class ElearningDataModule(L.LightningDataModule):
 
         self.artifacts.save(self.processed_folder, manifest=self.cache_params)
 
-    def _split_interactions(
+    def _split_with_relevance(
         self,
         interactions: pd.DataFrame,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        return split_data(
+        train, val, test = split_data(
             interactions,
             test_ratio=self.test_ratio,
             val_ratio=self.val_ratio,
             min_interactions=self.min_interactions,
             random_state=self.random_state,
             deduplicate=self.deduplicate_interactions,
+        )
+
+        thresholds = get_relevance_threshold(train)
+
+        return (
+            add_relevance(train, thresholds),
+            add_relevance(val, thresholds),
+            add_relevance(test, thresholds),
         )
 
     @property

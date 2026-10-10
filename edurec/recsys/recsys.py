@@ -133,16 +133,13 @@ class RecSys(L.LightningModule):
             )
             scores = self(batch, candidate_item_ids=candidate_item_ids)
             labels = torch.zeros(scores.size(0), dtype=torch.long, device=scores.device)
-            per_example_loss = F.cross_entropy(scores, labels, reduction="none")
+            rec_loss = F.cross_entropy(scores, labels)
         else:
             scores = self(batch)
-            per_example_loss = F.cross_entropy(
-                scores, batch.target_item_id.reshape(-1).long(), reduction="none"
+            rec_loss = F.cross_entropy(
+                scores, batch.target_item_id.reshape(-1).long()
             )
 
-        # Weights use one training-fitted scale, not batch normalization, so
-        # rating strength remains meaningful even in single-example batches.
-        rec_loss = (per_example_loss * batch.sample_weight).mean()
         loss = rec_loss
 
         if prefix == "train":

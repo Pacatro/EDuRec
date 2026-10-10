@@ -21,7 +21,7 @@ def log_datasets(logger: MLFlowLogger, dm: ElearningDataModule) -> None:
                 df,
                 name=f"{dm.data_variant}",
                 source=f"{settings.PROCESSED_FOLDER}/{dm.data_variant}",
-                targets=settings.RATING_COL if dm.is_explicit else settings.ITEM_COL,
+                targets=settings.RELEVANT_COL,
             )
             mlflow.log_input(dataset, context=context)
 

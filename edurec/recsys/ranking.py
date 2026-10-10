@@ -9,7 +9,7 @@ from torchmetrics.retrieval import (
     RetrievalRecall,
 )
 
-EVALUATION_PROTOCOL = "one-target-per-observed-interaction-v2"
+EVALUATION_PROTOCOL = "one-target-per-interaction-v1"
 
 
 def build_ranking_metrics(

@@ -357,21 +357,6 @@ chronological interaction field; datasets without one cannot train the model.
 split, and reports Precision, Recall, NDCG, Hit Rate, MAP, and MRR at the
 configured top-k values.
 
-Explicit feedback trains a rating-weighted ranking loss over the full catalog.
-All ratings are retained: training min/max ratings map to weights in [0.1, 1],
-then weights are divided by their training mean. Higher ratings contribute more;
-low ratings remain weak positive observations, not explicit negative targets.
-Validation/test loss uses the same training-fitted scale with clipping. Implicit
-events have unit weight and retain sampled-negative training. No binary
-`relevant` column or user-mean rating filter is used. Histories and graph edges
-include every retained interaction, including low-rated courses.
-
-Retrieval metrics remain unweighted: they measure recovery of each held-out
-observed interaction, rather than graded rating preference. RecBole baselines
-receive all interactions but retain their own training objectives. Existing
-preprocessing caches must be regenerated (cache format version 5); results from
-the former positive-only evaluation protocol are not directly comparable.
-
 ### SOTA Benchmark Evaluation
 
 The same evaluation command exports RecBole atomic files and runs the baseline
@@ -380,7 +365,7 @@ size, and top-k settings. Sequential baselines receive prebuilt histories for
 the original train, validation, and test splits instead of asking RecBole to
 split the merged interaction file again.
 
-Final ranking metrics use one shared evaluator for every model. Each observed
+Final ranking metrics use one shared evaluator for every model. Each positive
 test interaction is one query with one target, and EDuRec and the RecBole
 baselines use the same full item catalog, seen-item mask, and TorchMetrics
 implementations for Precision, Recall, NDCG, Hit Rate, MAP, and MRR.
