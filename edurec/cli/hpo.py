@@ -19,7 +19,7 @@ from edurec.recsys.configs import TrainConfig
 app = typer.Typer(no_args_is_help=True)
 
 
-@app.command(name="optim", help="Run a hyperparameter optimization for the model.")
+@app.command(name="hpo", help="Run a hyperparameter optimization for the model.")
 def optimize(
     dataset: Annotated[DatasetName | None, typer.Option("--dataset", "-d")] = None,
     arch: Annotated[

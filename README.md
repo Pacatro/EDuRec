@@ -204,7 +204,7 @@ and seed, the detailed `evaluation_results.csv`, and the aggregated
 Run Optuna-based hyperparameter optimization for EDuRec.
 
 ```bash
-uv run edurec optim --dataset explicit_mars --trials 30 --use_processed
+uv run edurec hpo --dataset explicit_mars --trials 30 --use_processed
 ```
 
 The command saves the best model and training configurations, trial log, and
@@ -372,7 +372,7 @@ implementations for Precision, Recall, NDCG, Hit Rate, MAP, and MRR.
 
 ### Hyperparameter Optimization
 
-`uv run edurec optim` runs Optuna studies for EDuRec and saves the best model
+`uv run edurec hpo` runs Optuna studies for EDuRec and saves the best model
 and training configurations as YAML for later training, evaluation, or ablation
 experiments.
 
