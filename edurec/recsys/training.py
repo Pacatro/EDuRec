@@ -41,6 +41,7 @@ def train_model(
     limit_val_batches: float | None = None,
     logger: MLFlowLogger | None = None,
 ) -> tuple[L.Trainer, Path, Timer]:
+    dm.validate_topks([*getattr(model, "topks", []), getattr(model, "val_topk", settings.TOP_K)])
     model_name = type(model).__name__
 
     if compile:

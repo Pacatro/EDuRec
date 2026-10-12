@@ -64,6 +64,7 @@ def eval_sota_models(
     adaptive_k: bool = settings.ADAPTIVE_K,
     show_progress: bool = False,
 ) -> pd.DataFrame:
+    dm.validate_topks(topks if topks is not None else settings.TOP_KS)
     dataset_name = dm.data_variant
     atomic_dataset_dir = dm.atomic_folder
     dm.setup(stage="test")

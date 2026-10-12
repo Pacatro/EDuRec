@@ -101,6 +101,26 @@ class ElearningDataModule(L.LightningDataModule):
             else:
                 self._process_raw_data()
 
+        splits = self.artifacts.splits()
+        relevant_splits = {
+            split: df.loc[df[settings.RELEVANT_COL] > 0].reset_index(drop=True)
+            for split, df in splits.items()
+        }
+        for split, frame in relevant_splits.items():
+            if frame.empty:
+                raise ValueError(
+                    f"{self.data_variant}: {split} split has no positive interactions. "
+                    "Check filtering, relevance thresholds and split ratios."
+                )
+            for column, size in (
+                (settings.USER_COL, self.num_users),
+                (settings.ITEM_COL, self.num_items),
+            ):
+                if not frame[column].between(0, size - 1).all():
+                    raise ValueError(
+                        f"{self.data_variant}: {split} contains invalid {column} values."
+                    )
+
         if self.save_atomic_files:
             self.atomic_files = save_atomic_files(
                 self.artifacts,
@@ -108,11 +128,6 @@ class ElearningDataModule(L.LightningDataModule):
                 output_dir=self.atomic_folder,
             )
 
-        splits = self.artifacts.splits()
-        relevant_splits = {
-            split: df.loc[df[settings.RELEVANT_COL] > 0].reset_index(drop=True)
-            for split, df in splits.items()
-        }
         self._interaction_tables = build_interaction_features(
             relevant_splits, self.data_processor
         )
@@ -155,6 +170,14 @@ class ElearningDataModule(L.LightningDataModule):
             self.test_ds = self._make_dataset(
                 relevant_splits["test"],
                 histories["test"],
+            )
+
+    def validate_topks(self, topks: list[int]) -> None:
+        """Reject impossible ranking cutoffs before any model is trained."""
+        if not topks or any(k < 1 or k > self.num_items for k in topks):
+            raise ValueError(
+                f"{self.data_variant}: top-k values must be in [1, {self.num_items}], "
+                f"got {topks}."
             )
 
     def _make_dataset(

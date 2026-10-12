@@ -53,6 +53,10 @@ def split_data(
     has_time = settings.TIME_COL in df.columns
     if deduplicate or not has_time:
         df = deduplicate_interactions(df)
+    if not 0 < test_ratio < 1 or not 0 < val_ratio < 1 or test_ratio + val_ratio >= 1:
+        raise ValueError("Validation/test ratios must be positive and sum to less than 1.")
+    if min_interactions < 3:
+        raise ValueError("min_interactions must be at least 3 to create train/val/test splits.")
     rng = np.random.default_rng(random_state)
     splits = {"train": [], "val": [], "test": []}
 
@@ -80,11 +84,13 @@ def split_data(
             splits["val"].append(user_df.iloc[order[n_test : n_test + n_val]])
             splits["train"].append(user_df.iloc[order[n_test + n_val :]])
 
-    train_split = pd.concat(splits["train"], axis=0).reset_index(drop=True)
-    val_split = pd.concat(splits["val"], axis=0).reset_index(drop=True)
-    test_split = pd.concat(splits["test"], axis=0).reset_index(drop=True)
+    frames = [
+        (pd.concat(splits[name], axis=0) if splits[name] else df.iloc[:0].copy())
+        .reset_index(drop=True)
+        for name in ("train", "val", "test")
+    ]
+    return frames[0], frames[1], frames[2]
 
-    return train_split, val_split, test_split
 
 
 def filter_sparse(
