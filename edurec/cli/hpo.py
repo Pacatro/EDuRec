@@ -142,6 +142,11 @@ def optimize(
             min_interactions=min_interactions,
             remove_sparse=remove_sparse,
             save_atomic_files=False,
+            # Trials are short and often pruned; reusing workers would keep
+            # paused worker processes alive across trials, which makes the
+            # known "can only test a child process" DataLoader fork warning
+            # (pytorch/pytorch#149837) far more likely.
+            persistent_workers=False,
         )
 
         dm.prepare_data()

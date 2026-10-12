@@ -45,6 +45,7 @@ class ElearningDataModule(L.LightningDataModule):
         random_state: int | None = None,
         max_history: int = settings.MAX_HISTORY_LEN,
         deduplicate_interactions: bool = settings.DEDUPLICATE_INTERACTIONS,
+        persistent_workers: bool = True,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -60,6 +61,7 @@ class ElearningDataModule(L.LightningDataModule):
         self.random_state = random_state
         self.max_history = max_history
         self.deduplicate_interactions = deduplicate_interactions
+        self.persistent_workers = persistent_workers
         self.data_variant = dataset.value
 
         self.cache_params = {
@@ -307,7 +309,7 @@ class ElearningDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=settings.NUM_WORKERS,
             shuffle=shuffle,
-            persistent_workers=settings.NUM_WORKERS > 0,
+            persistent_workers=self.persistent_workers and settings.NUM_WORKERS > 0,
             generator=self._data_generator() if shuffle else None,
         )
 
