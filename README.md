@@ -147,18 +147,6 @@ use the complete graph and existing embedding cache. No data cache changes
 are required. With `graph_mode: id`, GCL regularizes item representations
 without structural augmentation.
 
-### Test a Saved Model
-
-Load the most recent saved model for a dataset and evaluate it on the test
-split.
-
-```bash
-uv run edurec test --dataset explicit_mars --use_processed
-```
-
-Options include dataset, batch size, validation/test split sizes, top-k,
-adaptive-k, sparse filtering, and the models folder.
-
 ### Evaluate EDuRec and SOTA Models
 
 Run the proposed EDuRec model and RecBole baselines on the selected dataset. If

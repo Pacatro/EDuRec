@@ -10,7 +10,6 @@ from edurec.cli import (
     dataset_app,
     eval_app,
     optim_app,
-    test_app,
     train_app,
 )
 
@@ -25,7 +24,6 @@ app = typer.Typer(
 )
 
 app.add_typer(train_app)
-app.add_typer(test_app)
 app.add_typer(dataset_app)
 app.add_typer(eval_app)
 app.add_typer(optim_app)
