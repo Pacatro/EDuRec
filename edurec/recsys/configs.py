@@ -52,6 +52,18 @@ class BaseConfig:
         with open(path, "r") as f:
             payload = yaml.safe_load(f) or {}
 
+        if not isinstance(payload, Mapping):
+            raise TypeError("Config must be a mapping.")
+        document_arch = payload.get("arch", ModelArch.KG_RNN)
+        if "model" in payload or "train" in payload:
+            section = "train" if cls is TrainConfig else "model"
+            values = payload.get(section, {})
+            if not isinstance(values, Mapping):
+                raise ValueError(f"Config section '{section}' must be a mapping.")
+            payload = dict(values)
+            if cls is ModelConfig:
+                payload["arch"] = document_arch
+
         # Ignore fields left over from older config schemas instead of failing.
         known = {item.name for item in fields(cls)}
         hints = get_type_hints(cls)
@@ -295,3 +307,20 @@ def resolve_train_config(
 def monitor_topk(top_k: int | None, train_cfg: TrainConfig) -> int:
     """The cutoff that drives early stopping and checkpointing."""
     return top_k if top_k is not None else max(train_cfg.topks)
+
+
+def save_run_config(
+    path: Path | str, model: ModelConfig, train: TrainConfig
+) -> None:
+    """Save model and training settings in one architecture-specific document."""
+    model_payload = asdict(model)
+    arch = ModelArch(model_payload.pop("arch")).value
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        yaml.safe_dump(
+            {"arch": arch, "model": model_payload, "train": asdict(train)},
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )

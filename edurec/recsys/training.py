@@ -33,12 +33,13 @@ def train_model(
     epochs: int,
     patience: int,
     monitor: str,
-    experiment_name: str | None = None,
+    run_name: str | None = None,
     compile: bool = settings.COMPILE_MODEL,
     verbose: bool = False,
     callbacks: Sequence[Callback] = (),
     default_root_dir: Path | str | None = None,
     limit_val_batches: float | None = None,
+    logger: MLFlowLogger | None = None,
 ) -> tuple[L.Trainer, Path, Timer]:
     model_name = type(model).__name__
 
@@ -62,15 +63,15 @@ def train_model(
         save_weights_only=True,
     )
 
-    logger = (
-        MLFlowLogger(
+    log_dataset_inputs = logger is None and run_name is not None and not debug
+    if debug:
+        logger = None
+    elif logger is None and run_name is not None:
+        logger = MLFlowLogger(
             experiment_name=settings.EXPERIMENT_NAME,
-            run_name=experiment_name,
+            run_name=run_name,
             tracking_uri=settings.MLFLOW_TRACKING_URI,
         )
-        if experiment_name is not None and not debug
-        else None
-    )
 
     timer = Timer()
     if logger is not None and default_root_dir is None:
@@ -99,7 +100,7 @@ def train_model(
         **trainer_kwargs,
     )
 
-    if logger is not None:
+    if log_dataset_inputs and logger is not None:
         log_datasets(logger, dm)
 
     trainer.fit(model, datamodule=dm)

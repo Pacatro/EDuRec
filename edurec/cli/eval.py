@@ -8,7 +8,7 @@ import typer
 from edurec import settings
 from edurec.cli.utils import (
     build_config,
-    config_paths,
+    config_path,
     dataset_train_defaults,
     datasets_to_run,
     parse_seeds,
@@ -305,7 +305,7 @@ def eval_models(
         dataset_root = output_dir / run_name
         dataset_root.mkdir(parents=True, exist_ok=True)
         dataset_started_at = datetime.datetime.now(datetime.UTC)
-        model_config_path, train_config_path = config_paths(
+        run_config_path = config_path(
             configs_folder, run_name, resolved_arch
         )
         train_cfg = resolve_train_config(
@@ -317,7 +317,7 @@ def eval_models(
                 "topks": topks,
                 "adaptive_k": adaptive_k,
             },
-            saved_path=train_config_path,
+            saved_path=run_config_path,
             defaults=dataset_train_defaults(dataset_name),
         )
         val_topk = monitor_topk(None, train_cfg)
@@ -327,8 +327,8 @@ def eval_models(
             for pending_models in pending_by_seed.values()
         )
         saved_cfg = (
-            ModelConfig.load(model_config_path)
-            if needs_proposed and model_config_path.exists()
+            ModelConfig.load(run_config_path)
+            if needs_proposed and run_config_path.exists()
             else None
         )
 
@@ -338,9 +338,9 @@ def eval_models(
         if not pending_by_seed:
             print("[EVAL] All requested seeds are already evaluated. Skipping runs.")
         if saved_cfg is not None:
-            print(f"[EVAL] Using saved model config: {model_config_path}")
-        if train_config_path.exists():
-            print(f"[EVAL] Using saved training config: {train_config_path}")
+            print(f"[EVAL] Using saved model config: {run_config_path}")
+        if run_config_path.exists():
+            print(f"[EVAL] Using saved training config: {run_config_path}")
 
         if verbose:
             if cfg_path is not None:

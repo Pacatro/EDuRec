@@ -1,7 +1,8 @@
 import hashlib
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import asdict, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -10,6 +11,7 @@ from typing import Any
 import lightning as L
 import optuna
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
+from lightning.pytorch.loggers import MLFlowLogger
 from torch_geometric.data import HeteroData
 
 from edurec import settings
@@ -20,7 +22,7 @@ from edurec.recsys.training import train_model
 
 # Bump whenever the search space or the objective changes so old studies are
 # not silently resumed with incompatible trials.
-OPTIMIZER_VERSION = 9
+OPTIMIZER_VERSION = 12
 
 # Hyperband successive halving: keep one trial per ``reduction_factor`` at each
 # resource level, starting from a single epoch.
@@ -87,116 +89,85 @@ def _suggest_configs(
     base_config: ModelConfig,
     base_train_config: TrainConfig,
 ) -> tuple[ModelConfig, TrainConfig]:
-    """Sample only parameters used by the selected architecture."""
-    arch = ModelArch(base_config.arch)
-    is_sasrec = arch == ModelArch.SASREC_TEXT
-    emb_dim = trial.suggest_categorical(
-        "emb_dim", sorted({64, base_config.emb_dim, 256, 512})
-    )
+    """Search eight independent parameters (864 full-KG combinations).
 
-    scorer_shape = trial.suggest_categorical(
-        "scorer_shape", ["linear", "single", "funnel"]
-    )
-    hidden_dims = {
-        "linear": [],
-        "single": [2 * emb_dim],
-        "funnel": [2 * emb_dim, emb_dim],
-    }[scorer_shape]
-
-    # An ID embedding can activate the profile even without static user features.
-    profile_overrides: dict[str, Any] = {}
-    if base_config.use_user_features:
-        profile_overrides["use_user_id_embedding"] = trial.suggest_categorical(
-            "use_user_id_embedding", [False, True]
+    Couple embedding and recurrent widths, share dropout across modules,
+    and leave feature/ablation switches at their configured values.
+    """
+    if ModelArch(base_config.arch) != ModelArch.KG_RNN:
+        raise ValueError("Hyperparameter optimization only supports kg_rnn.")
+    emb_dim = trial.suggest_categorical("emb_dim", [128, 256])
+    dropout = trial.suggest_categorical("dropout", [0.1, 0.3])
+    overrides: dict[str, Any] = {}
+    if base_config.graph_mode == "kg":
+        overrides.update(
+            gnn_layers=trial.suggest_categorical("gnn_layers", [1, 2]),
+            gnn_heads=4,
         )
-
-    # Architecture-design switches (attention pooling, interaction and time
-    # features) keep their configured defaults; the ablation command covers them.
-    sequence_overrides: dict[str, Any] = {}
-    if arch == ModelArch.KG_RNN:
-        sequence_overrides.update(
-            rnn_type=trial.suggest_categorical("rnn_type", ["gru", "lstm"]),
-            rnn_hidden_dim=trial.suggest_categorical(
-                "rnn_hidden_dim",
-                sorted({64, base_config.rnn_hidden_dim, 128, 256, 512, 1024}),
-            ),
-            rnn_layers=trial.suggest_categorical(
-                "rnn_layers", sorted({1, base_config.rnn_layers, 2, 3})
-            ),
+    if base_config.use_gcl:
+        overrides["gcl_weight"] = trial.suggest_categorical(
+            "gcl_weight", [0.05, 0.1, 0.2]
         )
-    else:
-        # Fixed distributions across trials; every width is divisible by every head count.
-        heads = sorted({1, 2, 4, 8, base_config.transformer_heads})
-        if any(head <= 0 for head in heads):
-            raise ValueError("Transformer head counts must be positive.")
-        widths = sorted({64, 128, 256, 512, base_config.transformer_hidden_dim})
-        widths = [width for width in widths if all(width % head == 0 for head in heads)]
-        if not widths:
-            raise ValueError(
-                "No Transformer width is compatible with the head search space."
-            )
-        sequence_overrides.update(
-            transformer_hidden_dim=trial.suggest_categorical(
-                "transformer_hidden_dim", widths
-            ),
-            transformer_heads=trial.suggest_categorical("transformer_heads", heads),
-            transformer_layers=trial.suggest_categorical(
-                "transformer_layers",
-                sorted({1, base_config.transformer_layers, 2, 3, 4}),
-            ),
-        )
-
-    graph_overrides: dict[str, Any] = {}
-    if not is_sasrec and base_config.graph_mode == "kg":
-        graph_overrides["gnn_layers"] = trial.suggest_categorical(
-            "gnn_layers", sorted({1, base_config.gnn_layers, 2, 3, 4})
-        )
-        head_space = [head for head in (1, 2, 4, 8) if emb_dim % head == 0]
-        graph_overrides["gnn_heads"] = trial.suggest_categorical(
-            "gnn_heads", head_space
-        )
-
-    # GCL is part of the KGSeq model. Tune its strength over positive values so
-    # the reference configuration always carries the regularizer; the ablation
-    # command measures it by disabling ``use_gcl`` instead.
-    gcl_overrides: dict[str, Any] = {}
-    if arch == ModelArch.KG_RNN and base_config.use_gcl:
-        gcl_overrides["gcl_weight"] = trial.suggest_categorical(
-            "gcl_weight", [0.05, 0.1, 0.2, 0.5, 1.0]
-        )
-
     config = replace(
         base_config,
         emb_dim=emb_dim,
-        **graph_overrides,
-        **sequence_overrides,
-        # Scorer
-        hidden_dims=hidden_dims,
-        # User profile initial state
-        **profile_overrides,
-        # Regularization
-        dropout=trial.suggest_categorical(
-            "dropout", sorted({0.0, 0.1, base_config.dropout, 0.3, 0.5})
-        ),
-        **gcl_overrides,
-        # Item bias
-        use_item_bias=False
-        if is_sasrec
-        else trial.suggest_categorical("use_item_bias", [True, False]),
+        rnn_hidden_dim=emb_dim,
+        rnn_type=trial.suggest_categorical("rnn_type", ["gru", "lstm"]),
+        rnn_layers=trial.suggest_categorical("rnn_layers", [1, 2]),
+        hidden_dims=[2 * emb_dim],
+        use_user_id_embedding=False,
+        use_item_bias=True,
+        dropout=dropout,
+        gnn_dropout=dropout,
+        rnn_dropout=dropout,
+        **overrides,
     )
-
     train_config = replace(
         base_train_config,
-        # Optimizer
-        lr=trial.suggest_categorical(
-            "lr", sorted({1e-4, base_train_config.lr, 5e-4, 1e-3})
-        ),
-        weight_decay=trial.suggest_categorical(
-            "weight_decay", sorted({0.0, 1e-5, base_train_config.weight_decay, 1e-3})
-        ),
+        lr=trial.suggest_categorical("lr", [1e-4, 3e-4, 1e-3]),
+        weight_decay=trial.suggest_categorical("weight_decay", [1e-5, 1e-4, 1e-3]),
     )
-
     return config, train_config
+
+
+@contextmanager
+def _trial_logger(
+    trial: optuna.Trial, dataset_name: str, enabled: bool
+) -> Iterator[MLFlowLogger | None]:
+    """Give each trial its own run, including pruned and failed trials."""
+    if not enabled:
+        yield None
+        return
+
+    logger = MLFlowLogger(
+        experiment_name="HPO",
+        run_name=f"{dataset_name}-trial-{trial.number}",
+        tracking_uri=settings.MLFLOW_TRACKING_URI,
+        tags={
+            "dataset": dataset_name,
+            "study": trial.study.study_name,
+            "trial_number": str(trial.number),
+            "random_state": str(settings.state["random_state"]),
+        },
+        log_model=False,
+    )
+    trial.set_user_attr("mlflow_run_id", logger.run_id)
+    try:
+        logger.log_hyperparams(
+            {f"hpo/{key}": value for key, value in trial.params.items()}
+        )
+        yield logger
+    except optuna.TrialPruned:
+        logger.experiment.set_tag(logger.run_id, "trial_state", "PRUNED")
+        logger.experiment.set_terminated(logger.run_id, status="KILLED")
+        raise
+    except BaseException:
+        logger.experiment.set_tag(logger.run_id, "trial_state", "FAIL")
+        logger.finalize("failed")
+        raise
+    else:
+        logger.experiment.set_tag(logger.run_id, "trial_state", "COMPLETE")
+        logger.finalize("success")
 
 
 def objective(
@@ -211,6 +182,7 @@ def objective(
     verbose: bool = False,
     compile: bool = settings.COMPILE_MODEL,
     limit_val_batches: float | None = None,
+    log_mlflow: bool = False,
 ) -> float:
     base_train_config = replace(
         base_train_config,
@@ -226,43 +198,47 @@ def objective(
     trial.set_user_attr("val_topk", val_topk)
     trial.set_user_attr("random_state", settings.state["random_state"])
 
-    model = RecSys(
-        cfg=config,
-        knowledge_graph=knowledge_graph,
-        i_static_feats=datamodule.i_static_feats,
-        u_static_feats=datamodule.u_static_feats,
-        u_cat_feats=datamodule.u_cat_feats,
-        train_cfg=train_config,
-        val_topk=val_topk,
-    )
-
-    with TemporaryDirectory(prefix=f"edurec-optuna-{trial.number}-") as root_dir:
-        trainer, _, _ = train_model(
-            model=model,
-            dm=datamodule,
-            debug=False,
-            epochs=epochs,
-            patience=patience,
-            monitor=model.monitor,
-            compile=compile,
-            verbose=verbose,
-            callbacks=[_OptunaPruningCallback(trial, model.monitor)],
-            default_root_dir=root_dir,
-            limit_val_batches=limit_val_batches,
+    with _trial_logger(trial, datamodule.dataset_name.value, log_mlflow) as logger:
+        model = RecSys(
+            cfg=config,
+            knowledge_graph=knowledge_graph,
+            i_static_feats=datamodule.i_static_feats,
+            u_static_feats=datamodule.u_static_feats,
+            u_cat_feats=datamodule.u_cat_feats,
+            train_cfg=train_config,
+            val_topk=val_topk,
         )
 
-    if not isinstance(trainer.checkpoint_callback, ModelCheckpoint):
-        raise TypeError("Training did not provide a ModelCheckpoint callback.")
+        with TemporaryDirectory(prefix=f"edurec-optuna-{trial.number}-") as root_dir:
+            trainer, _, _ = train_model(
+                model=model,
+                dm=datamodule,
+                debug=False,
+                epochs=epochs,
+                patience=patience,
+                monitor=model.monitor,
+                compile=compile,
+                verbose=verbose,
+                callbacks=[_OptunaPruningCallback(trial, model.monitor)],
+                default_root_dir=root_dir,
+                limit_val_batches=limit_val_batches,
+                logger=logger,
+            )
 
-    score = trainer.checkpoint_callback.best_model_score
+        if not isinstance(trainer.checkpoint_callback, ModelCheckpoint):
+            raise TypeError("Training did not provide a ModelCheckpoint callback.")
 
-    if score is None:
-        raise RuntimeError(f"Metric {model.monitor!r} was not recorded.")
+        score = trainer.checkpoint_callback.best_model_score
 
-    value = float(score.item())
-    if not math.isfinite(value):
-        raise RuntimeError(f"Metric {model.monitor!r} is not finite: {value}.")
-    return value
+        if score is None:
+            raise RuntimeError(f"Metric {model.monitor!r} was not recorded.")
+
+        value = float(score.item())
+        if not math.isfinite(value):
+            raise RuntimeError(f"Metric {model.monitor!r} is not finite: {value}.")
+        if logger is not None:
+            logger.log_metrics({"best_ndcg": value})
+        return value
 
 
 def optimize_model(
@@ -278,12 +254,14 @@ def optimize_model(
     results_path: Path | None = None,
     compile: bool = settings.COMPILE_MODEL,
     limit_val_batches: float | None = settings.OPTIM_LIMIT_VAL_BATCHES,
+    log_mlflow: bool = False,
 ) -> optuna.Study:
     if not dm.is_processed:
         raise ValueError("Data must be processed before optimizing the model.")
     if n_trials < 1 or epochs < 1 or patience < 1 or val_topk < 1:
         raise ValueError("n_trials, epochs, patience and val_topk must be positive.")
-    ModelArch(base_config.arch)
+    if ModelArch(base_config.arch) != ModelArch.KG_RNN:
+        raise ValueError("Hyperparameter optimization only supports kg_rnn.")
     if not base_config.has_history:
         raise ValueError("Optimization requires chronological history.")
     # Trials train with a reduced budget; the winning configuration is saved
@@ -348,6 +326,7 @@ def optimize_model(
             verbose=verbose,
             compile=compile,
             limit_val_batches=limit_val_batches,
+            log_mlflow=log_mlflow,
         ),
         n_trials=n_trials,
         gc_after_trial=True,

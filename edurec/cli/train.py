@@ -7,7 +7,7 @@ import typer
 from edurec import settings
 from edurec.cli.utils import (
     build_config,
-    config_paths,
+    config_path,
     dataset_train_defaults,
     datasets_to_run,
     print_data_summary,
@@ -147,8 +147,8 @@ def train(
     configs_folder: Annotated[Path, typer.Option("--configs-folder", "-C")] = Path(
         settings.CONFIGS_FOLDER
     ),
-    experiment_name: Annotated[
-        str | None, typer.Option("--experiment-name", "-E")
+    run_name: Annotated[
+        str | None, typer.Option("--run-name", "-N")
     ] = None,
 ) -> None:
     started_at = datetime.datetime.now(datetime.UTC)
@@ -158,13 +158,10 @@ def train(
     datasets = datasets_to_run(dataset)
 
     for dataset_idx, dataset_name in enumerate(datasets, start=1):
-        run_name = dataset_name.value
+        dataset_label = dataset_name.value
         resolved_arch = arch if arch is not None else ModelArch.KG_RNN
-        # dataset_experiment_name = (
-        #     f"{experiment_name}_{run_name}" if experiment_name else None
-        # )
-        model_config_path, train_config_path = config_paths(
-            configs_folder, run_name, resolved_arch
+        run_config_path = config_path(
+            configs_folder, dataset_label, resolved_arch
         )
         train_cfg = resolve_train_config(
             cli={
@@ -174,13 +171,13 @@ def train(
                 "patience": patience,
                 "adaptive_k": adaptive_k,
             },
-            saved_path=train_config_path,
+            saved_path=run_config_path,
             defaults=dataset_train_defaults(dataset_name),
         )
         val_topk = monitor_topk(top_k, train_cfg)
 
         print("\n[TRAIN] Training run")
-        print(f"[TRAIN] Dataset {dataset_idx}/{len(datasets)}: {run_name}")
+        print(f"[TRAIN] Dataset {dataset_idx}/{len(datasets)}: {dataset_label}")
         print(f"[TRAIN] Model: {resolved_arch.value}")
         print(f"[TRAIN] Monitor: val/ndcg@{val_topk}")
         print(f"[TRAIN] Save model: {save}")
@@ -194,8 +191,8 @@ def train(
                 f"adaptive_k={train_cfg.adaptive_k}, debug={debug}"
             )
 
-            if experiment_name:
-                print(f"[TRAIN] Logger: MLflow, run_name={experiment_name}")
+            if run_name:
+                print(f"[TRAIN] Logger: MLflow, run_name={run_name}")
 
             print(
                 "[TRAIN] Data config: "
@@ -231,20 +228,20 @@ def train(
             "gcl_max_items": gcl_max_items,
         }
 
-        if model_config_path.exists():
+        if run_config_path.exists():
             cfg = build_config(
                 dm,
-                base=ModelConfig.load(model_config_path),
+                base=ModelConfig.load(run_config_path),
                 arch=resolved_arch,
                 **gcl_overrides,
             )
-            print(f"[TRAIN] Using saved model config: {model_config_path}")
+            print(f"[TRAIN] Using saved model config: {run_config_path}")
         else:
             cfg = build_config(dm, arch=resolved_arch, **gcl_overrides)
             print("[TRAIN] No saved model config found; using the full model.")
 
-        if train_config_path.exists():
-            print(f"[TRAIN] Using saved training config: {train_config_path}")
+        if run_config_path.exists():
+            print(f"[TRAIN] Using saved training config: {run_config_path}")
 
         print_model_modules("TRAIN", cfg)
 
@@ -266,7 +263,7 @@ def train(
             debug=debug,
             epochs=train_cfg.epochs,
             patience=train_cfg.patience,
-            experiment_name=experiment_name,
+            run_name=run_name,
             monitor=recsys.monitor,
             compile=compile,
             verbose=verbose,
@@ -296,7 +293,7 @@ def train(
         if save and trainer.is_global_zero:
             model_file_path, model_config_path = save_model(
                 model_config=cfg,
-                dataset_name=run_name,
+                dataset_name=dataset_label,
                 best_model_path=best_model_path,
                 models_folder=models_folder,
             )

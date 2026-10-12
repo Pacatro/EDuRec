@@ -10,7 +10,7 @@ import typer
 from edurec import settings
 from edurec.cli.utils import (
     build_config,
-    config_paths,
+    config_path,
     dataset_train_defaults,
     datasets_to_run,
     parse_seeds,
@@ -116,7 +116,7 @@ def run_ablation(
         resolved_arch = arch if arch is not None else ModelArch.KG_RNN
         dataset_root = output_dir / run_name
         dataset_root.mkdir(parents=True, exist_ok=True)
-        model_config_path, train_config_path = config_paths(
+        run_config_path = config_path(
             Path(settings.CONFIGS_FOLDER), run_name, resolved_arch
         )
         train_cfg = resolve_train_config(
@@ -127,7 +127,7 @@ def run_ablation(
                 "patience": patience,
                 "adaptive_k": adaptive_k,
             },
-            saved_path=train_config_path,
+            saved_path=run_config_path,
             defaults=dataset_train_defaults(dataset_name),
         )
         rows = []
@@ -153,11 +153,11 @@ def run_ablation(
             print_data_summary("ABLATION", dm)
             knowledge_graph = dm.knowledge_graph
 
-            if model_config_path.exists():
-                print("[ABLATION] Using existing model config file:", model_config_path)
+            if run_config_path.exists():
+                print("[ABLATION] Using existing model config file:", run_config_path)
                 base_cfg = build_config(
                     dm,
-                    base=ModelConfig.load(model_config_path),
+                    base=ModelConfig.load(run_config_path),
                     arch=resolved_arch,
                     gcl_weight=gcl_weight,
                 )

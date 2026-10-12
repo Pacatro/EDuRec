@@ -1,0 +1,39 @@
+arch: kg_rnn
+model:
+  use_gcl: true
+  dropout: 0.5
+  emb_dim: 512
+  gnn_dropout: 0.5
+  gnn_heads: 4
+  gnn_layers: 2
+  graph_mode: kg
+  has_history: true
+  hidden_dims:
+  - 1024
+  kg_edge_types: []
+  kg_node_counts: {}
+  num_item_dense_feats: 463
+  num_item_text_feats: 384
+  num_items: 2865
+  num_user_dense_feats: 1
+  num_users: 40250
+  rnn_hidden_dim: 256
+  rnn_layers: 1
+  rnn_type: gru
+  use_interaction_features: true
+  use_item_bias: true
+  use_text_features: true
+  use_time_features: true
+train:
+  adaptive_k: false
+  batch_size: 512
+  epochs: 150
+  lr: 0.0001
+  patience: 5
+  topks:
+  - 5
+  - 10
+  - 20
+  weight_decay: 0.001
+  max_history: 50
+  deduplicate_interactions: false

@@ -18,21 +18,13 @@ def datasets_to_run(dataset: DatasetName | None) -> list[DatasetName]:
     ]
 
 
-def config_paths(
+def config_path(
     configs_folder: Path,
     run_name: str,
     arch: ModelArch | str,
-) -> tuple[Path, Path]:
-    """Return the per-architecture model and training config paths for a run.
-
-    File names match the copies written under ``results/optimization`` so a
-    dataset's saved configuration can be correlated across both folders.
-    """
-    arch_value = ModelArch(arch).value
-    return (
-        Path(configs_folder) / "model" / f"config-{run_name}-{arch_value}.yaml",
-        Path(configs_folder) / "train" / f"train-config-{run_name}-{arch_value}.yaml",
-    )
+) -> Path:
+    """Return the unified model and training configuration path for a run."""
+    return Path(configs_folder) / f"{ModelArch(arch).value}-{run_name}.yaml"
 
 
 DATASET_TRAIN_DEFAULTS: dict[DatasetName, TrainConfig] = {

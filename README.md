@@ -107,7 +107,7 @@ Common options:
 -P, --use_processed             Reuse cached processed data
 -M, --models-folder TEXT        Default: models
 -C, --configs-folder TEXT       Default: configs
--E, --experiment-name TEXT      Optional logger experiment name
+-N, --run-name TEXT             Optional MLflow run name
 ```
 
 KGSeq supports optional graph contrastive learning (GCL). Recommendation uses
@@ -120,7 +120,7 @@ recommendation loss plus `gcl_weight * gcl_loss` (symmetric item InfoNCE).
 uv run edurec --device cpu --random-state 42 train --dataset doris --arch kg_rnn --gcl-weight 0.01 --debug
 ```
 
-Set these fields in `configs/model/config-<dataset>-kg_rnn.yaml`, or override
+Set these fields in `configs/kg_rnn-<dataset>.yaml`, or override
 them with `--gcl-weight`, `--gcl-temperature`, `--gcl-edge-dropout`, and
 `--gcl-max-items`:
 
@@ -192,14 +192,13 @@ and seed, the detailed `evaluation_results.csv`, and the aggregated
 Run Optuna-based hyperparameter optimization for EDuRec.
 
 ```bash
-uv run edurec hpo --dataset explicit_mars --trials 30 --use_processed
+uv run edurec hpo --dataset explicit_mars --trials 30 --use_processed -L
 ```
 
 The command saves the best model and training configurations, trial log, and
 study database under `results/optimization/<dataset>/`. It also writes the best
 configuration for each dataset and architecture to
-`configs/model/config-<dataset>-<arch>.yaml` and
-`configs/train/train-config-<dataset>-<arch>.yaml`, using the same file names as
+`configs/<arch>-<dataset>.yaml`, using the same file names as
 the copies under `results/optimization/`, so they can be reused by training and
 evaluation. Use `--configs-folder` to choose a different folder.
 
@@ -210,14 +209,19 @@ full `--epochs` budget for the final run.
 
 ### Saved Configurations
 
-The `configs/` folder keeps one model configuration and one independent training
-configuration per evaluated dataset **and architecture**:
+The `configs/` folder keeps one configuration per dataset **and architecture**,
+with model and training parameters grouped in separate mappings:
 
-```text
-configs/model/config-<dataset>-<arch>.yaml         Model architecture hyperparameters
-configs/train/train-config-<dataset>-<arch>.yaml   Training hyperparameters (epochs, lr,
-                                                   batch size, patience, weight decay,
-                                                   top-k, adaptive-k)
+```yaml
+# configs/kg_rnn-doris.yaml
+arch: kg_rnn
+model:
+  emb_dim: 256
+  # Remaining model parameters, including dataset dimensions.
+train:
+  epochs: 150
+  lr: 0.0005
+  batch_size: 128
 ```
 
 `<arch>` can be `kg_rnn` or `sasrec_text`. When a config file exists for the
@@ -359,6 +363,12 @@ baselines use the same full item catalog, seen-item mask, and TorchMetrics
 implementations for Precision, Recall, NDCG, Hit Rate, MAP, and MRR.
 
 ### Hyperparameter Optimization
+
+`uv run edurec hpo -L` logs each trial as a separate run in the MLflow
+experiment `HPO` (created if absent and reused across searches). Runs include
+the study, dataset, trial number, sampled parameters, training metrics and
+trial outcome (`COMPLETE`, `PRUNED`, or `FAIL`). Without `-L` / `--log-mlflow`,
+HPO does not create MLflow runs.
 
 `uv run edurec hpo` runs Optuna studies for EDuRec and saves the best model
 and training configurations as YAML for later training, evaluation, or ablation

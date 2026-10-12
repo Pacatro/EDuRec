@@ -7,14 +7,14 @@ import typer
 from edurec import settings
 from edurec.cli.utils import (
     build_config,
-    config_paths,
+    config_path,
     datasets_to_run,
     print_data_summary,
     print_model_modules,
 )
 from edurec.datasets import DatasetName, ElearningDataModule
 from edurec.recsys import ModelArch, ModelConfig, optimize_model
-from edurec.recsys.configs import TrainConfig
+from edurec.recsys.configs import TrainConfig, save_run_config
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -27,7 +27,7 @@ def optimize(
         typer.Option(
             "--arch",
             "-A",
-            help="Model architecture to optimize. Defaults to kg_rnn.",
+            help="Model architecture to optimize. Only kg_rnn is supported.",
         ),
     ] = None,
     epochs: Annotated[
@@ -82,6 +82,12 @@ def optimize(
     use_processed_data: Annotated[
         bool, typer.Option("--use_processed", "-P")
     ] = settings.SAVE_DATA,
+    log_mlflow: Annotated[
+        bool,
+        typer.Option(
+            "--log-mlflow", "-L", help="Log trials to the HPO MLflow experiment."
+        ),
+    ] = False,
     compile: Annotated[
         bool,
         typer.Option("--compile", help="Compile each model before training."),
@@ -95,6 +101,8 @@ def optimize(
         ),
     ] = Path(settings.CONFIGS_FOLDER),
 ) -> None:
+    if arch is not None and arch != ModelArch.KG_RNN:
+        raise typer.BadParameter("HPO only supports kg_rnn.", param_hint="--arch")
     datasets = datasets_to_run(dataset)
     verbose = settings.state["verbose"]
 
@@ -162,6 +170,7 @@ def optimize(
             compile=compile,
             verbose=verbose,
             results_path=dataset_results_path,
+            log_mlflow=log_mlflow,
         )
         best_attrs = study.best_trial.user_attrs
         if "config" not in best_attrs or "train_config" not in best_attrs:
@@ -180,20 +189,11 @@ def optimize(
         )
         print("[OPTIM] Params:", study.best_params)
 
-        model_cfg_path, train_cfg_path = config_paths(
-            configs_folder, run_name, resolved_arch
-        )
-        result_cfg_path = results_root / f"config-{run_name}-{resolved_arch.value}.yaml"
-        result_train_cfg_path = (
-            results_root / f"train-config-{run_name}-{resolved_arch.value}.yaml"
-        )
-        best_cfg.save(result_cfg_path)
-        best_cfg.save(model_cfg_path)
-        best_train_cfg.save(result_train_cfg_path)
-        best_train_cfg.save(train_cfg_path)
+        reusable_cfg_path = config_path(configs_folder, run_name, resolved_arch)
+        result_cfg_path = config_path(results_root, run_name, resolved_arch)
+        save_run_config(result_cfg_path, best_cfg, best_train_cfg)
+        save_run_config(reusable_cfg_path, best_cfg, best_train_cfg)
         print("[OPTIM] Saved result config:", result_cfg_path)
-        print("[OPTIM] Saved result training config:", result_train_cfg_path)
-        print("[OPTIM] Saved reusable model config:", model_cfg_path)
-        print("[OPTIM] Saved reusable training config:", train_cfg_path)
+        print("[OPTIM] Saved reusable config:", reusable_cfg_path)
         print("[OPTIM] Trials log:", dataset_results_path / "trials.csv")
         print("[OPTIM] Study storage:", dataset_results_path / "study.db")
