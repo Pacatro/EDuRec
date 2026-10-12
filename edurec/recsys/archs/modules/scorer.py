@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 
 import torch
 from torch import nn
+from torch.utils.checkpoint import checkpoint
 
 
 @dataclass
@@ -9,6 +10,7 @@ class ScorerConfig:
     emb_dim: int
     hidden_dims: list[int] = field(default_factory=list)
     dropout: float = 0.1
+    max_pairs_per_chunk: int = 32768
 
 
 class Scorer(nn.Module):
@@ -22,6 +24,9 @@ class Scorer(nn.Module):
     def __init__(self, cfg: ScorerConfig, chunk_size: int = 1024):
         super().__init__()
         self.chunk_size = chunk_size
+        if cfg.max_pairs_per_chunk < 1:
+            raise ValueError("max_pairs_per_chunk must be positive.")
+        self.max_pairs_per_chunk = cfg.max_pairs_per_chunk
 
         layers: list[nn.Module] = []
         prev_dim = cfg.emb_dim * 2
@@ -64,16 +69,30 @@ class Scorer(nn.Module):
             user = user_emb.unsqueeze(1).expand(batch_size, num_candidates, -1)
             return self.mlp(torch.cat([user, cand_emb], dim=-1)).squeeze(-1)
 
-        batch_size = user_emb.shape[0]
         num_items = item_emb.shape[0]
-        chunk_size = self.chunk_size if self.chunk_size > 0 else num_items
+        chunk_size = min(
+            self.chunk_size if self.chunk_size > 0 else num_items,
+            max(1, self.max_pairs_per_chunk // max(1, user_emb.size(0))),
+        )
 
         scores = []
         for start in range(0, num_items, chunk_size):
             chunk_emb = item_emb[start : start + chunk_size]
-            parts = [
-                user_emb.unsqueeze(1).expand(batch_size, chunk_emb.size(0), -1),
-                chunk_emb.unsqueeze(0).expand(batch_size, -1, -1),
-            ]
-            scores.append(self.mlp(torch.cat(parts, dim=-1)).squeeze(-1))
+            if self.training and torch.is_grad_enabled():
+                # Recompute concatenation and MLP activations during backward.
+                # Passing the unexpanded inputs avoids retaining B x chunk x D
+                # tensors for every catalog block. Checkpoint preserves dropout RNG.
+                scores.append(checkpoint(
+                    self._score_chunk, user_emb, chunk_emb, use_reentrant=False
+                ))
+            else:
+                scores.append(self._score_chunk(user_emb, chunk_emb))
         return torch.cat(scores, dim=1)
+
+    def _score_chunk(
+        self, user_emb: torch.Tensor, item_emb: torch.Tensor
+    ) -> torch.Tensor:
+        batch_size = user_emb.size(0)
+        user = user_emb.unsqueeze(1).expand(batch_size, item_emb.size(0), -1)
+        items = item_emb.unsqueeze(0).expand(batch_size, -1, -1)
+        return self.mlp(torch.cat([user, items], dim=-1)).squeeze(-1)

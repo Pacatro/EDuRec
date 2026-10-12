@@ -163,6 +163,7 @@ class ModelConfig(BaseConfig):
     max_history_len: int = settings.MAX_HISTORY_LEN
 
     # Scorer defaults
+    scorer_max_pairs_per_chunk: int = 32768
     hidden_dims: list[int] = field(
         default_factory=lambda: [settings.EMB_DIM * 2, settings.EMB_DIM]
     )
@@ -280,6 +281,7 @@ class ModelConfig(BaseConfig):
             emb_dim=self.emb_dim,
             hidden_dims=self.hidden_dims,
             dropout=self.dropout,
+            max_pairs_per_chunk=self.scorer_max_pairs_per_chunk,
         )
 
 
