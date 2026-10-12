@@ -17,9 +17,8 @@ ARCH_LABELS: dict[str, str] = {
 def build_model(cfg: ModelConfig) -> BaseRecArch:
     """Instantiate the architecture selected by ``cfg.arch``.
 
-    Raises a clear error for unknown architectures and for datasets without a
-    chronological history, which is required because users are represented
-    solely by their interaction sequence.
+    Raises a clear error for unknown architectures or SASRec without history.
+    KGSeq can instead represent users with their identifiers and static profiles.
     """
     arch = str(cfg.arch)
     try:
@@ -30,7 +29,7 @@ def build_model(cfg: ModelConfig) -> BaseRecArch:
             f"Unknown architecture {arch!r}. Available architectures: {choices}."
         ) from exc
 
-    if not cfg.has_history:
+    if not cfg.has_history and arch == "sasrec_text":
         raise ValueError(
             "This architecture requires sequential history: the dataset must "
             "provide a chronological timestamp."

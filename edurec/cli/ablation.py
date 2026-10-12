@@ -179,7 +179,7 @@ def run_ablation(
                 cfg.save(variant_root / "config.yaml")
 
                 print(f"[ABLATION] {run_name} | {variant} | seed={seed}")
-                if not cfg.has_history:
+                if not cfg.has_history and cfg.arch == ModelArch.SASREC_TEXT:
                     print(
                         f"[ABLATION] SKIPPING variant {variant!r}: "
                         "the model requires sequential history."

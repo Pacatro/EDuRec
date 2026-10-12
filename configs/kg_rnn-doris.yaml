@@ -23,7 +23,7 @@ model:
   use_interaction_features: true
   use_item_bias: true
   use_text_features: true
-  use_time_features: true
+  use_time_features: false
 train:
   epochs: 150
   lr: 0.0005

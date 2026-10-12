@@ -63,10 +63,15 @@ def build_config(
         "has_history": dm.has_history,
     }
     overrides = {key: value for key, value in overrides.items() if value is not None}
+    effective = {**dataset_config, **overrides}
+    if dm.dataset_name == DatasetName.DORIS:
+        effective["use_time_features"] = False
+    if dm.dataset_name == DatasetName.ITM:
+        effective.update(has_history=False, use_time_features=False)
     if base is not None:
-        return replace(base, **dataset_config, **overrides)
+        return replace(base, **effective)
 
-    return ModelConfig(**dataset_config, **overrides)
+    return ModelConfig(**effective)
 
 
 def print_model_modules(prefix: str, cfg: ModelConfig) -> None:

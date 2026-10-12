@@ -262,7 +262,7 @@ def optimize_model(
         raise ValueError("n_trials, epochs, patience and val_topk must be positive.")
     if ModelArch(base_config.arch) != ModelArch.KG_RNN:
         raise ValueError("Hyperparameter optimization only supports kg_rnn.")
-    if not base_config.has_history:
+    if not base_config.has_history and base_config.arch == ModelArch.SASREC_TEXT:
         raise ValueError("Optimization requires chronological history.")
     # Trials train with a reduced budget; the winning configuration is saved
     # with the full ``epochs`` for the final run.

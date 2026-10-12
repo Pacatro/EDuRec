@@ -10,7 +10,7 @@ from edurec.recsys.archs.modules.interaction_context import ContextEncoder
 from edurec.recsys.archs.modules.kg_encoder import GraphEncoder
 from edurec.recsys.archs.modules.scorer import Scorer
 from edurec.recsys.archs.modules.seq_encoder import SeqEncoder
-from edurec.recsys.archs.modules.user_state import UserStateEncoder
+from edurec.recsys.archs.modules.user_state import UserProfileEncoder, UserStateEncoder
 from edurec.recsys.configs import ModelConfig
 
 
@@ -38,11 +38,20 @@ class KGSeq(BaseRecArch):
 
         self.kg = GraphEncoder(cfg.kg_encoder)
         self.interaction_context = ContextEncoder(cfg.interaction_context)
-        self.user_state = UserStateEncoder(cfg.user_state)
-        self.time_proj = nn.Linear(1, cfg.emb_dim) if cfg.use_time_features else None
+        self.user_state = UserStateEncoder(cfg.user_state) if cfg.has_history else None
+        self.time_proj = (
+            nn.Linear(1, cfg.emb_dim)
+            if cfg.use_time_features and cfg.has_history else None
+        )
         self.event_norm = nn.LayerNorm(cfg.emb_dim)
 
-        self.seq_encoder = SeqEncoder(cfg.seq_encoder)
+        self.seq_encoder = SeqEncoder(cfg.seq_encoder) if cfg.has_history else None
+        self.static_user = (
+            UserProfileEncoder(cfg.user_state) if not cfg.has_history else None
+        )
+        self.user_embedding = (
+            nn.Embedding(cfg.num_users, cfg.emb_dim) if not cfg.has_history else None
+        )
 
         self.item_bias = (
             nn.Parameter(torch.zeros(cfg.num_items)) if cfg.use_item_bias else None
@@ -97,23 +106,31 @@ class KGSeq(BaseRecArch):
     ) -> torch.Tensor:
         item_emb = self.item_embeddings()
 
-        padded = torch.cat([item_emb.new_zeros(1, item_emb.size(1)), item_emb])
-        event = padded[h_ids.clamp(min=0)]
+        if self.seq_encoder is None:
+            assert self.user_embedding is not None and self.static_user is not None
+            user_emb = self.user_embedding(user_ids)
+            profile = self.static_user(self.u_cat_feats, self.u_static_feats, user_ids)
+            if profile is not None:
+                user_emb = user_emb + profile
+        else:
+            padded = torch.cat([item_emb.new_zeros(1, item_emb.size(1)), item_emb])
+            event = padded[h_ids.clamp(min=0)]
 
-        if h_dense is not None and h_cat is not None:
-            context = self.interaction_context(h_dense, h_cat)
-            if context is not None:
-                event = event + context
+            if h_dense is not None and h_cat is not None:
+                context = self.interaction_context(h_dense, h_cat)
+                if context is not None:
+                    event = event + context
 
-        if self.time_proj is not None and h_delta is not None:
-            event = event + self.time_proj(
-                torch.log1p(h_delta.clamp(min=0.0)).unsqueeze(-1)
-            )
+            if self.time_proj is not None and h_delta is not None:
+                event = event + self.time_proj(
+                    torch.log1p(h_delta.clamp(min=0.0)).unsqueeze(-1)
+                )
 
-        event = self.event_norm(event)
+            event = self.event_norm(event)
 
-        initial_state = self.user_state(self.u_cat_feats, self.u_static_feats, user_ids)
-        user_emb = self.seq_encoder(event, h_mask, initial_state=initial_state)
+            assert self.user_state is not None
+            initial_state = self.user_state(self.u_cat_feats, self.u_static_feats, user_ids)
+            user_emb = self.seq_encoder(event, h_mask, initial_state=initial_state)
 
         scores = self.scorer(user_emb, item_emb, item_ids=candidate_item_ids)
 

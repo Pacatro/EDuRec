@@ -211,8 +211,8 @@ def generate_negative_samples(
     rng = np.random.default_rng(random_state)
     candidates_by_user: dict[object, np.ndarray] = {}
     replace_by_user: dict[object, bool] = {}
-    for user_id in observed_by_user.index:
-        unseen_items = items.difference(observed_by_user[user_id], sort=False)
+    for user_id in interactions[settings.USER_COL].unique():
+        unseen_items = items.difference(observed_by_user.get(user_id, set()), sort=False)
         if len(unseen_items) == 0:
             raise ValueError(
                 f"User {user_id!r} has no unseen items to sample negatives from."
