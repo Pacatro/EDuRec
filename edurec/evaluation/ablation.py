@@ -55,6 +55,7 @@ def get_ablation_config(base_cfg: ModelConfig, variant: str) -> ModelConfig:
         raise ValueError(
             f"Unknown ablation variant {variant!r}. Available variants: {choices}."
         ) from exc
+    overrides = {**overrides, "use_time_features": overrides["use_time_features"] and base_cfg.use_time_features}
     return replace(base_cfg, **overrides)
 
 
