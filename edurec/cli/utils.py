@@ -11,7 +11,11 @@ from edurec.recsys.configs import TrainConfig
 
 
 def datasets_to_run(dataset: DatasetName | None) -> list[DatasetName]:
-    return [dataset] if dataset is not None else list(dataset_loaders)
+    if dataset is not None:
+        return [dataset]
+    return [
+        ds for ds in dataset_loaders if ds.value not in settings.DISABLED_DATASETS
+    ]
 
 
 def config_paths(

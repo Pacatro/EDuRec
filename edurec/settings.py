@@ -40,6 +40,8 @@ MODEL_CONFIGS_FOLDER: str = f"{CONFIGS_FOLDER}/model"
 TRAIN_CONFIGS_FOLDER: str = f"{CONFIGS_FOLDER}/train"
 
 # Datasets
+# Omitted from automatic runs; explicit --dataset selections still run.
+DISABLED_DATASETS: set[str] = {"itm"}
 ITEM_COL: str = "item_id"
 USER_COL: str = "user_id"
 TIME_COL: str = "timestamp"
