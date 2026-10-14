@@ -24,6 +24,10 @@ from edurec.recsys.ranking import EVALUATION_PROTOCOL
 
 app = typer.Typer(no_args_is_help=True)
 
+# Dedicated MLflow experiment for evaluation runs, separate from training (TFM)
+# and HPO runs.
+MLFLOW_EXPERIMENT_NAME = "EVAL"
+
 
 def _save_seed_results(results: pd.DataFrame, dataset_root: Path, seed: int) -> None:
     for result in results.to_dict(orient="records"):
@@ -280,8 +284,8 @@ def eval_models(
         typer.Option(
             "--logger",
             "-L",
-            help="Log the proposed model training to MLflow. Each run is named "
-            "<arch>-<dataset>-<seed>.",
+            help="Log the proposed model training to the EVAL MLflow experiment. "
+            "Each run is named <arch>-<dataset>-<seed>.",
         ),
     ] = False,
 ) -> None:
@@ -413,6 +417,7 @@ def eval_models(
                     compile=compile,
                     verbose=verbose,
                     run_name=mlflow_run_name,
+                    experiment_name=MLFLOW_EXPERIMENT_NAME,
                 )
                 _save_seed_results(proposed_results, dataset_root, seed)
 

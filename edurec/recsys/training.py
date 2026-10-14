@@ -34,6 +34,7 @@ def train_model(
     patience: int,
     monitor: str,
     run_name: str | None = None,
+    experiment_name: str = settings.EXPERIMENT_NAME,
     compile: bool = settings.COMPILE_MODEL,
     verbose: bool = False,
     callbacks: Sequence[Callback] = (),
@@ -69,7 +70,7 @@ def train_model(
         logger = None
     elif logger is None and run_name is not None:
         logger = MLFlowLogger(
-            experiment_name=settings.EXPERIMENT_NAME,
+            experiment_name=experiment_name,
             run_name=run_name,
             tracking_uri=settings.MLFLOW_TRACKING_URI,
         )

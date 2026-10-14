@@ -17,6 +17,7 @@ def eval_model(
     results_path: Path | None = None,
     verbose: bool = False,
     run_name: str | None = None,
+    experiment_name: str = settings.EXPERIMENT_NAME,
 ) -> pd.DataFrame:
     label = arch_label(cfg)
     recsys = RecSys(
@@ -39,6 +40,7 @@ def eval_model(
         compile=compile,
         verbose=verbose,
         run_name=run_name,
+        experiment_name=experiment_name,
     )
 
     metrics = trainer.test(ckpt_path="best", datamodule=dm, weights_only=False)[0]
