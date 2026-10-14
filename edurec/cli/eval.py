@@ -275,6 +275,15 @@ def eval_models(
             help="Folder containing saved KGSeq configurations.",
         ),
     ] = Path(settings.CONFIGS_FOLDER),
+    logger: Annotated[
+        bool,
+        typer.Option(
+            "--logger",
+            "-L",
+            help="Log the proposed model training to MLflow. Each run is named "
+            "<arch>-<dataset>-<seed>.",
+        ),
+    ] = False,
 ) -> None:
     if only_proposed and only_sota:
         raise typer.BadParameter(
@@ -301,12 +310,12 @@ def eval_models(
     print(f"[EVAL] Configs folder: {configs_folder}\n")
 
     for dataset_idx, dataset_name in enumerate(datasets, start=1):
-        run_name = dataset_name.value
-        dataset_root = output_dir / run_name
+        dataset_label = dataset_name.value
+        dataset_root = output_dir / dataset_label
         dataset_root.mkdir(parents=True, exist_ok=True)
         dataset_started_at = datetime.datetime.now(datetime.UTC)
         run_config_path = config_path(
-            configs_folder, run_name, resolved_arch
+            configs_folder, dataset_label, resolved_arch
         )
         train_cfg = resolve_train_config(
             cli={
@@ -332,7 +341,7 @@ def eval_models(
             else None
         )
 
-        print(f"[EVAL] [{dataset_idx}/{len(datasets)}] Dataset: {run_name}")
+        print(f"[EVAL] [{dataset_idx}/{len(datasets)}] Dataset: {dataset_label}")
         print(f"[EVAL] Top-k: {train_cfg.topks} | val@{val_topk}")
         print(f"[EVAL] Models: {', '.join(models)}")
         if not pending_by_seed:
@@ -388,6 +397,13 @@ def eval_models(
                 cfg = build_config(dm, base=saved_cfg, arch=resolved_arch)
                 print_model_modules("EVAL", cfg)
                 settings.seed_everything(seed)
+                mlflow_run_name = (
+                    f"{resolved_arch.value}-{dataset_label}-seed={seed}"
+                    if logger
+                    else None
+                )
+                if mlflow_run_name is not None and verbose:
+                    print(f"[EVAL] Logger: MLflow, run_name={mlflow_run_name}")
                 print(f"[EVAL] Running {proposed_label} | seed={seed}")
                 proposed_results = eval_model(
                     dm=dm,
@@ -396,6 +412,7 @@ def eval_models(
                     val_topk=val_topk,
                     compile=compile,
                     verbose=verbose,
+                    run_name=mlflow_run_name,
                 )
                 _save_seed_results(proposed_results, dataset_root, seed)
 
@@ -439,4 +456,4 @@ def eval_models(
         print(f"[EVAL] Saved summary: {summary_path}")
         now = datetime.datetime.now(datetime.UTC)
         elapsed = str(now - dataset_started_at).split(".", maxsplit=1)[0]
-        print(f"[EVAL] Finished {run_name} in {elapsed}\n")
+        print(f"[EVAL] Finished {dataset_label} in {elapsed}\n")

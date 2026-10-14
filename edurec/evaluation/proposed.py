@@ -16,6 +16,7 @@ def eval_model(
     compile: bool = settings.COMPILE_MODEL,
     results_path: Path | None = None,
     verbose: bool = False,
+    run_name: str | None = None,
 ) -> pd.DataFrame:
     label = arch_label(cfg)
     recsys = RecSys(
@@ -37,6 +38,7 @@ def eval_model(
         monitor=recsys.monitor,
         compile=compile,
         verbose=verbose,
+        run_name=run_name,
     )
 
     metrics = trainer.test(ckpt_path="best", datamodule=dm, weights_only=False)[0]
