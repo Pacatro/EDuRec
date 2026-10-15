@@ -274,6 +274,7 @@ def run_ablation(
                         default_root_dir=tmp,
                         run_name=mlflow_run_name,
                         experiment_name=MLFLOW_EXPERIMENT_NAME,
+                        params={"variant": variant},
                     )
 
                     training_time = timer.time_elapsed("train")

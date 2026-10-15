@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -41,6 +41,7 @@ def train_model(
     default_root_dir: Path | str | None = None,
     limit_val_batches: float | None = None,
     logger: MLFlowLogger | None = None,
+    params: Mapping[str, Any] | None = None,
 ) -> tuple[L.Trainer, Path, Timer]:
     dm.validate_topks([*getattr(model, "topks", []), getattr(model, "val_topk", settings.TOP_K)])
     model_name = type(model).__name__
@@ -74,6 +75,11 @@ def train_model(
             run_name=run_name,
             tracking_uri=settings.MLFLOW_TRACKING_URI,
         )
+
+    # Extra run parameters (e.g. the ablation variant) that are not part of the
+    # model's own hyperparameters.
+    if logger is not None and params:
+        logger.log_hyperparams(dict(params))
 
     timer = Timer()
     if logger is not None and default_root_dir is None:
