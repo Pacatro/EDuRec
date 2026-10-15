@@ -28,6 +28,10 @@ from edurec.recsys.configs import resolve_train_config
 
 app = typer.Typer(no_args_is_help=True)
 
+# Dedicated MLflow experiment for ablation runs, separate from training (TFM),
+# evaluation (EVAL), and HPO runs.
+MLFLOW_EXPERIMENT_NAME = "ABLATION"
+
 
 @app.command(name="ablation", help="Run KGSeq ablation variants.")
 def run_ablation(
@@ -96,6 +100,15 @@ def run_ablation(
         Path,
         typer.Option("--output-dir", "-o", help="Root folder for ablation results."),
     ] = Path(settings.RESULTS_FOLDER) / "ablations",
+    logger: Annotated[
+        bool,
+        typer.Option(
+            "--logger",
+            "-L",
+            help="Log each ablation variant to the ABLATION MLflow experiment. "
+            "Each run is named <arch>-<dataset>-<variant>-seed.",
+        ),
+    ] = False,
 ) -> None:
     parsed_seeds = parse_seeds(seeds)
     datasets = datasets_to_run(dataset)
@@ -238,6 +251,14 @@ def run_ablation(
                     param.numel() for param in model.parameters() if param.requires_grad
                 )
 
+                mlflow_run_name = (
+                    f"{resolved_arch.value}-{run_name}-{variant}-seed={seed}"
+                    if logger
+                    else None
+                )
+                if mlflow_run_name is not None and verbose:
+                    print(f"[ABLATION] Logger: MLflow, run_name={mlflow_run_name}")
+
                 with TemporaryDirectory(
                     prefix=f"edurec-ablation-{variant}-{seed}-"
                 ) as tmp:
@@ -251,6 +272,8 @@ def run_ablation(
                         compile=compile,
                         verbose=verbose,
                         default_root_dir=tmp,
+                        run_name=mlflow_run_name,
+                        experiment_name=MLFLOW_EXPERIMENT_NAME,
                     )
 
                     training_time = timer.time_elapsed("train")
