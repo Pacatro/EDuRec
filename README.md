@@ -180,8 +180,50 @@ Useful options:
 -P, --use-processed / -N, --no-use-processed
 -c, --cfg-path FILE             Extra RecBole config
 -m, --sota-model TEXT           Repeat to choose baseline models
+--baseline-model TEXT           Add a native baseline (repeat, or use `all`)
 -a, --adaptive-k / -A, --fixed-k
 ```
+
+Native baselines are implemented with PyTorch Lightning under
+`edurec/evaluation/baselines/` (not through RecBole) and are scored with the same
+shared full-catalog retrieval evaluator as EDuRec and the SOTA models, so their
+numbers are directly comparable. IDRMI (Yang et al., *An explainable graph-based
+course recommendation model based on multiple interest factors*, ESWA 2025)
+combines an NGCF over the TRAIN user-item bipartite graph, a KGCN over the item
+knowledge graph and three rule-based interest factors; every interaction-derived
+quantity uses the train split only.
+
+```bash
+uv run edurec eval --dataset doris --use-processed --baseline-model IDRMI
+uv run edurec eval --dataset doris --use-processed --baseline-model all
+```
+
+#### Adding a new native baseline
+
+Baselines are auto-discovered from `edurec/evaluation/baselines/`. To add one,
+create a module in that folder and register a runner with the standard
+signature; no changes to the CLI or the evaluation package are needed:
+
+```python
+# edurec/evaluation/baselines/my_model.py
+from edurec.evaluation.baselines import register_baseline
+
+
+@register_baseline("MyModel")
+def eval_my_model(
+    *,
+    dm,
+    train_cfg,
+    val_topk,
+    compile=False,
+    verbose=False,
+    run_name=None,
+    experiment_name="TFM",
+): ...  # return a one-row DataFrame whose "model" column is "MyModel"
+```
+
+It then runs with `edurec eval --baseline-model MyModel` (or via
+`--baseline-model all`) and is saved next to EDuRec and the SOTA results.
 
 Results are written to `results/evaluations/<dataset>/`, with one CSV per model
 and seed, the detailed `evaluation_results.csv`, and the aggregated

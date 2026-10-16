@@ -145,6 +145,10 @@ ADAPTIVE_K: bool = False
 COMPILE_MODEL: bool = False
 TOP_KS: list[int] = [5, 10, 20]
 
+# Native baselines evaluated with the shared retrieval evaluator (not RecBole).
+# Off by default; opt in with ``eval --baseline-model IDRMI``.
+NATIVE_BASELINES: list[str] = []
+
 # SOTA MODELS
 SOTA_MODELS: list[str] = [
     # Baselines

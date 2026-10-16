@@ -16,7 +16,12 @@ from edurec.cli.utils import (
     print_model_modules,
 )
 from edurec.datasets import DatasetName, ElearningDataModule
-from edurec.evaluation import eval_model, eval_sota_models
+from edurec.evaluation import (
+    baseline_labels,
+    eval_model,
+    eval_sota_models,
+    get_baseline,
+)
 from edurec.recsys import ModelArch, ModelConfig
 from edurec.recsys.archs import ARCH_LABELS
 from edurec.recsys.configs import monitor_topk, resolve_train_config
@@ -46,9 +51,19 @@ def _save_seed_results(results: pd.DataFrame, dataset_root: Path, seed: int) -> 
 
 
 def _target_models(
-    sota_models: list[str], proposed_label: str, *, only_sota: bool = False
+    sota_models: list[str],
+    proposed_label: str,
+    baseline_models: list[str],
+    *,
+    only_proposed: bool = False,
+    only_sota: bool = False,
 ) -> list[str]:
-    models = sota_models if only_sota else [proposed_label, *sota_models]
+    models: list[str] = []
+    if not only_sota:
+        models.append(proposed_label)
+    if not only_sota and not only_proposed:
+        models.extend(baseline_models)
+    models.extend(sota_models)
     return list(dict.fromkeys(models))
 
 
@@ -240,6 +255,14 @@ def eval_models(
             help="RecBole SOTA model to evaluate. Repeat this option for multiple models.",
         ),
     ] = settings.SOTA_MODELS,
+    baseline_models: Annotated[
+        list[str],
+        typer.Option(
+            "--baseline-model",
+            help="Native baseline evaluated with the shared retrieval protocol, "
+            "alongside the proposed and SOTA models. Repeat for multiple baselines.",
+        ),
+    ] = settings.NATIVE_BASELINES,
     only_proposed: Annotated[
         bool,
         typer.Option(
@@ -296,6 +319,10 @@ def eval_models(
     parsed_seeds = parse_seeds(seeds)
     if only_proposed:
         sota_models = []
+    # ``all`` selects every registered native baseline.
+    selected_baselines = (
+        baseline_labels() if "all" in baseline_models else list(baseline_models)
+    )
     resolved_arch = arch if arch is not None else ModelArch.KG_RNN
     proposed_label = ARCH_LABELS[resolved_arch.value]
     val_ratio = settings.VAL_RATIO
@@ -304,7 +331,13 @@ def eval_models(
 
     datasets = datasets_to_run(dataset)
 
-    models = _target_models(sota_models, proposed_label, only_sota=only_sota)
+    models = _target_models(
+        sota_models,
+        proposed_label,
+        selected_baselines,
+        only_proposed=only_proposed,
+        only_sota=only_sota,
+    )
 
     print("\n[EVAL] Evaluation run")
     print(f"[EVAL] Datasets: {', '.join(ds.value for ds in datasets)}")
@@ -318,9 +351,7 @@ def eval_models(
         dataset_root = output_dir / dataset_label
         dataset_root.mkdir(parents=True, exist_ok=True)
         dataset_started_at = datetime.datetime.now(datetime.UTC)
-        run_config_path = config_path(
-            configs_folder, dataset_label, resolved_arch
-        )
+        run_config_path = config_path(configs_folder, dataset_label, resolved_arch)
         train_cfg = resolve_train_config(
             cli={
                 "epochs": epochs,
@@ -420,6 +451,35 @@ def eval_models(
                     experiment_name=MLFLOW_EXPERIMENT_NAME,
                 )
                 _save_seed_results(proposed_results, dataset_root, seed)
+
+            pending_baselines = [
+                model for model in selected_baselines if model in pending_models
+            ]
+            if pending_baselines:
+                settings.seed_everything(seed)
+                print(
+                    f"[EVAL] Running native baselines | seed={seed}: "
+                    f"{', '.join(pending_baselines)}"
+                )
+                for baseline in pending_baselines:
+                    runner = get_baseline(baseline)
+                    if runner is None:
+                        print(f"[EVAL] Unknown native baseline {baseline!r}; skipping.")
+                        continue
+                    baseline_run_name = (
+                        f"{baseline}-{dataset_label}-seed={seed}" if logger else None
+                    )
+                    print(f"[EVAL] Running {baseline} | seed={seed}")
+                    baseline_results = runner(
+                        dm=dm,
+                        train_cfg=train_cfg,
+                        val_topk=val_topk,
+                        compile=compile,
+                        verbose=verbose,
+                        run_name=baseline_run_name,
+                        experiment_name=MLFLOW_EXPERIMENT_NAME,
+                    )
+                    _save_seed_results(baseline_results, dataset_root, seed)
 
             pending_sota_models = [
                 model for model in sota_models if model in pending_models
