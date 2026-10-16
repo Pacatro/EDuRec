@@ -147,9 +147,7 @@ def train(
     configs_folder: Annotated[Path, typer.Option("--configs-folder", "-C")] = Path(
         settings.CONFIGS_FOLDER
     ),
-    run_name: Annotated[
-        str | None, typer.Option("--run-name", "-N")
-    ] = None,
+    run_name: Annotated[str | None, typer.Option("--run-name", "-N")] = None,
 ) -> None:
     started_at = datetime.datetime.now(datetime.UTC)
     verbose = settings.state["verbose"]
@@ -160,9 +158,7 @@ def train(
     for dataset_idx, dataset_name in enumerate(datasets, start=1):
         dataset_label = dataset_name.value
         resolved_arch = arch if arch is not None else ModelArch.KG_RNN
-        run_config_path = config_path(
-            configs_folder, dataset_label, resolved_arch
-        )
+        run_config_path = config_path(configs_folder, dataset_label, resolved_arch)
         train_cfg = resolve_train_config(
             cli={
                 "epochs": epochs,

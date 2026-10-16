@@ -164,9 +164,7 @@ class ElearningDataModule(L.LightningDataModule):
                 negative_item_ids=train_negatives,
             )
 
-            self.val_ds = self._make_dataset(
-                relevant_splits["val"], histories["val"]
-            )
+            self.val_ds = self._make_dataset(relevant_splits["val"], histories["val"])
 
         elif stage == "test":
             self.test_ds = self._make_dataset(

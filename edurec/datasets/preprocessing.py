@@ -54,9 +54,13 @@ def split_data(
     if deduplicate or not has_time:
         df = deduplicate_interactions(df)
     if not 0 < test_ratio < 1 or not 0 < val_ratio < 1 or test_ratio + val_ratio >= 1:
-        raise ValueError("Validation/test ratios must be positive and sum to less than 1.")
+        raise ValueError(
+            "Validation/test ratios must be positive and sum to less than 1."
+        )
     if min_interactions < 3:
-        raise ValueError("min_interactions must be at least 3 to create train/val/test splits.")
+        raise ValueError(
+            "min_interactions must be at least 3 to create train/val/test splits."
+        )
     rng = np.random.default_rng(random_state)
     splits = {"train": [], "val": [], "test": []}
 
@@ -85,12 +89,12 @@ def split_data(
             splits["train"].append(user_df.iloc[order[n_test + n_val :]])
 
     frames = [
-        (pd.concat(splits[name], axis=0) if splits[name] else df.iloc[:0].copy())
-        .reset_index(drop=True)
+        (
+            pd.concat(splits[name], axis=0) if splits[name] else df.iloc[:0].copy()
+        ).reset_index(drop=True)
         for name in ("train", "val", "test")
     ]
     return frames[0], frames[1], frames[2]
-
 
 
 def filter_sparse(
@@ -218,7 +222,9 @@ def generate_negative_samples(
     candidates_by_user: dict[object, np.ndarray] = {}
     replace_by_user: dict[object, bool] = {}
     for user_id in interactions[settings.USER_COL].unique():
-        unseen_items = items.difference(observed_by_user.get(user_id, set()), sort=False)
+        unseen_items = items.difference(
+            observed_by_user.get(user_id, set()), sort=False
+        )
         if len(unseen_items) == 0:
             raise ValueError(
                 f"User {user_id!r} has no unseen items to sample negatives from."

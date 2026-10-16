@@ -136,9 +136,7 @@ class RecSys(L.LightningModule):
             rec_loss = F.cross_entropy(scores, labels)
         else:
             scores = self(batch)
-            rec_loss = F.cross_entropy(
-                scores, batch.target_item_id.reshape(-1).long()
-            )
+            rec_loss = F.cross_entropy(scores, batch.target_item_id.reshape(-1).long())
 
         loss = rec_loss
 

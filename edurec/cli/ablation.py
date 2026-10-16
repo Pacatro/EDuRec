@@ -179,9 +179,7 @@ def run_ablation(
                     "[ABLATION] No model config file found, creating new config for dataset:",
                     run_name,
                 )
-                base_cfg = build_config(
-                    dm, arch=resolved_arch, gcl_weight=gcl_weight
-                )
+                base_cfg = build_config(dm, arch=resolved_arch, gcl_weight=gcl_weight)
 
             for variant in variants:
                 settings.seed_everything(seed)

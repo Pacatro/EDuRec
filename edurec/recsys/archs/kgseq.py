@@ -41,7 +41,8 @@ class KGSeq(BaseRecArch):
         self.user_state = UserStateEncoder(cfg.user_state) if cfg.has_history else None
         self.time_proj = (
             nn.Linear(1, cfg.emb_dim)
-            if cfg.use_time_features and cfg.has_history else None
+            if cfg.use_time_features and cfg.has_history
+            else None
         )
         self.event_norm = nn.LayerNorm(cfg.emb_dim)
 
@@ -129,7 +130,9 @@ class KGSeq(BaseRecArch):
             event = self.event_norm(event)
 
             assert self.user_state is not None
-            initial_state = self.user_state(self.u_cat_feats, self.u_static_feats, user_ids)
+            initial_state = self.user_state(
+                self.u_cat_feats, self.u_static_feats, user_ids
+            )
             user_emb = self.seq_encoder(event, h_mask, initial_state=initial_state)
 
         scores = self.scorer(user_emb, item_emb, item_ids=candidate_item_ids)

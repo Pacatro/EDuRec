@@ -82,9 +82,11 @@ class Scorer(nn.Module):
                 # Recompute concatenation and MLP activations during backward.
                 # Passing the unexpanded inputs avoids retaining B x chunk x D
                 # tensors for every catalog block. Checkpoint preserves dropout RNG.
-                scores.append(checkpoint(
-                    self._score_chunk, user_emb, chunk_emb, use_reentrant=False
-                ))
+                scores.append(
+                    checkpoint(
+                        self._score_chunk, user_emb, chunk_emb, use_reentrant=False
+                    )
+                )
             else:
                 scores.append(self._score_chunk(user_emb, chunk_emb))
         return torch.cat(scores, dim=1)

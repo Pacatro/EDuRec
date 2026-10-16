@@ -311,9 +311,7 @@ def monitor_topk(top_k: int | None, train_cfg: TrainConfig) -> int:
     return top_k if top_k is not None else max(train_cfg.topks)
 
 
-def save_run_config(
-    path: Path | str, model: ModelConfig, train: TrainConfig
-) -> None:
+def save_run_config(path: Path | str, model: ModelConfig, train: TrainConfig) -> None:
     """Save model and training settings in one architecture-specific document."""
     model_payload = asdict(model)
     arch = ModelArch(model_payload.pop("arch")).value
