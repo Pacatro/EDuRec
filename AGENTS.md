@@ -13,17 +13,12 @@ Keep dataset-specific YAML files in `configs/`, named `<arch>-<dataset>.yaml`, w
 - `uv run edurec --help`: inspect CLI commands and options.
 - `uv run edurec --device cpu --random-state 42 train --dataset doris --arch sasrec_text --debug`: run a reproducible training smoke check.
 - `uv run pyright --pythonpath .venv/bin/python --pythonversion 3.12 edurec`: run static type checks.
-- `uv run python -m unittest discover -s tests -v`: run contributor-added unittest tests.
 
 Initial dataset preparation may download datasets and pretrained text weights.
 
 ## Coding Style & Naming Conventions
 
 Use four-space indentation, `snake_case` for functions/modules, `PascalCase` for classes, and uppercase constants. Add type annotations to public interfaces and document tensor shapes where they clarify model behavior. Follow adjacent code's import ordering and formatting; no formatter is pinned in `pyproject.toml`. Keep tensors device-agnostic and configuration in dataclasses or YAML rather than hardcoded training parameters.
-
-## Testing Guidelines
-
-There are currently no tracked automated tests or enforced coverage threshold. Add focused regression tests under `tests/test_<component>.py` using standard-library `unittest`; pytest is not declared as a dependency. Prioritize chronological leakage, feature alignment, negative sampling, finite losses/gradients, and candidate/full-catalog scoring consistency. Gate CUDA tests on availability and explain skipped checks.
 
 ## Commit & Pull Request Guidelines
 
