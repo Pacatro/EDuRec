@@ -101,6 +101,21 @@ Global options:
 
 ### Inspect a Dataset
 
+Explore every dataset's KG with
+[`notebooks/knowledge_graphs.ipynb`](notebooks/knowledge_graphs.ipynb):
+
+```bash
+uv run --with plotly --with jupyterlab jupyter lab notebooks/knowledge_graphs.ipynb
+```
+
+The notebook shows full-graph statistics, interactive sampled neighborhoods,
+item search, entity/relation filters and a schema diagram. It exports standalone
+HTML files to `results/knowledge_graphs/`. By default it uses a compatible cache
+or local raw files and skips missing datasets. Raw mode inspects the original
+catalog without generating text embeddings or overwriting training caches;
+cache mode uses the retained training catalog and its saved features. Downloads
+are opt-in through `ALLOW_DOWNLOAD`.
+
 Print basic statistics and sample rows from a dataset.
 
 ```bash
