@@ -19,6 +19,7 @@ class GraphEncoderConfig:
     heads: int = 4
     dropout: float = settings.DROPOUT
     node_counts: dict[str, int] = field(default_factory=dict)
+    node_feat_dims: dict[str, int] = field(default_factory=dict)
     edge_types: list[EdgeType] = field(default_factory=list)
     graph_mode: str = "kg"
 
@@ -36,7 +37,9 @@ class GraphEncoder(nn.Module):
 
     Item nodes start from a learned identifier embedding plus a projection of
     their dense features. Categorical and list-valued item metadata become
-    attribute nodes with their own embeddings. When ``graph_mode == "kg"``,
+    attribute nodes with their own embeddings. Available attribute text features
+    are projected and added to these embeddings before message passing.
+    When ``graph_mode == "kg"``,
     stacked heterogeneous graph transformer convolutions propagate information
     over the typed item/attribute relations; every layer adds an explicit
     residual followed by a per-layer LayerNorm. When ``graph_mode == "id"`` no
@@ -60,6 +63,12 @@ class GraphEncoder(nn.Module):
             {
                 node_type: nn.Embedding(count, cfg.emb_dim)
                 for node_type, count in cfg.node_counts.items()
+            }
+        )
+        self.attr_projs = nn.ModuleDict(
+            {
+                node_type: nn.Linear(dim, cfg.emb_dim, bias=False)
+                for node_type, dim in cfg.node_feat_dims.items()
             }
         )
 
@@ -87,6 +96,7 @@ class GraphEncoder(nn.Module):
         self,
         edge_index: dict[EdgeType, torch.Tensor],
         item_feats: torch.Tensor,
+        node_feats: dict[str, torch.Tensor] | None = None,
     ) -> torch.Tensor:
         item = self.item_emb.weight
         if self.item_proj is not None:
@@ -95,6 +105,12 @@ class GraphEncoder(nn.Module):
         x: dict[str, torch.Tensor] = {"item": item}
         for node_type, embedding in self.attr_embs.items():
             x[node_type] = cast(torch.Tensor, embedding.weight)
+            if node_type in self.attr_projs:
+                if node_feats is None or node_type not in node_feats:
+                    raise ValueError(f"Missing graph features for {node_type}")
+                x[node_type] = x[node_type] + self.attr_projs[node_type](
+                    node_feats[node_type]
+                )
 
         x = {node_type: self.input_norm(value) for node_type, value in x.items()}
 

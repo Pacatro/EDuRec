@@ -73,6 +73,8 @@ class DataProcessor:
         self.feature_metadata: dict[str, FeatureMetadata] = {}
         self.feature_columns: dict[str, list[str]] = {}
         self.text_embedding_columns: dict[str, list[str]] = {}
+        # Indexed by original entity ID; persisted with the processor in joblib.
+        self.graph_node_features: dict[str, pd.DataFrame] = {}
         self.is_fitted_ = False
 
     def fit(
@@ -81,6 +83,7 @@ class DataProcessor:
         items_train: pd.DataFrame,
         interactions_train: pd.DataFrame,
     ) -> Self:
+        self.graph_node_features = {}
         self.user_id_map = _build_id_map(
             users_train[settings.USER_COL],
             interactions_train[settings.USER_COL],
@@ -422,6 +425,69 @@ class DataProcessor:
                     parts.append(f"{col}: {cleaned}")
             docs.append(" [SEP] ".join(parts))
 
+        return pd.DataFrame(
+            self.encode_text_documents(docs),
+            columns=embedding_cols,
+            index=df.index,
+            dtype=np.float32,
+        )
+
+    def fit_graph_text_features(
+        self,
+        items: pd.DataFrame,
+        entities: dict[str, pd.DataFrame] | None,
+    ) -> None:
+        """Encode each retained graph entity once, independent of interactions."""
+        self.graph_node_features = {}
+        if "text" not in self.active_feature_types:
+            return
+        entities = entities or {}
+        groups = self.column_groups.get("items", {})
+        item_schema = self.schema.get("items", {})
+        list_fields = set(groups.get("list", [])) | set(
+            item_schema.get("graph_list", [])
+        )
+        enabled_fields = list_fields | set(groups.get("categorical", []))
+        for graph_field, columns in item_schema.get("graph_text", {}).items():
+            if graph_field not in enabled_fields or graph_field not in items:
+                continue
+            # Scalar categories may contain commas; only split declared lists.
+            values = items[graph_field].map(
+                _coerce_list_tokens if graph_field in list_fields else _single_token
+            )
+            ids = sorted({token for tokens in values for token in tokens if token})
+            if not ids:
+                continue
+            if graph_field in entities:
+                frame = entities[graph_field].set_index("id").reindex(ids)
+            elif columns == ["name"]:
+                # Human-readable labels already identify these attribute nodes.
+                frame = pd.DataFrame({"name": ids}, index=ids)
+            else:
+                raise ValueError(f"Missing graph entity metadata for {graph_field}")
+            docs = [
+                " [SEP] ".join(
+                    f"{col}: {_clean_text(value)}"
+                    for col, value in zip(columns, row, strict=True)
+                    if _clean_text(value)
+                )
+                for row in frame[columns].itertuples(index=False, name=None)
+            ]
+            # E5 recommends the query prefix when embeddings are used as features.
+            if "e5" in self.text_embedding_model.lower():
+                docs = [f"query: {doc}" if doc else "" for doc in docs]
+            vectors = np.zeros((len(ids), self.text_embedding_dim), dtype=np.float32)
+            present = [index for index, doc in enumerate(docs) if doc]
+            if present:
+                vectors[present] = self.encode_text_documents(
+                    [docs[index] for index in present]
+                )
+            self.graph_node_features[graph_field] = pd.DataFrame(vectors, index=ids)
+
+    def encode_text_documents(self, docs: list[str]) -> np.ndarray:
+        """Return normalized float32 embeddings [num_documents, text_embedding_dim]."""
+        if not docs:
+            return np.empty((0, self.text_embedding_dim), dtype=np.float32)
         model = _get_sentence_embedding_model(self.text_embedding_model)
         if hasattr(model, "max_seq_length"):
             model.max_seq_length = self.text_max_tokens
@@ -433,7 +499,7 @@ class DataProcessor:
                 show_progress_bar=False,
                 convert_to_numpy=True,
             ),
-            n_rows=len(df),
+            n_rows=len(docs),
         )
         if embeddings.shape[1] != self.text_embedding_dim:
             raise RuntimeError(
@@ -442,12 +508,7 @@ class DataProcessor:
 
         norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
         norms[norms == 0.0] = 1.0
-        return pd.DataFrame(
-            embeddings / norms,
-            columns=embedding_cols,
-            index=df.index,
-            dtype=np.float32,
-        )
+        return embeddings / norms
 
     def _normalize_feature_types(
         self, feature_types: tuple[str, ...]
@@ -513,7 +574,8 @@ def _coerce_list_tokens(value: object) -> list[str]:
     if _is_missing(value):
         return []
 
-    if isinstance(value, (list, tuple, set)):
+    # Feather restores list-valued columns as NumPy arrays.
+    if isinstance(value, (list, tuple, set, np.ndarray)):
         return [str(item).strip() for item in value if str(item).strip()]
 
     if isinstance(value, str):
@@ -539,6 +601,13 @@ def _coerce_list_tokens(value: object) -> list[str]:
     return [str(value).strip()]
 
 
+def _single_token(value: object) -> list[str]:
+    if _is_missing(value):
+        return []
+    token = str(value).strip()
+    return [token] if token else []
+
+
 def _clean_text(value: object) -> str:
     if _is_missing(value):
         return ""
@@ -554,6 +623,8 @@ def _clean_text(value: object) -> str:
 def _is_missing(value: Any) -> bool:
     if value is None:
         return True
+    if isinstance(value, (list, tuple, set, np.ndarray)):
+        return False
     try:
         return bool(pd.isna(value))
     except (TypeError, ValueError):

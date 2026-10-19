@@ -255,8 +255,10 @@ def preprocess(
     train: pd.DataFrame,
     val: pd.DataFrame,
     test: pd.DataFrame,
+    graph_entities: dict[str, pd.DataFrame] | None = None,
 ) -> ProcessedData:
     processor.fit(users_train=users, items_train=items, interactions_train=train)
+    processor.fit_graph_text_features(items, graph_entities)
 
     features = processor.transform(users=users, items=items)
     split_features = {

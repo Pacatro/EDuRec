@@ -27,6 +27,7 @@ class BaseRecArch(nn.Module, ABC):
     u_cat_feats: torch.Tensor
 
     _edge_types: tuple[EdgeType, ...] = ()
+    _graph_feature_types: tuple[str, ...] = ()
     _item_emb_cache: torch.Tensor | None = None
 
     def register_static(
@@ -35,6 +36,7 @@ class BaseRecArch(nn.Module, ABC):
         i_static_feats: torch.Tensor,
         u_static_feats: torch.Tensor,
         u_cat_feats: torch.Tensor,
+        graph_node_feats: dict[str, torch.Tensor] | None = None,
     ) -> None:
         """Attach the batch-invariant graph and feature tables as buffers."""
         self._edge_types = tuple(edge_index)
@@ -47,7 +49,20 @@ class BaseRecArch(nn.Module, ABC):
         self.register_buffer("i_static_feats", i_static_feats, persistent=False)
         self.register_buffer("u_static_feats", u_static_feats, persistent=False)
         self.register_buffer("u_cat_feats", u_cat_feats, persistent=False)
+        graph_node_feats = graph_node_feats or {}
+        self._graph_feature_types = tuple(graph_node_feats)
+        for idx, node_type in enumerate(self._graph_feature_types):
+            self.register_buffer(
+                f"graph_feats_{idx}", graph_node_feats[node_type], persistent=False
+            )
         self._item_emb_cache = None
+
+    @property
+    def graph_node_feats(self) -> dict[str, torch.Tensor]:
+        return {
+            node_type: cast(torch.Tensor, self.get_buffer(f"graph_feats_{idx}"))
+            for idx, node_type in enumerate(self._graph_feature_types)
+        }
 
     @property
     def edge_index(self) -> dict[EdgeType, torch.Tensor]:

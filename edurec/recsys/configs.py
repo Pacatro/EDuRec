@@ -118,6 +118,7 @@ class ModelConfig(BaseConfig):
     interaction_cat_cardinalities: list[int] = field(default_factory=list)
     has_history: bool = True
     kg_node_counts: dict[str, int] = field(default_factory=dict)
+    kg_node_feat_dims: dict[str, int] = field(default_factory=dict)
     kg_edge_types: list[list[str]] = field(default_factory=list)
     emb_dim: int = settings.EMB_DIM
     use_item_bias: bool = True
@@ -217,6 +218,11 @@ class ModelConfig(BaseConfig):
             heads=self.gnn_heads,
             dropout=self.gnn_dropout,
             node_counts=dict(self.kg_node_counts),
+            node_feat_dims=(
+                dict(self.kg_node_feat_dims)
+                if self.use_text_features and self.graph_mode == "kg"
+                else {}
+            ),
             edge_types=edge_types,
             graph_mode=self.graph_mode,
         )

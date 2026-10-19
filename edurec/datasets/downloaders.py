@@ -127,8 +127,15 @@ def download_mooccubex() -> Path:
     for relative_path in settings.MOOCCUBEX_REQUIRED_FILES:
         url = f"{settings.MOOCCUBEX_BASE_URL}/{relative_path}"
         destination = dest / relative_path
+        if destination.is_file():
+            continue
         destination.parent.mkdir(parents=True, exist_ok=True)
-        _download_file(url, destination, desc=relative_path)
+        temporary = destination.with_suffix(destination.suffix + ".part")
+        try:
+            _download_file(url, temporary, desc=relative_path)
+            temporary.replace(destination)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     return dest
 

@@ -32,6 +32,14 @@ class RecSys(L.LightningModule):
         val_topk: int = settings.TOP_K,
     ) -> None:
         super().__init__()
+        graph_node_feats = {
+            node: knowledge_graph[node].x
+            for node in knowledge_graph.node_types
+            if node != "item" and "x" in knowledge_graph[node]
+        }
+        cfg.kg_node_feat_dims = {
+            node: features.size(1) for node, features in graph_node_feats.items()
+        }
         self.save_hyperparameters(
             ignore=[
                 "knowledge_graph",
@@ -74,6 +82,7 @@ class RecSys(L.LightningModule):
             i_static_feats=i_static_feats,
             u_static_feats=u_static_feats,
             u_cat_feats=u_cat_feats,
+            graph_node_feats=graph_node_feats,
         )
 
     def forward(

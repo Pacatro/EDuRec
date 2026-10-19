@@ -47,6 +47,41 @@ loaders currently support:
 - `data/raw/mooccubex`
 - `data/raw/coco`
 
+MOOCCubeX recommends courses and connects them to fields, concepts, teachers,
+and offering universities in the knowledge graph. The downloader fetches
+`entities/user.json`, `entities/course.json`, `entities/concept.json`, `relations/concept-course.txt`,
+`relations/course-teacher.txt`, and `relations/course-school.txt`, reusing files
+already present. Memberships use original entity IDs, include reverse relations,
+and are restricted to the retained course catalog. Concept, teacher, and school
+IDs are graph-only attributes, avoiding dense concept feature matrices. Course
+prerequisite descriptions are encoded as text rather than inferred course links.
+Concept nodes combine a learned ID embedding with a trainable projection of
+their name/context text embeddings, using the configured multilingual text
+encoder. Only concepts linked to retained courses are encoded, once per concept.
+Missing metadata falls back to the name in the concept ID and emits a warning.
+Embeddings and original IDs are saved with the processor; the KG exposes the
+ID-to-row correspondence as `node_ids`. The `use_text_features` ablation also
+disables concept text, including in contrastive graph views. Processed cache
+version 10 rebuilds older caches automatically on the next run. Course-concept
+links remain binary; video-based relevance weights require a separate extension.
+
+Attribute text is also used by other datasets when their static metadata permits:
+
+| Dataset | Graph text and entities |
+| --- | --- |
+| MARS (explicit and implicit) | Existing job, software, theme, resource type and difficulty nodes use their readable labels as text features. |
+| DORIS | Course type and, when present in the course table, college/department nodes use their labels. Course names and prerequisite descriptions also enrich item text. |
+| COCO | Category and instructional-level labels have text features. Course-instructor links retain instructor IDs; available name/profile fields enrich instructor nodes. Missing profiles keep their learned ID embedding with zero text features. |
+| ITM | Item titles/descriptions remain item features; the source has no auxiliary item entities to enrich directly. |
+
+The generic `graph_text` schema supports label text (`["name"]`) as well as
+external entity tables. Scalar labels preserve commas; only list-valued fields
+are split into memberships. Text vectors use retained item metadata exclusively,
+respect `use_text_features`, and are stored with the processor. Course departments
+are never inferred from enrollment rows, and instructor text excludes review and
+enrollment statistics. These additions apply to the `kg_rnn` encoder; text-only
+architectures continue to use item text.
+
 ## Usage
 
 All commands are exposed through the `edurec` CLI.

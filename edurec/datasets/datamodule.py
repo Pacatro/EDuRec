@@ -209,6 +209,7 @@ class ElearningDataModule(L.LightningDataModule):
             user_features=clean_cols(raw.user_features),
             item_features=clean_cols(raw.item_features),
             schema=raw.schema,
+            graph_entities=raw.graph_entities,
         )
 
         users = self.raw_dataset.user_features
@@ -235,6 +236,7 @@ class ElearningDataModule(L.LightningDataModule):
             train=self.artifacts.train,
             val=self.artifacts.val,
             test=self.artifacts.test,
+            graph_entities=raw.graph_entities,
         )
 
         self.artifacts.save(self.processed_folder, manifest=self.cache_params)

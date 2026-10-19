@@ -61,7 +61,7 @@ class KGSeq(BaseRecArch):
 
     def _compute_item_embeddings(self) -> torch.Tensor:
         item_feats = self.i_static_feats[:, : self.cfg.effective_item_dense_feats]
-        return self.kg(self.edge_index, item_feats)
+        return self.kg(self.edge_index, item_feats, self.graph_node_feats)
 
     def auxiliary_loss(
         self,
@@ -88,10 +88,14 @@ class KGSeq(BaseRecArch):
         item_feats = self.i_static_feats[:, : self.cfg.effective_item_dense_feats]
         edges = self.edge_index
         first = self.kg(
-            drop_relation_edges(edges, self.cfg.gcl_edge_dropout), item_feats
+            drop_relation_edges(edges, self.cfg.gcl_edge_dropout),
+            item_feats,
+            self.graph_node_feats,
         )
         second = self.kg(
-            drop_relation_edges(edges, self.cfg.gcl_edge_dropout), item_feats
+            drop_relation_edges(edges, self.cfg.gcl_edge_dropout),
+            item_feats,
+            self.graph_node_feats,
         )
         return item_contrastive_loss(first, second, ids, self.cfg.gcl_temperature)
 

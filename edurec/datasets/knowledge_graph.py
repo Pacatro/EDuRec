@@ -5,6 +5,7 @@ holds an ``item`` node type plus one ``attr::<field>`` node type per
 categorical or list-valued item field. Items link to their attribute values
 through typed membership edges, and the dataset schema may declare extra
 ``refs`` (item -> item) and ``cooc`` (attribute -> attribute) relations.
+Schema ``graph_list`` fields add memberships without dense feature encoding.
 
 User-item interactions never take part in message passing. They are used
 exclusively for history construction, prediction, training and evaluation, so
@@ -38,6 +39,7 @@ from edurec.datasets.dataprocessor import (
     DataProcessor,
     _coerce_list_tokens,
     _is_missing,
+    _single_token,
 )
 
 EdgeType = tuple[str, str, str]
@@ -80,6 +82,8 @@ def _field_kinds(processor: DataProcessor, prefix: str = "items") -> dict[str, b
     kinds: dict[str, bool] = {col: False for col in groups.get("categorical", [])}
     for col in groups.get("list", []):
         kinds[col] = True
+    for col in processor.schema.get(prefix, {}).get("graph_list", []):
+        kinds[col] = True
     return kinds
 
 
@@ -109,6 +113,10 @@ def _add_attribute_edges(
 
         attr_node = f"attr::{field}"
         data[attr_node].num_nodes = len(uniques)
+        data[attr_node].node_ids = [str(token) for token in uniques]
+        if field in processor.graph_node_features:
+            features = processor.graph_node_features[field].loc[data[attr_node].node_ids]
+            data[attr_node].x = torch.as_tensor(features.to_numpy(dtype=np.float32))
         data["item", field, attr_node].edge_index = torch.as_tensor(
             np.stack([long["node"].to_numpy(), codes]),
             dtype=torch.long,
@@ -212,12 +220,6 @@ def _clean_edges(data: HeteroData) -> None:
         if source == target:
             edge_index, _ = remove_self_loops(edge_index)
         data[edge_type].edge_index = coalesce(edge_index)
-
-
-def _single_token(value: object) -> list[str]:
-    if _is_missing(value):
-        return []
-    return [str(value).strip()]
 
 
 def _normalize_label(value: object) -> str:
