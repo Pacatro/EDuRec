@@ -1,8 +1,8 @@
 """Registry for native (non-RecBole) recommendation baselines.
 
 These baselines are implemented with PyTorch Lightning and scored with the same
-shared retrieval evaluator as the proposed EDuRec models and the RecBole SOTA
-models, so their numbers are directly comparable.
+shared retrieval evaluator as the proposed EDuRec models and the RecBole
+baselines (see ``recbole.py``), so their numbers are directly comparable.
 
 Adding a new baseline
 ---------------------
@@ -29,7 +29,7 @@ Adding a new baseline
    available through ``edurec eval --baseline-model MyModel`` (or
    ``--baseline-model all``). The returned ``DataFrame`` must use the shared
    metric names (``ndcg@k``, ``recall@k``, ``mrr@k``, ...) so the results line
-   up with EDuRec and the SOTA models. The runner may accept extra optional
+   up with EDuRec and the RecBole baselines. The runner may accept extra optional
    keyword arguments; the CLI only passes the standard ones listed above.
 """
 
@@ -95,11 +95,13 @@ def native_baseline_runners() -> dict[str, BaselineRunner]:
 
 
 def discover_baselines() -> None:
-    """Import every module in this subpackage to trigger registration.
+    """Import every module in this subpackage.
 
-    Modules whose name starts with an underscore are skipped. Import errors
-    surface immediately so a broken baseline fails fast instead of being
-    silently omitted.
+    Modules that call :func:`register_baseline` become available to the CLI;
+    modules that provide other baseline runners (such as ``recbole.py``) are
+    imported without registering a native runner. Modules whose name starts
+    with an underscore are skipped. Import errors surface immediately so a
+    broken baseline fails fast instead of being silently omitted.
     """
     package = importlib.import_module(__name__)
     for info in pkgutil.iter_modules(list(package.__path__)):

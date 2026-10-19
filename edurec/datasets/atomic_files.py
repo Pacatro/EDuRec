@@ -12,12 +12,12 @@ def save_atomic_files(
     dataset_name: str,
     output_dir: Path,
 ) -> dict[str, Path]:
-    """Write the RecBole atomic files used by the SOTA baselines.
+    """Write the RecBole atomic files used by the RecBole baselines.
 
     Only ``user_id`` and ``item_id`` are exported. The RecBole configurations
     load identifier fields exclusively (see
-    :func:`edurec.evaluation.sota._build_config_dict`), so user/item side
-    features are intentionally omitted.
+    :func:`edurec.evaluation.baselines.recbole._build_config_dict`), so user/item
+    side features are intentionally omitted.
     """
     if not artifacts.is_ready:
         raise RuntimeError("Data must be processed before saving atomic files.")

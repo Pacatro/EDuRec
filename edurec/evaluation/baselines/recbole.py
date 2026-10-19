@@ -1,3 +1,5 @@
+"""RecBole-backed baselines evaluated with the shared retrieval protocol."""
+
 import os
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -52,7 +54,7 @@ def _recbole_checkpoints() -> Generator[None]:
         torch.load = original_load
 
 
-def eval_sota_models(
+def eval_recbole_baselines(
     models: list[str],
     dm: ElearningDataModule,
     cfg_path: Path | None = None,
@@ -476,7 +478,7 @@ def _negative_sampling_config(input_type: InputType | None) -> dict[str, object]
     }
 
 
-def _sota_gpu_id() -> str:
+def _recbole_gpu_id() -> str:
     """RecBole GPU selector, written to ``CUDA_VISIBLE_DEVICES``.
 
     RecBole overwrites ``CUDA_VISIBLE_DEVICES`` with this value and derives the
@@ -506,8 +508,8 @@ def _build_config_dict(
 ) -> dict[str, object]:
     """Build the common RecBole configuration.
 
-    Only identifier fields are loaded because none of the supported SOTA models
-    consume user or item side features. Sequential models replace the
+    Only identifier fields are loaded because none of the supported RecBole
+    baselines consume user or item side features. Sequential models replace the
     interaction columns with the item history list.
     """
     load_col: dict[str, list[str]] = {
@@ -516,7 +518,7 @@ def _build_config_dict(
         "item": [settings.ITEM_COL],
     }
 
-    gpu_id = _sota_gpu_id()
+    gpu_id = _recbole_gpu_id()
 
     return {
         "data_path": str(data_root),

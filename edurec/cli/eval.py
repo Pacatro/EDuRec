@@ -19,7 +19,7 @@ from edurec.datasets import DatasetName, ElearningDataModule
 from edurec.evaluation import (
     baseline_labels,
     eval_model,
-    eval_sota_models,
+    eval_recbole_baselines,
     get_baseline,
 )
 from edurec.recsys import ModelArch, ModelConfig
@@ -50,20 +50,25 @@ def _save_seed_results(results: pd.DataFrame, dataset_root: Path, seed: int) -> 
         pd.DataFrame([row]).to_csv(path, index=False)
 
 
+def _selected_baselines(baseline_models: list[str]) -> list[str]:
+    """Resolve the requested baselines, expanding ``all`` to every available one."""
+    if "all" in baseline_models:
+        return list(dict.fromkeys([*settings.BASELINES, *baseline_labels()]))
+    return list(dict.fromkeys(baseline_models))
+
+
 def _target_models(
-    sota_models: list[str],
     proposed_label: str,
     baseline_models: list[str],
     *,
     only_proposed: bool = False,
-    only_sota: bool = False,
+    only_baselines: bool = False,
 ) -> list[str]:
     models: list[str] = []
-    if not only_sota:
+    if not only_baselines:
         models.append(proposed_label)
-    if not only_sota and not only_proposed:
+    if not only_proposed:
         models.extend(baseline_models)
-    models.extend(sota_models)
     return list(dict.fromkeys(models))
 
 
@@ -145,7 +150,7 @@ def _summarize_seed_results(results: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(summary_rows, columns=["model", *metric_cols])
 
 
-@app.command(name="eval", help="Evaluate KGSeq against RecBole SOTA models.")
+@app.command(name="eval", help="Evaluate EDuRec against baseline models.")
 def eval_models(
     dataset: Annotated[
         DatasetName | None,
@@ -244,37 +249,31 @@ def eval_models(
             file_okay=True,
             dir_okay=False,
             readable=True,
-            help="Optional extra RecBole config file applied to SOTA models.",
+            help="Optional extra RecBole config file applied to RecBole baselines.",
         ),
     ] = None,
-    sota_models: Annotated[
-        list[str],
-        typer.Option(
-            "--sota-model",
-            "-m",
-            help="RecBole SOTA model to evaluate. Repeat this option for multiple models.",
-        ),
-    ] = settings.SOTA_MODELS,
     baseline_models: Annotated[
         list[str],
         typer.Option(
             "--baseline-model",
-            help="Native baseline evaluated with the shared retrieval protocol, "
-            "alongside the proposed and SOTA models. Repeat for multiple baselines.",
+            "-m",
+            help="Baseline model to evaluate with the shared retrieval protocol. "
+            "Use a RecBole model name or a native baseline label such as IDRMI. "
+            "Repeat for multiple models, or use `all`.",
         ),
-    ] = settings.NATIVE_BASELINES,
+    ] = settings.BASELINES,
     only_proposed: Annotated[
         bool,
         typer.Option(
             "--only-proposed",
-            help="Only evaluate the proposed model, skipping SOTA models.",
+            help="Only evaluate the proposed model, skipping baseline models.",
         ),
     ] = False,
-    only_sota: Annotated[
+    only_baselines: Annotated[
         bool,
         typer.Option(
-            "--only-sota",
-            help="Only evaluate SOTA models, skipping the proposed model.",
+            "--only-baselines",
+            help="Only evaluate baseline models, skipping the proposed model.",
         ),
     ] = False,
     adaptive_k: Annotated[
@@ -312,17 +311,13 @@ def eval_models(
         ),
     ] = False,
 ) -> None:
-    if only_proposed and only_sota:
+    if only_proposed and only_baselines:
         raise typer.BadParameter(
-            "--only-proposed and --only-sota cannot be used together."
+            "--only-proposed and --only-baselines cannot be used together."
         )
     parsed_seeds = parse_seeds(seeds)
-    if only_proposed:
-        sota_models = []
-    # ``all`` selects every registered native baseline.
-    selected_baselines = (
-        baseline_labels() if "all" in baseline_models else list(baseline_models)
-    )
+    # ``all`` selects every RecBole and native baseline.
+    selected_baselines = _selected_baselines(baseline_models)
     resolved_arch = arch if arch is not None else ModelArch.KG_RNN
     proposed_label = ARCH_LABELS[resolved_arch.value]
     val_ratio = settings.VAL_RATIO
@@ -332,11 +327,10 @@ def eval_models(
     datasets = datasets_to_run(dataset)
 
     models = _target_models(
-        sota_models,
         proposed_label,
         selected_baselines,
         only_proposed=only_proposed,
-        only_sota=only_sota,
+        only_baselines=only_baselines,
     )
 
     print("\n[EVAL] Evaluation run")
@@ -366,7 +360,7 @@ def eval_models(
         )
         val_topk = monitor_topk(None, train_cfg)
         pending_by_seed = _pending_models_by_seed(dataset_root, models, parsed_seeds)
-        needs_proposed = not only_sota and any(
+        needs_proposed = not only_baselines and any(
             proposed_label in pending_models
             for pending_models in pending_by_seed.values()
         )
@@ -428,7 +422,7 @@ def eval_models(
 
             print_data_summary("EVAL", dm)
 
-            if not only_sota and proposed_label in pending_models:
+            if not only_baselines and proposed_label in pending_models:
                 cfg = build_config(dm, base=saved_cfg, arch=resolved_arch)
                 print_model_modules("EVAL", cfg)
                 settings.seed_everything(seed)
@@ -455,17 +449,23 @@ def eval_models(
             pending_baselines = [
                 model for model in selected_baselines if model in pending_models
             ]
-            if pending_baselines:
-                settings.seed_everything(seed)
+            native_baselines = [
+                model for model in pending_baselines if get_baseline(model) is not None
+            ]
+            recbole_baselines = [
+                model for model in pending_baselines if get_baseline(model) is None
+            ]
+
+            if native_baselines:
                 print(
                     f"[EVAL] Running native baselines | seed={seed}: "
-                    f"{', '.join(pending_baselines)}"
+                    f"{', '.join(native_baselines)}"
                 )
-                for baseline in pending_baselines:
+                for baseline in native_baselines:
                     runner = get_baseline(baseline)
                     if runner is None:
-                        print(f"[EVAL] Unknown native baseline {baseline!r}; skipping.")
                         continue
+                    settings.seed_everything(seed)
                     baseline_run_name = (
                         f"{baseline}-{dataset_label}-seed={seed}" if logger else None
                     )
@@ -481,15 +481,12 @@ def eval_models(
                     )
                     _save_seed_results(baseline_results, dataset_root, seed)
 
-            pending_sota_models = [
-                model for model in sota_models if model in pending_models
-            ]
-            if pending_sota_models:
+            if recbole_baselines:
                 settings.seed_everything(seed)
-                pending_sota_label = ", ".join(pending_sota_models)
-                print(f"[EVAL] Running SOTA models | seed={seed}: {pending_sota_label}")
-                sota_results = eval_sota_models(
-                    models=pending_sota_models,
+                recbole_label = ", ".join(recbole_baselines)
+                print(f"[EVAL] Running RecBole baselines | seed={seed}: {recbole_label}")
+                recbole_results = eval_recbole_baselines(
+                    models=recbole_baselines,
                     dm=dm,
                     cfg_path=cfg_path,
                     epochs=train_cfg.epochs,
@@ -500,11 +497,17 @@ def eval_models(
                     adaptive_k=train_cfg.adaptive_k,
                     show_progress=verbose,
                 )
-                _save_seed_results(sota_results, dataset_root, seed)
+                _save_seed_results(recbole_results, dataset_root, seed)
 
         rows = _collect_seed_results(dataset_root, models, parsed_seeds)
         results = pd.DataFrame(rows)
-        suffix = "_sota" if only_sota else "_proposed" if only_proposed else ""
+        suffix = (
+            "_baselines"
+            if only_baselines
+            else "_proposed"
+            if only_proposed
+            else ""
+        )
         csv_name = f"evaluation_results{suffix}.csv"
         summary_name = f"evaluation_summary{suffix}.csv"
 

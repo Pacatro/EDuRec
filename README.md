@@ -147,16 +147,16 @@ use the complete graph and existing embedding cache. No data cache changes
 are required. With `graph_mode: id`, GCL regularizes item representations
 without structural augmentation.
 
-### Evaluate EDuRec and SOTA Models
+### Evaluate EDuRec and Baseline Models
 
-Run the proposed EDuRec model and RecBole baselines on the selected dataset. If
+Run the proposed EDuRec model and baseline models on the selected dataset. If
 `--dataset` is omitted, all datasets are evaluated.
 
 ```bash
 uv run edurec eval --dataset itm --use-processed --top-k 5 --top-k 10 --top-k 20
 ```
 
-Default SOTA models:
+Default baseline models:
 
 - `ItemKNN`
 - `NeuMF`
@@ -179,14 +179,16 @@ Useful options:
 -I, --min-interactions INTEGER  Default: 3
 -P, --use-processed / -N, --no-use-processed
 -c, --cfg-path FILE             Extra RecBole config
--m, --sota-model TEXT           Repeat to choose baseline models
---baseline-model TEXT           Add a native baseline (repeat, or use `all`)
+-m, --baseline-model TEXT       Baseline to evaluate (RecBole or native; repeat, or `all`)
+--only-proposed                 Evaluate only the proposed model
+--only-baselines                Evaluate only the baseline models
 -a, --adaptive-k / -A, --fixed-k
 ```
 
-Native baselines are implemented with PyTorch Lightning under
-`edurec/evaluation/baselines/` (not through RecBole) and are scored with the same
-shared full-catalog retrieval evaluator as EDuRec and the SOTA models, so their
+Every model that is not the proposed one is a baseline. Baselines implemented
+with PyTorch Lightning live under `edurec/evaluation/baselines/` (not through
+RecBole); any other baseline name is passed to RecBole. Both kinds are scored
+with the same shared full-catalog retrieval evaluator as EDuRec, so their
 numbers are directly comparable. IDRMI (Yang et al., *An explainable graph-based
 course recommendation model based on multiple interest factors*, ESWA 2025)
 combines an NGCF over the TRAIN user-item bipartite graph, a KGCN over the item
@@ -194,8 +196,8 @@ knowledge graph and three rule-based interest factors; every interaction-derived
 quantity uses the train split only.
 
 ```bash
-uv run edurec eval --dataset doris --use-processed --baseline-model IDRMI
-uv run edurec eval --dataset doris --use-processed --baseline-model all
+uv run edurec eval --dataset doris --use-processed --only-baselines --baseline-model IDRMI
+uv run edurec eval --dataset doris --use-processed --only-baselines --baseline-model all
 ```
 
 #### Adding a new native baseline
@@ -223,7 +225,8 @@ def eval_my_model(
 ```
 
 It then runs with `edurec eval --baseline-model MyModel` (or via
-`--baseline-model all`) and is saved next to EDuRec and the SOTA results.
+`--baseline-model all`) and is saved next to EDuRec and the RecBole baseline
+results.
 
 Results are written to `results/evaluations/<dataset>/`, with one CSV per model
 and seed, the detailed `evaluation_results.csv`, and the aggregated
@@ -391,7 +394,7 @@ chronological interaction field; datasets without one cannot train the model.
 split, and reports Precision, Recall, NDCG, Hit Rate, MAP, and MRR at the
 configured top-k values.
 
-### SOTA Benchmark Evaluation
+### Baseline Benchmark Evaluation
 
 The same evaluation command exports RecBole atomic files and runs the baseline
 models with aligned split files, learning rate, epoch count, patience, batch

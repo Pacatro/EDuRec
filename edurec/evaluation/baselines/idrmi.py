@@ -400,7 +400,7 @@ class IDRMIModule(L.LightningModule):
     The module consumes the same batches as the proposed models
     (:class:`~edurec.datasets.RecSysQuery`) and reports metrics through the
     shared full-catalog retrieval evaluator, so its numbers are directly
-    comparable with EDuRec and the RecBole SOTA baselines.
+    comparable with EDuRec and the RecBole baselines.
     """
 
     # Buffers created by ``register_buffer``.
