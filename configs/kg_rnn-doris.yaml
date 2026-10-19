@@ -1,35 +1,77 @@
 arch: kg_rnn
 model:
-  use_gcl: true
-  dropout: 0.3
-  emb_dim: 256
-  gnn_dropout: 0.3
-  gnn_heads: 4
-  gnn_layers: 1
-  graph_mode: kg
-  has_history: true
-  hidden_dims:
-  - 512
-  kg_edge_types: []
-  kg_node_counts: {}
+  num_users: 3951
+  num_items: 2746
   num_item_dense_feats: 384
   num_item_text_feats: 384
-  num_items: 2746
   num_user_dense_feats: 0
-  num_users: 3951
+  num_interaction_dense_feats: 385
+  user_cat_cardinalities:
+  - 10
+  - 2
+  - 110
+  interaction_cat_cardinalities:
+  - 4
+  - 44
+  has_history: true
+  kg_node_counts:
+    attr::item_type: 9
+    attr::grade: 17
+  kg_edge_types:
+  - - item
+    - item_type
+    - attr::item_type
+  - - item
+    - grade
+    - attr::grade
+  - - item
+    - ref::prerequisite
+    - item
+  - - attr::item_type
+    - rev_item_type
+    - item
+  - - attr::grade
+    - rev_grade
+    - item
+  - - item
+    - rev_ref::prerequisite
+    - item
+  emb_dim: 256
+  use_item_bias: true
+  dropout: 0.3
+  graph_mode: kg
+  use_text_features: true
+  use_item_features: true
+  use_user_features: true
+  use_interaction_features: true
+  use_time_features: false
+  use_attention_pooling: false
+  use_user_id_embedding: false
+  gnn_layers: 2
+  gnn_heads: 4
+  gnn_dropout: 0.3
+  use_gcl: true
+  gcl_weight: 0.05
+  gcl_temperature: 0.2
+  gcl_edge_dropout: 0.1
+  gcl_max_items: 512
+  rnn_type: gru
   rnn_hidden_dim: 256
   rnn_layers: 2
-  rnn_type: gru
-  use_interaction_features: true
-  use_item_bias: true
-  use_text_features: true
-  use_time_features: false
+  rnn_dropout: 0.3
+  transformer_hidden_dim: 128
+  transformer_layers: 2
+  transformer_heads: 4
+  max_history_len: 50
+  scorer_max_pairs_per_chunk: 32768
+  hidden_dims:
+  - 512
 train:
   epochs: 150
-  lr: 0.0005
-  batch_size: 128
+  lr: 0.001
+  batch_size: 256
   patience: 5
-  weight_decay: 0.001
+  weight_decay: 0.0001
   topks:
   - 5
   - 10

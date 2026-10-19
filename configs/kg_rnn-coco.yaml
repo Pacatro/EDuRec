@@ -1,0 +1,97 @@
+arch: kg_rnn
+model:
+  num_users: 24166
+  num_items: 3519
+  num_item_dense_feats: 391
+  num_item_text_feats: 384
+  num_user_dense_feats: 0
+  num_interaction_dense_feats: 1
+  user_cat_cardinalities: []
+  interaction_cat_cardinalities: []
+  has_history: true
+  kg_node_counts:
+    attr::language: 13
+    attr::first_level_category: 2
+    attr::second_level_category: 13
+    attr::instructional_level: 4
+    attr::subtitles: 28
+  kg_edge_types:
+  - - item
+    - language
+    - attr::language
+  - - item
+    - first_level_category
+    - attr::first_level_category
+  - - item
+    - second_level_category
+    - attr::second_level_category
+  - - item
+    - instructional_level
+    - attr::instructional_level
+  - - item
+    - subtitles
+    - attr::subtitles
+  - - attr::second_level_category
+    - cooc::second_level_category::first_level_category
+    - attr::first_level_category
+  - - attr::language
+    - rev_language
+    - item
+  - - attr::first_level_category
+    - rev_first_level_category
+    - item
+  - - attr::second_level_category
+    - rev_second_level_category
+    - item
+  - - attr::instructional_level
+    - rev_instructional_level
+    - item
+  - - attr::subtitles
+    - rev_subtitles
+    - item
+  - - attr::first_level_category
+    - rev_cooc::second_level_category::first_level_category
+    - attr::second_level_category
+  emb_dim: 256
+  use_item_bias: true
+  dropout: 0.1
+  graph_mode: kg
+  use_text_features: true
+  use_item_features: true
+  use_user_features: true
+  use_interaction_features: true
+  use_time_features: true
+  use_attention_pooling: false
+  use_user_id_embedding: false
+  gnn_layers: 2
+  gnn_heads: 4
+  gnn_dropout: 0.1
+  use_gcl: true
+  gcl_weight: 0.2
+  gcl_temperature: 0.2
+  gcl_edge_dropout: 0.1
+  gcl_max_items: 512
+  rnn_type: gru
+  rnn_hidden_dim: 256
+  rnn_layers: 1
+  rnn_dropout: 0.1
+  transformer_hidden_dim: 128
+  transformer_layers: 2
+  transformer_heads: 4
+  max_history_len: 50
+  scorer_max_pairs_per_chunk: 32768
+  hidden_dims:
+  - 512
+train:
+  epochs: 150
+  lr: 0.001
+  batch_size: 256
+  patience: 5
+  weight_decay: 0.0001
+  topks:
+  - 5
+  - 10
+  - 20
+  adaptive_k: false
+  max_history: 50
+  deduplicate_interactions: false
