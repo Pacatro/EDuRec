@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Annotated, Any, cast
 
@@ -51,6 +52,10 @@ def dataset_command(
 
     raw_dataset = dm.raw_dataset
     assert raw_dataset is not None
+
+    if raw_dataset.selection_report is not None:
+        print("\nMOOCCubeX selection diagnostics:")
+        print(json.dumps(raw_dataset.selection_report, indent=2, ensure_ascii=False))
 
     print(f"\nUser information:\n{raw_dataset.user_features.head(max_rows)}\n")
     print(f"Item information:\n{raw_dataset.item_features.head(max_rows)}\n")

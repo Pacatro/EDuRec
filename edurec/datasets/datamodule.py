@@ -1,3 +1,5 @@
+import json
+from dataclasses import replace
 from pathlib import Path
 
 import lightning as L
@@ -17,7 +19,8 @@ from edurec.datasets.interaction_features import (
     build_interaction_features,
 )
 from edurec.datasets.knowledge_graph import build_knowledge_graph
-from edurec.datasets.loaders import DatasetName, RawData, load_raw_data
+from edurec.datasets.loaders import DatasetName, RawData, load_mooccubex, load_raw_data
+from edurec.datasets.mooccubex import MooccubexSelection, selection_config
 from edurec.datasets.preprocessing import (
     add_relevance,
     clean_cols,
@@ -46,6 +49,7 @@ class ElearningDataModule(L.LightningDataModule):
         max_history: int = settings.MAX_HISTORY_LEN,
         deduplicate_interactions: bool = settings.DEDUPLICATE_INTERACTIONS,
         persistent_workers: bool = True,
+        mooccubex_selection: MooccubexSelection | None = None,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -63,6 +67,18 @@ class ElearningDataModule(L.LightningDataModule):
         self.deduplicate_interactions = deduplicate_interactions
         self.persistent_workers = persistent_workers
         self.data_variant = dataset.value
+        self.mooccubex_selection = None
+        if dataset == DatasetName.MOOCCUBEX:
+            selection = mooccubex_selection or selection_config()
+            # Honor explicit generic support thresholds in the selection itself,
+            # so subsequent filtering cannot silently destroy history retention.
+            if remove_sparse:
+                selection = replace(
+                    selection,
+                    min_user_courses=max(selection.min_user_courses, min_interactions),
+                    min_course_users=max(selection.min_course_users, min_interactions),
+                )
+            self.mooccubex_selection = selection
 
         self.cache_params = {
             "version": CACHE_VERSION,
@@ -80,6 +96,11 @@ class ElearningDataModule(L.LightningDataModule):
             "max_history_len": max_history,
         }
 
+        if self.mooccubex_selection is not None:
+            self.cache_params["mooccubex_selection"] = (
+                self.mooccubex_selection.metadata()
+            )
+
         self.processed_folder = Path(settings.PROCESSED_FOLDER) / self.data_variant
         self.atomic_folder = Path(settings.ATOMICFILES_FOLDER) / self.data_variant
 
@@ -88,18 +109,31 @@ class ElearningDataModule(L.LightningDataModule):
         self._knowledge_graph: HeteroData | None = None
         self._interaction_tables: InteractionFeatureTables | None = None
 
+    def _compatible_cache(self) -> bool:
+        expected = (
+            self.mooccubex_selection.metadata() if self.mooccubex_selection else None
+        )
+        return processed_cache_exists(
+            self.processed_folder, expected_selection=expected
+        )
+
     def prepare_data(self) -> None:
-        if self.use_processed_data and processed_cache_exists(self.processed_folder):
+        if self.use_processed_data and self._compatible_cache():
             return
 
         download_raw_data(self.dataset_name)
 
     def setup(self, stage: str | None = None):
         if not self.is_processed:
-            if self.use_processed_data and processed_cache_exists(
-                self.processed_folder
-            ):
+            if self.use_processed_data and self._compatible_cache():
                 self.artifacts = ProcessedData.load(self.processed_folder)
+                if self.mooccubex_selection is not None:
+                    manifest = json.loads(
+                        (self.processed_folder / "manifest.json").read_text()
+                    )
+                    for key in ("selection_report", "split_report"):
+                        if key in manifest:
+                            self.cache_params[key] = manifest[key]
             else:
                 self._process_raw_data()
 
@@ -201,7 +235,11 @@ class ElearningDataModule(L.LightningDataModule):
         )
 
     def _process_raw_data(self) -> None:
-        raw = load_raw_data(self.dataset_name)
+        raw = (
+            load_mooccubex(self.mooccubex_selection)
+            if self.mooccubex_selection is not None
+            else load_raw_data(self.dataset_name)
+        )
         interactions = clean_cols(raw.interactions)
 
         self.raw_dataset = RawData(
@@ -210,6 +248,7 @@ class ElearningDataModule(L.LightningDataModule):
             item_features=clean_cols(raw.item_features),
             schema=raw.schema,
             graph_entities=raw.graph_entities,
+            selection_report=raw.selection_report,
         )
 
         users = self.raw_dataset.user_features
@@ -239,6 +278,20 @@ class ElearningDataModule(L.LightningDataModule):
             graph_entities=raw.graph_entities,
         )
 
+        if raw.selection_report is not None:
+            train_items = self.artifacts.splits()["train"][settings.ITEM_COL]
+            self.cache_params["selection_report"] = raw.selection_report
+            self.cache_params["split_report"] = {
+                name: {
+                    "interactions": len(frame),
+                    "users": frame[settings.USER_COL].nunique(),
+                    "courses": frame[settings.ITEM_COL].nunique(),
+                    "targets_unseen_in_train": int(
+                        (~frame[settings.ITEM_COL].isin(train_items)).sum()
+                    ),
+                }
+                for name, frame in self.artifacts.splits().items()
+            }
         self.artifacts.save(self.processed_folder, manifest=self.cache_params)
 
     def _split_with_relevance(

@@ -58,6 +58,95 @@ prerequisite descriptions are encoded as text rather than inferred course links.
 Concept nodes combine a learned ID embedding with a trainable projection of
 their name/context text embeddings, using the configured multilingual text
 encoder. Only concepts linked to retained courses are encoded, once per concept.
+
+### Reproducible MOOCCubeX subsets
+
+The default is a small course-enrollment experiment, not next-video prediction.
+Selection reads the complete `user.json` twice, one record at a time. The first
+pass counts course support and grows a catalog through shared concepts; the
+second keeps whole user histories in a bounded priority heap. No intermediate
+database or temporary history files are created. Inverse concept-frequency
+weights reduce the influence of generic concepts; teachers and schools are preserved as graph relations but do not
+choose the community. Without an explicit seed course, the starting course is
+the most popular eligible course (course ID breaks ties).
+
+```bash
+uv run edurec --mooccubex-config configs/datasets/mooccubex-subset.yaml dataset --dataset mooccubex
+uv run edurec --device cpu --random-state 42 --mooccubex-config configs/datasets/mooccubex-subset.yaml train --dataset mooccubex --arch kg_rnn --use_processed
+```
+
+The selection YAML is separate from `configs/kg_rnn-mooccubex.yaml`, which
+controls model/training hyperparameters. The global `--mooccubex-config` option
+also applies to `eval`, `ablation`, `hpo` and `kg-image`; Python callers can pass
+`MooccubexSelection` as `ElearningDataModule(mooccubex_selection=...)`.
+
+Selection parameters:
+
+| Parameter | Meaning |
+| --- | --- |
+| `max_interactions` | Upper bound across train/validation/test, not an exact target; `null` removes it. Never truncates a user's history to fill the budget. |
+| `max_courses` | Maximum community size before support pruning. `null` uses all eligible courses. |
+| `min_user_courses` | Minimum distinct courses per retained user; default 5. |
+| `min_course_users` | Minimum distinct users per retained course; default 5. |
+| `min_history_retention` | Minimum fraction of the user's valid, deduplicated original catalog history retained after thematic and support filtering; default 0.7. Use 1.0 for complete original histories. |
+| `fields` | Optional list of exact raw field labels; courses matching any label are eligible. Empty means unrestricted. |
+| `seed_course` | Optional original `C_...` ID to anchor a community. |
+| `seed` | Stable user-sampling seed, independent of model initialization and source file ordering; default 42. |
+| `candidate_multiplier` | Candidate event pool = this factor times the budget; default 10. Increase if support pruning leaves too few examples. |
+| `encode_concept_text` | Encode concept names/context in addition to their learned IDs; default true. Set false for quick CPU preparation while preserving all concept nodes and memberships. |
+| `min_birth_year`, `max_birth_year` | Inclusive plausible-year bounds (default 1900–2010 for this historical dataset); other values become missing. |
+
+Selection grows a course community through shared concepts when `max_courses`
+is set; `null` keeps every eligible course. For a larger subset, copy the subset
+YAML and increase `max_interactions` and `max_courses`. Set either limit to
+`null` to remove it; cleaning and support/retention thresholds still apply. With
+both limits unset, all qualifying histories are retained in RAM.
+
+Final feature preparation/training scale with the retained data. A finite
+interaction budget bounds the candidate event pool in RAM. Selection reads all
+users twice, and the heap keeps the same priority prefix as sorting all
+candidates without keeping all their histories. Exact duplicate user detection
+additionally retains eligible user IDs during each pass, so this index grows
+with the source population.
+
+Unknown courses and invalid timestamps are discarded. Users with unaligned
+course/time arrays are skipped rather than guessing their alignment. Repeated
+matriculations of the same user/course are collapsed to the earliest valid
+enrollment. Times without offsets are interpreted as UTC, and equal times use
+course ID as a stable tie break. The iterative user/course core can remove
+courses from a retained history, but never below the configured retention.
+Whole users are sampled by stable hash priority; support filtering may leave
+unused budget and does not automatically relax thresholds.
+
+The existing chronological splits and full-catalog, one-target-per-interaction
+evaluation remain unchanged. Cohort selection uses activity counts from the
+source as a dataset-definition step before splitting; it does not use test
+recommendation scores. This defines a community/active-user population, not a
+representative estimate for all MOOCCubeX users. Fix its YAML and selection seed
+before comparing model variants. Generic CLI `--min_interactions` thresholds
+(when sparse filtering is enabled) also raise the selection support thresholds.
+Compare identical catalogs and report their
+sizes: shrinking the catalog changes ranking difficulty.
+
+`manifest.json` records selection parameters, source user file metadata,
+cleaning counts, history retention, user/course support, graph coverage and
+per-split cold-course counts. `dataset` prints selection diagnostics; training
+and evaluation print a summary. `--use_processed` reuses only a cache with the
+same MOOCCubeX selection definition. Changing it rebuilds the processed
+`mooccubex` folder (copy it first if retaining several cohorts). Source files are
+not overwritten. Cache version 12 invalidates earlier preprocessing caches.
+Static graph memberships and their reverse relations are kept for every
+retained course; no user–item edges are added. Concept text is encoded only for
+the retained concepts. To propagate course information through a shared
+attribute (`course → concept → course`), configure at least two GNN layers;
+more layers are an experimental choice, not a guaranteed improvement.
+
+Run the selection/protocol regression checks without downloading data:
+
+```bash
+uv run python -m unittest discover -s tests -v
+```
+
 Missing metadata falls back to the name in the concept ID and emits a warning.
 Embeddings and original IDs are saved with the processor; the KG exposes the
 ID-to-row correspondence as `node_ids`. The `use_text_features` ablation also

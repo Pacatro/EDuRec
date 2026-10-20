@@ -1,6 +1,7 @@
 import ast
 import json
 import warnings
+from collections import Counter
 from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
@@ -10,6 +11,11 @@ import numpy as np
 import pandas as pd
 
 from edurec import settings
+from edurec.datasets.mooccubex import (
+    MooccubexSelection,
+    select_enrollments,
+    selection_config,
+)
 
 
 class DatasetName(StrEnum):
@@ -30,6 +36,7 @@ class RawData(NamedTuple):
     user_features: pd.DataFrame
     schema: Schema
     graph_entities: dict[str, pd.DataFrame] | None = None
+    selection_report: dict[str, Any] | None = None
 
 
 type ExportFn = Callable[[], RawData]
@@ -37,7 +44,9 @@ type ExportFn = Callable[[], RawData]
 dataset_loaders: dict[DatasetName, ExportFn] = {}
 
 
-def register_dataset(ds_name: DatasetName) -> Callable[[ExportFn], ExportFn]:
+def register_dataset[Loader: ExportFn](
+    ds_name: DatasetName,
+) -> Callable[[Loader], Loader]:
     """Decorator for registering a dataset loader.
 
     This decorator associates a dataset loading function with a given
@@ -57,7 +66,7 @@ def register_dataset(ds_name: DatasetName) -> Callable[[ExportFn], ExportFn]:
         Callable[[ExportFn], ExportFn]: The decorator that registers the loader.
     """
 
-    def decorator(fn: ExportFn) -> ExportFn:
+    def decorator(fn: Loader) -> Loader:
         dataset_loaders[ds_name] = fn
         return fn
 
@@ -306,93 +315,68 @@ def load_doris() -> RawData:
 
 
 @register_dataset(DatasetName.MOOCCUBEX)
-def load_mooccubex() -> RawData:
-    """Load MOOCubeX course enrollments as implicit interactions.
-
-    Both source files are JSON Lines files.  The much larger user file is read
-    in chunks so that the nested enrollment arrays can be expanded without
-    first loading the complete JSON document into memory.
-    """
-    entities_folder = (
-        settings.RAW_DATA_FOLDER / DatasetName.MOOCCUBEX.value / "entities"
-    )
-
+def load_mooccubex(config: MooccubexSelection | None = None) -> RawData:
+    """Select complete enrollment histories and preserve static course links."""
+    config = config or selection_config()
+    entities_folder = settings.RAW_DATA_FOLDER / "mooccubex" / "entities"
     items = pd.read_json(entities_folder / "course.json", lines=True)
     items.rename(columns={"id": settings.ITEM_COL}, inplace=True)
+    items = items.drop_duplicates(settings.ITEM_COL).copy()
+    # Concepts are needed before selecting a coherent course community. Read
+    # all links, while text encoding remains restricted to the final catalog.
+    relations_folder = entities_folder.parent / "relations"
+    items["concept"] = _load_course_relations(
+        relations_folder / "concept-course.txt",
+        items[settings.ITEM_COL],
+        course_column=1,
+    )
+    interactions, users, report = select_enrollments(
+        entities_folder / "user.json",
+        items,
+        config,
+    )
+    items = items.loc[
+        items[settings.ITEM_COL].isin(interactions[settings.ITEM_COL])
+    ].copy()
     items["resource_count"] = items["resource"].map(len)
     items = items.drop(columns=["resource"])
-    relations_folder = entities_folder.parent / "relations"
-    for field, filename, course_column in (
-        ("concept", "concept-course.txt", 1),
-        ("teacher", "course-teacher.txt", 0),
-        ("school", "course-school.txt", 0),
+    for field, filename in (
+        ("teacher", "course-teacher.txt"),
+        ("school", "course-school.txt"),
     ):
         items[field] = _load_course_relations(
             relations_folder / filename,
             items[settings.ITEM_COL],
-            course_column=course_column,
+            course_column=0,
         )
     concept_ids = {concept for concepts in items["concept"] for concept in concepts}
-    concepts = _load_concept_metadata(entities_folder / "concept.json", concept_ids)
-
-    user_frames: list[pd.DataFrame] = []
-    interaction_frames: list[pd.DataFrame] = []
-    num_interactions = 0
-    user_columns = ["id", "gender", "school", "year_of_birth"]
-
-    for chunk in pd.read_json(
-        entities_folder / "user.json",
-        lines=True,
-        chunksize=10_000,
-    ):
-        user_frames.append(
-            chunk[user_columns].rename(columns={"id": settings.USER_COL}).copy()
-        )
-
-        matching_enrollments = (
-            chunk["course_order"].map(len).eq(chunk["enroll_time"].map(len))
-        )
-        enrollments = chunk.loc[
-            matching_enrollments, ["id", "course_order", "enroll_time"]
-        ].explode(["course_order", "enroll_time"], ignore_index=True)
-        enrollments = enrollments.dropna(subset=["course_order", "enroll_time"])
-        enrollments.rename(
-            columns={
-                "id": settings.USER_COL,
-                "course_order": settings.ITEM_COL,
-                "enroll_time": settings.TIME_COL,
-            },
-            inplace=True,
-        )
-        enrollments[settings.ITEM_COL] = "C_" + enrollments[settings.ITEM_COL].astype(
-            "string"
-        )
-        timestamps = pd.to_datetime(
-            enrollments[settings.TIME_COL], errors="coerce", utc=True
-        )
-        enrollments = enrollments.loc[timestamps.notna()].copy()
-        enrollments[settings.TIME_COL] = (
-            timestamps.loc[timestamps.notna()].astype("int64") // 10**9
-        )
-        enrollments = enrollments.loc[
-            enrollments[settings.ITEM_COL].isin(items[settings.ITEM_COL])
-        ]
-        interaction_frames.append(enrollments)
-        num_interactions += len(enrollments)
-
-        if num_interactions >= settings.MOOCCUBEX_MAX_INTERACTIONS:
-            break
-
-    users = pd.concat(user_frames, ignore_index=True)
-    interactions = pd.concat(interaction_frames, ignore_index=True).head(
-        settings.MOOCCUBEX_MAX_INTERACTIONS
+    concepts = (
+        _load_concept_metadata(entities_folder / "concept.json", concept_ids)
+        if config.encode_concept_text
+        else None
     )
-    interactions = interactions.reset_index(drop=True)
 
+    concept_support = Counter(
+        concept for values in items["concept"] for concept in values
+    )
+    report["graph"] = {
+        "concept_nodes": len(concept_support),
+        "shared_concept_nodes": sum(count > 1 for count in concept_support.values()),
+        "courses_without_shared_concepts": sum(
+            not any(concept_support[concept] > 1 for concept in values)
+            for values in items["concept"]
+        ),
+        "memberships": {
+            field: int(items[field].map(len).sum())
+            for field in ("field", "concept", "teacher", "school")
+        },
+    }
     schema = {
         "users": {
             "bin": [],
-            "num": ["year_of_birth"],
+            # A fully missing field carries no information and makes the
+            # shared mean-imputation/scaling pipeline degenerate.
+            "num": ["year_of_birth"] if users["year_of_birth"].notna().any() else [],
             "cat": ["gender", "school"],
             "text": [],
             "list": [],
@@ -406,7 +390,9 @@ def load_mooccubex() -> RawData:
             # IDs used only by the KG: never materialize a dense concept matrix.
             # Prerequisite descriptions remain text, not course references.
             "graph_list": ["concept", "teacher", "school"],
-            "graph_text": {"concept": ["name", "context"]},
+            "graph_text": {"concept": ["name", "context"]}
+            if config.encode_concept_text
+            else {},
         },
         "inter": {
             "bin": [],
@@ -422,7 +408,8 @@ def load_mooccubex() -> RawData:
         item_features=items,
         user_features=users,
         schema=schema,
-        graph_entities={"concept": concepts},
+        graph_entities={"concept": concepts} if concepts is not None else None,
+        selection_report=report,
     )
 
 

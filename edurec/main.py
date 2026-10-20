@@ -1,5 +1,6 @@
 import warnings
 from enum import StrEnum
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -49,11 +50,21 @@ def main(
         int | None,
         typer.Option("--random-state", "-r", help="Random state"),
     ] = settings.state["random_state"],
+    mooccubex_config: Annotated[
+        Path | None,
+        typer.Option(
+            "--mooccubex-config",
+            exists=True,
+            dir_okay=False,
+            help="MOOCCubeX selection YAML (shared by all commands).",
+        ),
+    ] = None,
     verbose: Annotated[
         bool,
         typer.Option("--verbose", "-v", help="Verbose mode"),
     ] = settings.state["verbose"],
 ):
+    settings.MOOCCUBEX_CONFIG_PATH = mooccubex_config
     settings.state["verbose"] = verbose
     settings.seed_everything(random_state)
     settings.state["device"] = device.value

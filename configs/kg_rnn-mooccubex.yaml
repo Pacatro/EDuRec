@@ -37,7 +37,7 @@ model:
   use_time_features: true
   use_attention_pooling: false
   use_user_id_embedding: false
-  gnn_layers: 1
+  gnn_layers: 2
   gnn_heads: 4
   gnn_dropout: 0.1
   use_gcl: true
