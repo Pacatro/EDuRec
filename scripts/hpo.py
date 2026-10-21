@@ -123,7 +123,11 @@ def main() -> None:
             # (pytorch/pytorch#149837) far more likely.
             persistent_workers=False,
             max_users=args.max_users,
+            max_interactions=args.max_interactions,
             selection_seed=args.selection_seed,
+            max_items=args.max_items,
+            community_fields=args.community_fields,
+            min_history_retention=args.min_history_retention,
         )
 
         dm.prepare_data()

@@ -193,6 +193,7 @@ def load_mooccubex() -> RawData:
             "list": [],
         },
         "items": {
+            "community_fields": ["concept"],
             "bin": [],
             "num": ["resource_count"],
             "cat": [],

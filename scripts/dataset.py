@@ -22,6 +22,9 @@ def main() -> None:
         default=10,
         help="Number of rows to display per table.",
     )
+    parser.add_argument(
+        "--min-interactions", "-i", type=int, default=settings.MIN_INTERACTIONS
+    )
     args = parser.parse_args()
 
     dm = ElearningDataModule(
@@ -30,9 +33,13 @@ def main() -> None:
         test_ratio=settings.TEST_RATIO,
         val_ratio=settings.VAL_RATIO,
         use_processed_data=False,
-        remove_sparse=False,
+        min_interactions=args.min_interactions,
         max_users=args.max_users,
+        max_interactions=args.max_interactions,
         selection_seed=args.selection_seed,
+        max_items=args.max_items,
+        community_fields=args.community_fields,
+        min_history_retention=args.min_history_retention,
     )
 
     dm.prepare_data()

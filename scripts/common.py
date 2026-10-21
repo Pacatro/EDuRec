@@ -27,8 +27,20 @@ def add_selection_args(
     parser.add_argument(
         "--max-users",
         type=int,
-        help="Sample this many complete user histories; omit for the full dataset.",
+        help="Maximum users retained within the community.",
     )
+    parser.add_argument(
+        "--max-interactions",
+        type=int,
+        help="Maximum community interactions across all splits; never cut histories to fit.",
+    )
+    parser.add_argument("--max-items", type=int, help="Maximum items in the community.")
+    parser.add_argument(
+        "--community-fields",
+        nargs="+",
+        help="Semantic item fields; defaults to the source schema.",
+    )
+    parser.add_argument("--min-history-retention", type=float, default=0.7)
     parser.add_argument("--selection-seed", type=int, default=settings.SELECTION_SEED)
 
 
@@ -158,8 +170,10 @@ def print_data_summary(prefix: str, dm: ElearningDataModule) -> None:
         + ", ".join(f"{split}={size:,}" for split, size in split_sizes.items())
     )
     print(
-        f"[{prefix}] Selection: random users, seed={dm.selection_seed}, "
-        f"max_users={dm.max_users or 'all'}"
+        f"[{prefix}] Selection: community, seed={dm.selection_seed}, "
+        f"max_items={dm.max_items or 'reachable'}, "
+        f"max_users={dm.max_users or 'all'}, "
+        f"max_interactions={dm.max_interactions or 'all'}"
     )
     report = dm.cache_params.get("selection_report")
     if isinstance(report, dict):

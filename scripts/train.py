@@ -143,7 +143,11 @@ def main() -> None:
             max_history=train_cfg.max_history,
             deduplicate_interactions=train_cfg.deduplicate_interactions,
             max_users=args.max_users,
+            max_interactions=args.max_interactions,
             selection_seed=args.selection_seed,
+            max_items=args.max_items,
+            community_fields=args.community_fields,
+            min_history_retention=args.min_history_retention,
         )
 
         dm.prepare_data()

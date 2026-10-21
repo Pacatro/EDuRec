@@ -33,12 +33,16 @@ class BuildConfig:
     random_state: int | None
     max_users: int | None
     selection_seed: int
+    max_interactions: int | None = None
+    max_items: int | None = None
+    community_fields: list[str] | None = None
+    min_history_retention: float = 0.7
 
 
 def build_processed(raw: RawData, config: BuildConfig) -> ProcessedData:
     """Turn raw source tables into split, encoded and selected processed data.
 
-    Order: column cleaning, sparsity filtering and deduplication, user selection,
+    Order: column cleaning, sparsity filtering and deduplication, community selection,
     temporal or random split, relevance labelling, and preprocessing fitted on
     the training split only.
     """
@@ -72,7 +76,12 @@ def build_processed(raw: RawData, config: BuildConfig) -> ProcessedData:
             selection_report=eligible_report,
         ),
         max_users=config.max_users,
+        max_interactions=config.max_interactions,
         seed=config.selection_seed,
+        max_items=config.max_items,
+        community_fields=config.community_fields,
+        min_interactions=config.min_interactions,
+        min_history_retention=config.min_history_retention,
     )
 
     train, val, test = _split_with_relevance(selected.interactions, config)

@@ -216,6 +216,7 @@ def load_coco() -> RawData:
             "list": [],
         },
         "items": {
+            "community_fields": ["second_level_category", "instructor"],
             "bin": [],
             "num": list(numeric_cols),
             "cat": [

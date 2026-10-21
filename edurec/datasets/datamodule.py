@@ -52,6 +52,10 @@ class ElearningDataModule(L.LightningDataModule):
         persistent_workers: bool = True,
         max_users: int | None = settings.SELECTION_MAX_USERS,
         selection_seed: int = settings.SELECTION_SEED,
+        max_interactions: int | None = settings.SELECTION_MAX_INTERACTIONS,
+        max_items: int | None = None,
+        community_fields: list[str] | None = None,
+        min_history_retention: float = 0.7,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -69,8 +73,12 @@ class ElearningDataModule(L.LightningDataModule):
         self.deduplicate_interactions = deduplicate_interactions
         self.persistent_workers = persistent_workers
         self.data_variant = dataset.value
+        self.max_interactions = max_interactions
         self.max_users = max_users
         self.selection_seed = selection_seed
+        self.max_items = max_items
+        self.community_fields = community_fields
+        self.min_history_retention = min_history_retention
 
         self.cache_params = {
             "version": CACHE_VERSION,
@@ -89,7 +97,13 @@ class ElearningDataModule(L.LightningDataModule):
         }
 
         self.cache_params["selection"] = selection_metadata(
-            self.max_users, self.selection_seed
+            self.max_users,
+            self.selection_seed,
+            self.max_interactions,
+            max_items=max_items,
+            community_fields=community_fields,
+            min_interactions=min_interactions,
+            min_history_retention=min_history_retention,
         )
         if dataset == DatasetName.MOOCCUBEX:
             self.cache_params["encode_concept_text"] = (
@@ -116,7 +130,7 @@ class ElearningDataModule(L.LightningDataModule):
     def _compatible_cache(self) -> bool:
         return processed_cache_exists(
             self.processed_folder,
-            expected_selection=selection_metadata(self.max_users, self.selection_seed),
+            expected_selection=self.cache_params["selection"],
             expected_params={
                 **self.cache_params,
                 "raw_sources": self._source_metadata(),
@@ -246,7 +260,11 @@ class ElearningDataModule(L.LightningDataModule):
             deduplicate=self.deduplicate_interactions,
             random_state=self.random_state,
             max_users=self.max_users,
+            max_interactions=self.max_interactions,
             selection_seed=self.selection_seed,
+            max_items=self.max_items,
+            community_fields=self.community_fields,
+            min_history_retention=self.min_history_retention,
         )
 
     def _process_raw_data(self) -> None:

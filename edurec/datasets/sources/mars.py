@@ -89,6 +89,7 @@ def load_mars(data_type: Literal["explicit", "implicit"]) -> RawData:
             "list": [],
         },
         "items": {
+            "community_fields": ["theme", "software", "job"],
             "bin": [],
             "num": ["nb_views", "duration"],
             "cat": ["language", "difficulty", "item_type"],
