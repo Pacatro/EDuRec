@@ -484,7 +484,9 @@ def eval_models(
             if recbole_baselines:
                 settings.seed_everything(seed)
                 recbole_label = ", ".join(recbole_baselines)
-                print(f"[EVAL] Running RecBole baselines | seed={seed}: {recbole_label}")
+                print(
+                    f"[EVAL] Running RecBole baselines | seed={seed}: {recbole_label}"
+                )
                 recbole_results = eval_recbole_baselines(
                     models=recbole_baselines,
                     dm=dm,
@@ -502,11 +504,7 @@ def eval_models(
         rows = _collect_seed_results(dataset_root, models, parsed_seeds)
         results = pd.DataFrame(rows)
         suffix = (
-            "_baselines"
-            if only_baselines
-            else "_proposed"
-            if only_proposed
-            else ""
+            "_baselines" if only_baselines else "_proposed" if only_proposed else ""
         )
         csv_name = f"evaluation_results{suffix}.csv"
         summary_name = f"evaluation_summary{suffix}.csv"
