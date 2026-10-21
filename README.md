@@ -32,7 +32,7 @@ cd EDuRec
 uv sync
 ```
 
-For development dependencies such as `pytest` and `mlflow`, use:
+For development dependencies such as `mlflow`, use:
 
 ```bash
 uv sync --group dev
@@ -140,12 +140,6 @@ retained course; no user–item edges are added. Concept text is encoded only fo
 the retained concepts. To propagate course information through a shared
 attribute (`course → concept → course`), configure at least two GNN layers;
 more layers are an experimental choice, not a guaranteed improvement.
-
-Run the selection/protocol regression checks without downloading data:
-
-```bash
-uv run python -m unittest discover -s tests -v
-```
 
 Missing metadata falls back to the name in the concept ID and emits a warning.
 Embeddings and original IDs are saved with the processor; the KG exposes the
