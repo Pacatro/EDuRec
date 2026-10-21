@@ -151,7 +151,10 @@ class DataProcessor:
                     "num",
                     Pipeline(
                         [
-                            ("imputer", SimpleImputer(strategy="mean")),
+                            (
+                                "imputer",
+                                SimpleImputer(strategy="mean", keep_empty_features=True),
+                            ),
                             ("scaler", MinMaxScaler()),
                         ]
                     ),
