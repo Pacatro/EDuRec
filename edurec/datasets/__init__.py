@@ -5,10 +5,9 @@ from edurec.datasets.recsys_dataset import RecSysDataset, RecSysQuery
 from edurec.datasets.selection import DatasetSelection, select_dataset
 
 __all__ = [
-    "DatasetSelection",
-    "select_dataset",
     "DataProcessor",
     "DatasetName",
+    "DatasetSelection",
     "ElearningDataModule",
     "FeatureMetadata",
     "RawData",
@@ -16,4 +15,5 @@ __all__ = [
     "RecSysQuery",
     "dataset_loaders",
     "load_raw_data",
+    "select_dataset",
 ]
