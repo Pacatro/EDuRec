@@ -1,6 +1,6 @@
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Self
 
@@ -8,11 +8,13 @@ import pandas as pd
 import torch
 from safetensors.torch import load_file, save_file
 
-from edurec.datasets.dataprocessor import DataProcessor
+from edurec.datasets.features.tabular import DataProcessor
+from edurec.datasets.registry import RawData
 
 # Bump whenever the preprocessing logic changes in a way that invalidates
-# existing caches (e.g. deduplication or timestamp parsing changes).
-CACHE_VERSION = 13
+# existing caches (e.g. deduplication or timestamp parsing changes), or when
+# the pickled processor's module path changes (v14: package restructure).
+CACHE_VERSION = 14
 MANIFEST_FILENAME = "manifest.json"
 
 CACHE_FILES = (
@@ -25,6 +27,22 @@ CACHE_FILES = (
     "processor.joblib",
     MANIFEST_FILENAME,
 )
+
+
+def source_fingerprint(folder: Path) -> dict[str, dict[str, int]]:
+    """Size and modification time of every raw source file under ``folder``."""
+    return {
+        str(path.relative_to(folder)): {
+            "bytes": path.stat().st_size,
+            "mtime_ns": path.stat().st_mtime_ns,
+        }
+        for path in sorted(folder.rglob("*"))
+        if path.is_file()
+    }
+
+
+def read_manifest(folder: Path) -> dict[str, Any]:
+    return json.loads((folder / MANIFEST_FILENAME).read_text(encoding="utf-8"))
 
 
 def processed_cache_exists(
@@ -42,7 +60,7 @@ def processed_cache_exists(
         return False
 
     try:
-        manifest = json.loads((folder / MANIFEST_FILENAME).read_text(encoding="utf-8"))
+        manifest = read_manifest(folder)
     except (OSError, json.JSONDecodeError):
         return False
 
@@ -74,6 +92,9 @@ class ProcessedData:
     user_features: pd.DataFrame | None = None
     item_features: pd.DataFrame | None = None
     data_processor: DataProcessor | None = None
+    # Build-time only; not persisted with the cache.
+    selected_raw: RawData | None = None
+    reports: dict[str, Any] = field(default_factory=dict)
 
     @property
     def is_ready(self) -> bool:

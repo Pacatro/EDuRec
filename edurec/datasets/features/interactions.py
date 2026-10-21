@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from edurec import settings
-from edurec.datasets.dataprocessor import DataProcessor
+from edurec.datasets.features.tabular import DataProcessor
 
 SPLIT_ORDER = ("train", "val", "test")
 

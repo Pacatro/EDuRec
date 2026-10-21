@@ -35,12 +35,12 @@ from torch_geometric.data import HeteroData
 from torch_geometric.utils import coalesce, remove_self_loops
 
 from edurec import settings
-from edurec.datasets.dataprocessor import (
-    DataProcessor,
-    _coerce_list_tokens,
-    _is_missing,
-    _single_token,
+from edurec.datasets.features.parsing import (
+    coerce_list_tokens,
+    normalize_label,
+    single_token,
 )
+from edurec.datasets.features.tabular import DataProcessor
 
 EdgeType = tuple[str, str, str]
 
@@ -97,9 +97,7 @@ def _add_attribute_edges(
     vocab: dict[str, dict[str, int]] = {}
 
     for field, is_list in _field_kinds(processor).items():
-        tokens = item_frame[field].map(
-            _coerce_list_tokens if is_list else _single_token
-        )
+        tokens = item_frame[field].map(coerce_list_tokens if is_list else single_token)
         long = pd.DataFrame({"node": node_ids.to_numpy(), "token": tokens.to_numpy()})
         long = long.explode("token").dropna(subset=["token", "node"])
         long = long.loc[long["node"] >= 0].reset_index(drop=True)
@@ -115,7 +113,9 @@ def _add_attribute_edges(
         data[attr_node].num_nodes = len(uniques)
         data[attr_node].node_ids = [str(token) for token in uniques]
         if field in processor.graph_node_features:
-            features = processor.graph_node_features[field].loc[data[attr_node].node_ids]
+            features = processor.graph_node_features[field].loc[
+                data[attr_node].node_ids
+            ]
             data[attr_node].x = torch.as_tensor(features.to_numpy(dtype=np.float32))
         data["item", field, attr_node].edge_index = torch.as_tensor(
             np.stack([long["node"].to_numpy(), codes]),
@@ -139,7 +139,7 @@ def _add_reference_edges(
 
         lookup: dict[str, int] = {}
         for value, node in zip(item_frame[target_field], node_ids):
-            key = _normalize_label(value)
+            key = normalize_label(value)
             if key and not pd.isna(node):
                 lookup.setdefault(key, int(node))
 
@@ -148,8 +148,8 @@ def _add_reference_edges(
         for node, value in zip(node_ids, item_frame[field]):
             if pd.isna(node) or node < 0:
                 continue
-            for token in _coerce_list_tokens(value):
-                target = lookup.get(_normalize_label(token))
+            for token in coerce_list_tokens(value):
+                target = lookup.get(normalize_label(token))
                 if target is not None:
                     sources.append(int(node))
                     targets.append(target)
@@ -209,7 +209,7 @@ def _add_reverse_edges(data: HeteroData) -> None:
 
 def _row_codes(values: pd.Series, vocab: dict[str, int]) -> np.ndarray:
     return np.array(
-        [vocab.get(_normalize_label(value), -1) for value in values], dtype=np.int64
+        [vocab.get(normalize_label(value), -1) for value in values], dtype=np.int64
     )
 
 
@@ -220,10 +220,3 @@ def _clean_edges(data: HeteroData) -> None:
         if source == target:
             edge_index, _ = remove_self_loops(edge_index)
         data[edge_type].edge_index = coalesce(edge_index)
-
-
-def _normalize_label(value: object) -> str:
-    if _is_missing(value):
-        return ""
-    text = str(value).strip().strip("\"'").strip().lower()
-    return " ".join(text.split())

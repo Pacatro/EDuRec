@@ -1,10 +1,6 @@
-import ast
-import re
 from dataclasses import dataclass, field
-from functools import cache
-from html import unescape
 from pathlib import Path
-from typing import Any, Self
+from typing import Self
 
 import joblib
 import numpy as np
@@ -15,7 +11,14 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import MinMaxScaler, MultiLabelBinarizer, OrdinalEncoder
 
 from edurec import settings
-from edurec.datasets.loaders import Schema
+from edurec.datasets.features import text
+from edurec.datasets.features.parsing import (
+    as_float_array,
+    clean_text,
+    coerce_list_tokens,
+    is_missing,
+)
+from edurec.datasets.registry import Schema
 
 PREFIXES = ("users", "items", "inter")
 SUPPORTED_FEATURE_TYPES = {"numeric", "categorical", "text", "list"}
@@ -210,7 +213,7 @@ class DataProcessor:
     ) -> list[str]:
         list_cols: list[str] = []
         for col in groups["list"]:
-            binarizer = MultiLabelBinarizer().fit(df[col].map(_coerce_list_tokens))
+            binarizer = MultiLabelBinarizer().fit(df[col].map(coerce_list_tokens))
             self.list_binarizers[prefix][col] = binarizer
             list_cols.extend(f"list__{col}__{value}" for value in binarizer.classes_)
         return list_cols
@@ -309,7 +312,7 @@ class DataProcessor:
         frame = df[cols].copy() if cols else pd.DataFrame(index=df.index)
         for col in groups["categorical"]:
             values = frame[col].map(
-                lambda value: np.nan if _is_missing(value) else str(value).strip()
+                lambda value: np.nan if is_missing(value) else str(value).strip()
             )
             frame[col] = values.mask(values == "", np.nan)
         return frame
@@ -369,7 +372,7 @@ class DataProcessor:
         if preprocessor is not None:
             parts.append(
                 pd.DataFrame(
-                    _as_float_array(
+                    as_float_array(
                         preprocessor.transform(self._preprocessor_frame(df, groups)),
                         n_rows=len(df),
                     ),
@@ -380,7 +383,7 @@ class DataProcessor:
 
         for col, binarizer in self.list_binarizers[prefix].items():
             tokens = (
-                df[col].map(_coerce_list_tokens)
+                df[col].map(coerce_list_tokens)
                 if col in df
                 else [[] for _ in range(len(df))]
             )
@@ -420,7 +423,7 @@ class DataProcessor:
         for row in df[text_cols].itertuples(index=False, name=None):
             parts = []
             for col, value in zip(text_cols, row, strict=True):
-                cleaned = _clean_text(value)
+                cleaned = clean_text(value)
                 if cleaned:
                     parts.append(f"{col}: {cleaned}")
             docs.append(" [SEP] ".join(parts))
@@ -437,78 +440,17 @@ class DataProcessor:
         items: pd.DataFrame,
         entities: dict[str, pd.DataFrame] | None,
     ) -> None:
-        """Encode each retained graph entity once, independent of interactions."""
-        self.graph_node_features = {}
-        if "text" not in self.active_feature_types:
-            return
-        entities = entities or {}
-        groups = self.column_groups.get("items", {})
-        item_schema = self.schema.get("items", {})
-        list_fields = set(groups.get("list", [])) | set(
-            item_schema.get("graph_list", [])
-        )
-        enabled_fields = list_fields | set(groups.get("categorical", []))
-        for graph_field, columns in item_schema.get("graph_text", {}).items():
-            if graph_field not in enabled_fields or graph_field not in items:
-                continue
-            # Scalar categories may contain commas; only split declared lists.
-            values = items[graph_field].map(
-                _coerce_list_tokens if graph_field in list_fields else _single_token
-            )
-            ids = sorted({token for tokens in values for token in tokens if token})
-            if not ids:
-                continue
-            if graph_field in entities:
-                frame = entities[graph_field].set_index("id").reindex(ids)
-            elif columns == ["name"]:
-                # Human-readable labels already identify these attribute nodes.
-                frame = pd.DataFrame({"name": ids}, index=ids)
-            else:
-                raise ValueError(f"Missing graph entity metadata for {graph_field}")
-            docs = [
-                " [SEP] ".join(
-                    f"{col}: {_clean_text(value)}"
-                    for col, value in zip(columns, row, strict=True)
-                    if _clean_text(value)
-                )
-                for row in frame[columns].itertuples(index=False, name=None)
-            ]
-            # E5 recommends the query prefix when embeddings are used as features.
-            if "e5" in self.text_embedding_model.lower():
-                docs = [f"query: {doc}" if doc else "" for doc in docs]
-            vectors = np.zeros((len(ids), self.text_embedding_dim), dtype=np.float32)
-            present = [index for index, doc in enumerate(docs) if doc]
-            if present:
-                vectors[present] = self.encode_text_documents(
-                    [docs[index] for index in present]
-                )
-            self.graph_node_features[graph_field] = pd.DataFrame(vectors, index=ids)
+        self.graph_node_features = text.graph_node_features(self, items, entities)
 
     def encode_text_documents(self, docs: list[str]) -> np.ndarray:
         """Return normalized float32 embeddings [num_documents, text_embedding_dim]."""
-        if not docs:
-            return np.empty((0, self.text_embedding_dim), dtype=np.float32)
-        model = _get_sentence_embedding_model(self.text_embedding_model)
-        if hasattr(model, "max_seq_length"):
-            model.max_seq_length = self.text_max_tokens
-
-        embeddings = _as_float_array(
-            model.encode(
-                docs,
-                batch_size=self.text_embedding_batch_size,
-                show_progress_bar=False,
-                convert_to_numpy=True,
-            ),
-            n_rows=len(docs),
+        return text.encode_documents(
+            docs,
+            self.text_embedding_model,
+            self.text_embedding_dim,
+            self.text_embedding_batch_size,
+            self.text_max_tokens,
         )
-        if embeddings.shape[1] != self.text_embedding_dim:
-            raise RuntimeError(
-                "Sentence embedding output shape does not match configured dim."
-            )
-
-        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
-        norms[norms == 0.0] = 1.0
-        return embeddings / norms
 
     def _normalize_feature_types(
         self, feature_types: tuple[str, ...]
@@ -538,94 +480,6 @@ class DataProcessor:
         return processor
 
 
-def _as_float_array(values: Any, n_rows: int) -> np.ndarray:
-    if hasattr(values, "toarray"):
-        values = values.toarray()
-    elif hasattr(values, "to_numpy"):
-        values = values.to_numpy()
-
-    array = np.asarray(values, dtype=np.float32)
-    if array.ndim == 1:
-        array = array.reshape(-1, 1)
-    if array.shape[0] != n_rows:
-        raise RuntimeError(
-            f"Expected {n_rows} rows after preprocessing, got {array.shape[0]}"
-        )
-    return array
-
-
 def _build_id_map(*series_list: pd.Series) -> dict[object, int]:
     values = pd.concat(series_list, ignore_index=True).dropna().drop_duplicates()
     return {value: idx for idx, value in enumerate(values.tolist())}
-
-
-@cache
-def _get_sentence_embedding_model(model_name: str):
-    try:
-        from sentence_transformers import SentenceTransformer
-    except ImportError as exc:
-        raise ImportError(
-            "sentence-transformers is required for text preprocessing."
-        ) from exc
-    return SentenceTransformer(model_name)
-
-
-def _coerce_list_tokens(value: object) -> list[str]:
-    if _is_missing(value):
-        return []
-
-    # Feather restores list-valued columns as NumPy arrays.
-    if isinstance(value, (list, tuple, set, np.ndarray)):
-        return [str(item).strip() for item in value if str(item).strip()]
-
-    if isinstance(value, str):
-        stripped = value.strip()
-        if not stripped:
-            return []
-        if stripped.startswith("[") and stripped.endswith("]"):
-            try:
-                parsed = ast.literal_eval(stripped)
-            except (SyntaxError, ValueError):
-                parsed = None
-            if isinstance(parsed, (list, tuple, set)):
-                return [str(item).strip() for item in parsed if str(item).strip()]
-        for separator in (",", ";", "|"):
-            if separator in stripped:
-                return [
-                    token.strip()
-                    for token in stripped.split(separator)
-                    if token.strip()
-                ]
-        return [stripped]
-
-    return [str(value).strip()]
-
-
-def _single_token(value: object) -> list[str]:
-    if _is_missing(value):
-        return []
-    token = str(value).strip()
-    return [token] if token else []
-
-
-def _clean_text(value: object) -> str:
-    if _is_missing(value):
-        return ""
-
-    text = unescape(str(value)).lower()
-    text = re.sub(r"<[^>]+>", " ", text)
-    text = re.sub(r"https?://\S+|www\.\S+", " ", text)
-    text = re.sub(r"[\n\r\t]+", " ", text)
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
-
-
-def _is_missing(value: Any) -> bool:
-    if value is None:
-        return True
-    if isinstance(value, (list, tuple, set, np.ndarray)):
-        return False
-    try:
-        return bool(pd.isna(value))
-    except (TypeError, ValueError):
-        return False

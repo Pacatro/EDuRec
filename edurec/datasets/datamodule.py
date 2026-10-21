@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 import lightning as L
@@ -9,29 +8,31 @@ from torch.utils.data import DataLoader
 from torch_geometric.data import HeteroData
 
 from edurec import settings
-from edurec.datasets.atomic_files import save_atomic_files
-from edurec.datasets.cache import CACHE_VERSION, ProcessedData, processed_cache_exists
-from edurec.datasets.dataprocessor import DataProcessor
-from edurec.datasets.downloaders import download_raw_data
-from edurec.datasets.interaction_features import (
+from edurec.datasets.cache import (
+    CACHE_VERSION,
+    ProcessedData,
+    processed_cache_exists,
+    read_manifest,
+    source_fingerprint,
+)
+from edurec.datasets.features.graph import build_knowledge_graph
+from edurec.datasets.features.interactions import (
     InteractionFeatureTables,
     build_interaction_features,
 )
-from edurec.datasets.knowledge_graph import build_knowledge_graph
-from edurec.datasets.loaders import DatasetName, RawData, load_raw_data
-from edurec.datasets.preprocessing import (
-    add_relevance,
-    clean_cols,
-    deduplicate_interactions,
-    filter_sparse,
-    generate_negative_samples,
-    get_relevance_threshold,
-    preprocess,
-    split_data,
+from edurec.datasets.features.tabular import DataProcessor
+from edurec.datasets.pipeline.build import BuildConfig, build_processed
+from edurec.datasets.pipeline.prepare import DatasetSelection
+from edurec.datasets.pipeline.splits import build_histories, generate_negative_samples
+from edurec.datasets.recbole_export import save_atomic_files
+from edurec.datasets.registry import (
+    DatasetName,
+    RawData,
+    download_raw_data,
+    get_spec,
+    load_raw_data,
 )
-from edurec.datasets.recsys_dataset import RecSysDataset
-from edurec.datasets.selection import DatasetSelection, select_dataset
-from edurec.datasets.user_history import build_histories
+from edurec.datasets.torch_data import RecSysDataset
 
 
 class ElearningDataModule(L.LightningDataModule):
@@ -96,27 +97,19 @@ class ElearningDataModule(L.LightningDataModule):
         self.processed_folder = Path(settings.PROCESSED_FOLDER) / self.data_variant
         self.atomic_folder = Path(settings.ATOMICFILES_FOLDER) / self.data_variant
 
-        self.raw_dataset: RawData | None = None
         self.artifacts = ProcessedData()
         self._knowledge_graph: HeteroData | None = None
         self._interaction_tables: InteractionFeatureTables | None = None
 
+    @property
+    def raw_dataset(self) -> RawData | None:
+        """Selected source tables from the last build; None when loaded from cache."""
+        return self.artifacts.selected_raw
+
     def _source_metadata(self) -> dict[str, dict[str, int]]:
-        name = (
-            "mars"
-            if self.dataset_name
-            in {DatasetName.EXPLICIT_MARS, DatasetName.IMPLICIT_MARS}
-            else self.dataset_name.value
+        return source_fingerprint(
+            settings.RAW_DATA_FOLDER / get_spec(self.dataset_name).folder
         )
-        folder = settings.RAW_DATA_FOLDER / name
-        return {
-            str(path.relative_to(folder)): {
-                "bytes": path.stat().st_size,
-                "mtime_ns": path.stat().st_mtime_ns,
-            }
-            for path in sorted(folder.rglob("*"))
-            if path.is_file()
-        }
 
     def _compatible_cache(self) -> bool:
         return processed_cache_exists(
@@ -138,9 +131,7 @@ class ElearningDataModule(L.LightningDataModule):
         if not self.is_processed:
             if self.use_processed_data and self._compatible_cache():
                 self.artifacts = ProcessedData.load(self.processed_folder)
-                manifest = json.loads(
-                    (self.processed_folder / "manifest.json").read_text()
-                )
+                manifest = read_manifest(self.processed_folder)
                 for key in ("selection_report", "split_report", "raw_sources"):
                     if key in manifest:
                         self.cache_params[key] = manifest[key]
@@ -244,108 +235,24 @@ class ElearningDataModule(L.LightningDataModule):
             negative_item_ids=negative_item_ids,
         )
 
-    def _process_raw_data(self) -> None:
-        self.cache_params["raw_sources"] = self._source_metadata()
-        raw = load_raw_data(self.dataset_name)
-        interactions = clean_cols(raw.interactions)
-
-        self.raw_dataset = RawData(
-            interactions=interactions,
-            user_features=clean_cols(raw.user_features),
-            item_features=clean_cols(raw.item_features),
-            schema=raw.schema,
-            graph_entities=raw.graph_entities,
-            selection_report=raw.selection_report,
-        )
-
-        users = self.raw_dataset.user_features
-        items = self.raw_dataset.item_features
-        interactions = self.raw_dataset.interactions
-
-        if self.remove_sparse:
-            users, items, interactions = filter_sparse(
-                users,
-                items,
-                interactions,
-                min_interactions=self.min_interactions,
-                deduplicate=self.deduplicate_interactions,
-            )
-
-        # Deduplication belongs to eligibility, so selection preserves the exact
-        # histories that will subsequently be split.
-        if self.deduplicate_interactions or settings.TIME_COL not in interactions:
-            interactions = deduplicate_interactions(interactions)
-        eligible_counts = {
-            "loaded_interactions": len(raw.interactions),
-            "eligible_interactions": len(interactions),
-            "source_cleaning": raw.selection_report,
-        }
-        selected = select_dataset(
-            self.raw_dataset._replace(
-                interactions=interactions,
-                user_features=users,
-                item_features=items,
-                selection_report=eligible_counts,
-            ),
-            self.selection,
-        )
-        self.raw_dataset = selected
-        users, items, interactions = (
-            selected.user_features,
-            selected.item_features,
-            selected.interactions,
-        )
-
-        self.artifacts.train, self.artifacts.val, self.artifacts.test = (
-            self._split_with_relevance(interactions)
-        )
-
-        self.artifacts = preprocess(
-            processor=DataProcessor(schema=raw.schema),
-            users=users,
-            items=items,
-            train=self.artifacts.train,
-            val=self.artifacts.val,
-            test=self.artifacts.test,
-            graph_entities=raw.graph_entities,
-        )
-
-        if selected.selection_report is not None:
-            train_items = self.artifacts.splits()["train"][settings.ITEM_COL]
-            self.cache_params["selection_report"] = selected.selection_report
-            self.cache_params["split_report"] = {
-                name: {
-                    "interactions": len(frame),
-                    "users": frame[settings.USER_COL].nunique(),
-                    "courses": frame[settings.ITEM_COL].nunique(),
-                    "targets_unseen_in_train": int(
-                        (~frame[settings.ITEM_COL].isin(train_items)).sum()
-                    ),
-                }
-                for name, frame in self.artifacts.splits().items()
-            }
-        self.artifacts.save(self.processed_folder, manifest=self.cache_params)
-
-    def _split_with_relevance(
-        self,
-        interactions: pd.DataFrame,
-    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        train, val, test = split_data(
-            interactions,
+    def _build_config(self) -> BuildConfig:
+        return BuildConfig(
             test_ratio=self.test_ratio,
             val_ratio=self.val_ratio,
             min_interactions=self.min_interactions,
-            random_state=self.random_state,
+            remove_sparse=self.remove_sparse,
             deduplicate=self.deduplicate_interactions,
+            random_state=self.random_state,
+            selection=self.selection,
         )
 
-        thresholds = get_relevance_threshold(train)
-
-        return (
-            add_relevance(train, thresholds),
-            add_relevance(val, thresholds),
-            add_relevance(test, thresholds),
+    def _process_raw_data(self) -> None:
+        self.cache_params["raw_sources"] = self._source_metadata()
+        self.artifacts = build_processed(
+            load_raw_data(self.dataset_name), self._build_config()
         )
+        self.cache_params.update(self.artifacts.reports)
+        self.artifacts.save(self.processed_folder, manifest=self.cache_params)
 
     @property
     def knowledge_graph(self) -> HeteroData:

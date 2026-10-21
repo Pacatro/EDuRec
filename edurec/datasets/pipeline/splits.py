@@ -1,42 +1,16 @@
+"""Temporal/random splits, relevance labels, negative sampling and histories."""
+
 import warnings
+from collections import defaultdict, deque
 
 import numpy as np
 import pandas as pd
 import torch
 
 from edurec import settings
-from edurec.datasets.cache import ProcessedData
-from edurec.datasets.dataprocessor import DataProcessor
+from edurec.datasets.pipeline.prepare import deduplicate_interactions
 
-
-def clean_cols(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df.columns = (
-        df.columns.str.lower()
-        .str.strip()
-        .str.replace(" ", "_")
-        .str.replace(r"[^\w]", "", regex=True)
-    )
-    return df
-
-
-def deduplicate_interactions(df: pd.DataFrame) -> pd.DataFrame:
-    """Collapse repeated ``(user, item)`` pairs into a single interaction.
-
-    Keeping duplicate pairs would let the same user-item interaction appear in
-    more than one split (train/test leakage). When a timestamp is present the
-    most recent event is kept, otherwise the last occurrence in file order is.
-    """
-    subset = [settings.USER_COL, settings.ITEM_COL]
-    if not set(subset).issubset(df.columns):
-        return df
-
-    frame = df
-    if settings.TIME_COL in frame.columns and frame[settings.TIME_COL].notna().any():
-        frame = frame.sort_values(
-            [settings.USER_COL, settings.TIME_COL], kind="mergesort"
-        )
-    return frame.drop_duplicates(subset=subset, keep="last").reset_index(drop=True)
+SPLIT_ORDER = ("train", "val", "test")
 
 
 def split_data(
@@ -95,52 +69,6 @@ def split_data(
         for name in ("train", "val", "test")
     ]
     return frames[0], frames[1], frames[2]
-
-
-def filter_sparse(
-    users: pd.DataFrame,
-    items: pd.DataFrame,
-    interactions: pd.DataFrame,
-    min_interactions: int,
-    deduplicate: bool = False,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Remove users and items with fewer than ``min_interactions``.
-
-    Repeated ``(user, item)`` events are only collapsed when explicitly
-    requested or when no timestamp can order them (see :func:`split_data`).
-    """
-
-    has_time = settings.TIME_COL in interactions.columns
-    if deduplicate or not has_time:
-        filtered = deduplicate_interactions(interactions)
-    else:
-        filtered = interactions.copy()
-
-    while True:
-        previous_size = len(filtered)
-
-        user_counts = filtered[settings.USER_COL].value_counts(sort=False)
-        item_counts = filtered[settings.ITEM_COL].value_counts(sort=False)
-
-        valid_users = user_counts[user_counts >= min_interactions].index
-        valid_items = item_counts[item_counts >= min_interactions].index
-
-        filtered = filtered.loc[
-            filtered[settings.USER_COL].isin(valid_users)
-            & filtered[settings.ITEM_COL].isin(valid_items)
-        ]
-
-        if len(filtered) == previous_size:
-            break
-
-    valid_users = filtered[settings.USER_COL].unique()
-    valid_items = filtered[settings.ITEM_COL].unique()
-
-    return (
-        users.loc[users[settings.USER_COL].isin(valid_users)].reset_index(drop=True),
-        items.loc[items[settings.ITEM_COL].isin(valid_items)].reset_index(drop=True),
-        filtered.reset_index(drop=True),
-    )
 
 
 def get_relevance_threshold(train_df: pd.DataFrame) -> tuple[pd.Series, float] | None:
@@ -248,92 +176,86 @@ def generate_negative_samples(
     return negatives
 
 
-def preprocess(
-    processor: DataProcessor,
-    users: pd.DataFrame,
-    items: pd.DataFrame,
-    train: pd.DataFrame,
-    val: pd.DataFrame,
-    test: pd.DataFrame,
-    graph_entities: dict[str, pd.DataFrame] | None = None,
-) -> ProcessedData:
-    processor.fit(users_train=users, items_train=items, interactions_train=train)
-    processor.fit_graph_text_features(items, graph_entities)
+def build_histories(
+    splits: dict[str, pd.DataFrame],
+    max_history: int,
+    enabled: bool = True,
+) -> dict[str, tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+    """Build fixed-size, strictly chronological histories for every split.
 
-    features = processor.transform(users=users, items=items)
-    split_features = {
-        "train": processor.transform(interactions=train),
-        "val": processor.transform(interactions=val),
-        "test": processor.transform(interactions=test),
-    }
+    For each split the returned tuple is ``(items, valid_mask, context_index)``,
+    each with shape ``[n, max_history]``:
 
-    if features.users is None or features.items is None:
-        raise RuntimeError("User/item features were not processed.")
+    * ``items``: past item IDs shifted by one so zero remains padding.
+    * ``valid_mask``: ``True`` where a real past event is stored.
+    * ``context_index``: global interaction row index of each past event, or
+      ``-1`` for padding. The global index is the row position in the
+      concatenation of the splits in ``SPLIT_ORDER`` (they map to
+      ``[0, len(train))``, then val rows, then test rows).
 
-    user_frame = features.users
-    item_frame = features.items
-    if features.text_embeddings["users"] is not None:
-        user_frame = pd.concat([user_frame, features.text_embeddings["users"]], axis=1)
-    if features.text_embeddings["items"] is not None:
-        item_frame = pd.concat([item_frame, features.text_embeddings["items"]], axis=1)
+    The alignment is strict: ``items[r, t]``, ``valid_mask[r, t]`` and
+    ``context_index[r, t]`` all refer to the SAME past event. A row's own event
+    is never part of its own history, and only events strictly before the
+    current row may appear, which prevents target leakage. Earlier splits feed
+    into later ones: while iterating rows in order, each row first records the
+    current per-user history and only then appends its own event.
 
-    split_dfs: dict[str, pd.DataFrame] = {}
-    for name, processed in split_features.items():
-        if processed.interactions is None:
-            raise RuntimeError(f"{name} interactions were not processed.")
-        split_dfs[name] = processed.interactions
-        if processed.text_embeddings["inter"] is not None:
-            split_dfs[name] = pd.concat(
-                [split_dfs[name], processed.text_embeddings["inter"]],
-                axis=1,
-            )
-        split_dfs[name] = split_dfs[name].reset_index(drop=True)
-
-    static_feats = {}
-    for name, df, prefix, id_col in (
-        ("users", user_frame, "users", settings.USER_COL),
-        ("items", item_frame, "items", settings.ITEM_COL),
-    ):
-        metadata = processor.feature_metadata[prefix]
-        cols = metadata.numeric_cols + metadata.text_embedding_cols
-        static_feats[name] = torch.as_tensor(
-            df.sort_values(id_col)[cols].to_numpy(dtype=np.float32),
-            dtype=torch.float32,
-        )
-
-    u_cat_feats = _categorical_codes(
-        user_frame,
-        processor.feature_metadata["users"].categorical_cols,
-        id_col=settings.USER_COL,
-    )
-
-    return ProcessedData(
-        train=split_dfs["train"],
-        val=split_dfs["val"],
-        test=split_dfs["test"],
-        u_static_feats=static_feats["users"],
-        u_cat_feats=u_cat_feats,
-        i_static_feats=static_feats["items"],
-        user_features=users.reset_index(drop=True),
-        item_features=items.reset_index(drop=True),
-        data_processor=processor,
-    )
-
-
-def _categorical_codes(
-    frame: pd.DataFrame,
-    categorical_cols: list[str],
-    id_col: str,
-) -> torch.Tensor:
-    """Integer codes for the encoded categorical columns, ordered by mapped id.
-
-    The processor already ordinal-encodes categorical fields, so the values are
-    reused as-is. ``-1`` marks unknown categories and is preserved for the model
-    to map to a padding embedding.
+    When ``enabled`` is ``False`` every split yields zero-width tensors of the
+    appropriate dtypes instead of histories.
     """
-    if not categorical_cols:
-        return torch.zeros((len(frame), 0), dtype=torch.long)
+    if max_history < 0:
+        raise ValueError("max_history must be non-negative.")
 
-    values = frame.sort_values(id_col)[categorical_cols].to_numpy(dtype=np.float32)
-    values = np.nan_to_num(values, nan=-1.0)
-    return torch.as_tensor(values.astype(np.int64), dtype=torch.long)
+    split_frames: list[tuple[str, pd.DataFrame]] = []
+    for split in SPLIT_ORDER:
+        df = splits.get(split)
+        if df is None:
+            raise RuntimeError(f"Processed split {split} is not available.")
+        split_frames.append((split, df))
+
+    histories: dict[str, tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = {}
+
+    if not enabled:
+        for split, df in split_frames:
+            n_rows = len(df)
+            histories[split] = (
+                torch.zeros((n_rows, 0), dtype=torch.long),
+                torch.zeros((n_rows, 0), dtype=torch.bool),
+                torch.zeros((n_rows, 0), dtype=torch.long),
+            )
+        return histories
+
+    global_items: list[int] = []
+    for _, df in split_frames:
+        global_items.extend(int(item) for item in df[settings.ITEM_COL].tolist())
+
+    user_history: defaultdict[int, deque[int]] = defaultdict(
+        lambda: deque(maxlen=max_history)
+    )
+
+    global_offset = 0
+    for split, df in split_frames:
+        n_rows = len(df)
+        items = torch.zeros((n_rows, max_history), dtype=torch.long)
+        valid_mask = torch.zeros((n_rows, max_history), dtype=torch.bool)
+        context_index = torch.full((n_rows, max_history), -1, dtype=torch.long)
+
+        users = df[settings.USER_COL].tolist()
+        for row_idx in range(n_rows):
+            past = user_history[int(users[row_idx])]
+            if past:
+                past_indices = list(past)
+                count = len(past_indices)
+                items[row_idx, :count] = torch.tensor(
+                    [global_items[g] + 1 for g in past_indices], dtype=torch.long
+                )
+                valid_mask[row_idx, :count] = True
+                context_index[row_idx, :count] = torch.tensor(
+                    past_indices, dtype=torch.long
+                )
+            past.append(global_offset + row_idx)
+
+        histories[split] = (items, valid_mask, context_index)
+        global_offset += n_rows
+
+    return histories

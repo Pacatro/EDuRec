@@ -2,9 +2,9 @@ import pandas as pd
 import torch
 
 from edurec import settings
-from edurec.datasets.preprocessing import deduplicate_interactions, split_data
-from edurec.datasets.recsys_dataset import RecSysDataset
-from edurec.datasets.user_history import build_histories
+from edurec.datasets.pipeline.prepare import deduplicate_interactions
+from edurec.datasets.pipeline.splits import build_histories, split_data
+from edurec.datasets.torch_data import RecSysDataset
 
 
 def test_temporal_split_preserves_order_and_all_events():
