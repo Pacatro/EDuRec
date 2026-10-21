@@ -54,7 +54,7 @@ def dataset_command(
     assert raw_dataset is not None
 
     if raw_dataset.selection_report is not None:
-        print("\nMOOCCubeX selection diagnostics:")
+        print("\nDataset selection diagnostics:")
         print(json.dumps(raw_dataset.selection_report, indent=2, ensure_ascii=False))
 
     print(f"\nUser information:\n{raw_dataset.user_features.head(max_rows)}\n")

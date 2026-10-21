@@ -3,6 +3,7 @@ import json
 import warnings
 from collections import Counter
 from collections.abc import Callable
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal, NamedTuple
@@ -11,11 +12,6 @@ import numpy as np
 import pandas as pd
 
 from edurec import settings
-from edurec.datasets.mooccubex import (
-    MooccubexSelection,
-    select_enrollments,
-    selection_config,
-)
 
 
 class DatasetName(StrEnum):
@@ -314,26 +310,114 @@ def load_doris() -> RawData:
     )
 
 
+def _mooccubex_timestamp(value: object) -> int | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        stamp = datetime.fromisoformat(value.strip())
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=UTC)
+        return int(stamp.timestamp())
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def _mooccubex_enrollments(
+    record: dict[str, Any], catalog: set[str], counts: Counter
+) -> list[tuple[str, int]]:
+    courses, times = record.get("course_order"), record.get("enroll_time")
+    if (
+        not isinstance(courses, list)
+        or not isinstance(times, list)
+        or len(courses) != len(times)
+    ):
+        counts["unaligned_users"] += 1
+        return []
+    # Enrollment duplicates are not repeat learning events. Keep the first
+    # enrollment so that re-registration does not move a course into the future.
+    first: dict[str, int] = {}
+    for course, value in zip(courses, times):
+        if course is None:
+            counts["invalid_events"] += 1
+            continue
+        course_id = str(course)
+        if not course_id.startswith("C_"):
+            course_id = f"C_{course_id}"
+        stamp = _mooccubex_timestamp(value)
+        if course_id not in catalog or stamp is None:
+            counts["invalid_events"] += 1
+            continue
+        if course_id in first:
+            counts["duplicate_enrollments"] += 1
+        first[course_id] = min(first.get(course_id, stamp), stamp)
+    # Stable course-ID tie break is explicit; equal times do not establish a
+    # pedagogical order and are reported in the selection diagnostics.
+    return sorted(first.items(), key=lambda event: (event[1], event[0]))
+
+
+def _load_mooccubex_enrollments(
+    user_path: Path, catalog: set[str]
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
+    """Read every valid enrollment; repeated enrollments keep their first time."""
+    counts: Counter = Counter()
+    rows: list[tuple[str, str, int]] = []
+    profiles: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    with user_path.open(encoding="utf-8") as source:
+        for line in source:
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            counts["scanned_users"] += 1
+            if not record.get("id"):
+                counts["missing_user_ids"] += 1
+                continue
+            user = str(record["id"])
+            if user in seen:
+                counts["duplicate_user_records"] += 1
+                continue
+            seen.add(user)
+            history = _mooccubex_enrollments(record, catalog, counts)
+            if not history:
+                continue
+            rows.extend((user, course, stamp) for course, stamp in history)
+            profiles.append(
+                {
+                    settings.USER_COL: user,
+                    **{
+                        name: record.get(name)
+                        for name in ("gender", "school", "year_of_birth")
+                    },
+                }
+            )
+    events = pd.DataFrame(
+        rows, columns=[settings.USER_COL, settings.ITEM_COL, settings.TIME_COL]
+    )
+    users = pd.DataFrame(
+        profiles, columns=[settings.USER_COL, "gender", "school", "year_of_birth"]
+    )
+    birth = pd.to_numeric(users["year_of_birth"], errors="coerce")
+    users["year_of_birth"] = birth.where(birth.between(1900, 2010))
+    return events, users, dict(counts)
+
+
 @register_dataset(DatasetName.MOOCCUBEX)
-def load_mooccubex(config: MooccubexSelection | None = None) -> RawData:
-    """Select complete enrollment histories and preserve static course links."""
-    config = config or selection_config()
+def load_mooccubex() -> RawData:
+    """Load all valid enrollment histories and static course links."""
     entities_folder = settings.RAW_DATA_FOLDER / "mooccubex" / "entities"
     items = pd.read_json(entities_folder / "course.json", lines=True)
     items.rename(columns={"id": settings.ITEM_COL}, inplace=True)
     items = items.drop_duplicates(settings.ITEM_COL).copy()
-    # Concepts are needed before selecting a coherent course community. Read
-    # all links, while text encoding remains restricted to the final catalog.
+    # Load static memberships independently of the common user selection step.
+    # The processor encodes only entities linked to selected courses.
     relations_folder = entities_folder.parent / "relations"
     items["concept"] = _load_course_relations(
         relations_folder / "concept-course.txt",
         items[settings.ITEM_COL],
         course_column=1,
     )
-    interactions, users, report = select_enrollments(
-        entities_folder / "user.json",
-        items,
-        config,
+    interactions, users, report = _load_mooccubex_enrollments(
+        entities_folder / "user.json", set(items[settings.ITEM_COL].astype(str))
     )
     items = items.loc[
         items[settings.ITEM_COL].isin(interactions[settings.ITEM_COL])
@@ -352,7 +436,7 @@ def load_mooccubex(config: MooccubexSelection | None = None) -> RawData:
     concept_ids = {concept for concepts in items["concept"] for concept in concepts}
     concepts = (
         _load_concept_metadata(entities_folder / "concept.json", concept_ids)
-        if config.encode_concept_text
+        if settings.MOOCCUBEX_ENCODE_CONCEPT_TEXT
         else None
     )
 
@@ -391,7 +475,7 @@ def load_mooccubex(config: MooccubexSelection | None = None) -> RawData:
             # Prerequisite descriptions remain text, not course references.
             "graph_list": ["concept", "teacher", "school"],
             "graph_text": {"concept": ["name", "context"]}
-            if config.encode_concept_text
+            if settings.MOOCCUBEX_ENCODE_CONCEPT_TEXT
             else {},
         },
         "inter": {
@@ -592,7 +676,6 @@ def load_coco() -> RawData:
     interactions = pd.read_csv(
         coco_folder / "evaluate_latest.csv",
         usecols=["learner_id", "course_id", "learner_rating", "learner_timestamp"],
-        nrows=settings.COCO_MAX_INTERACTIONS,
     )
     interactions.dropna(inplace=True)
     interactions.rename(

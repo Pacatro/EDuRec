@@ -112,16 +112,16 @@ def print_data_summary(prefix: str, dm: ElearningDataModule) -> None:
         f"[{prefix}] Splits: "
         + ", ".join(f"{split}={size:,}" for split, size in split_sizes.items())
     )
-    if dm.mooccubex_selection is not None:
-        selection = dm.mooccubex_selection
+    print(
+        f"[{prefix}] Selection: random users, seed={dm.selection.seed}, "
+        f"max_users={dm.selection.max_users or 'all'}"
+    )
+    report = dm.cache_params.get("selection_report")
+    if isinstance(report, dict):
         print(
-            f"[{prefix}] MOOCCubeX selection: community, seed={selection.seed}, budget={selection.max_interactions}"
+            f"[{prefix}] Selected {report['selected_users']:,}/{report['eligible_users']:,} users; "
+            f"{report['selected_interactions']:,}/{report['eligible_interactions']:,} interactions"
         )
-        report = dm.cache_params.get("selection_report")
-        if isinstance(report, dict):
-            print(
-                f"[{prefix}] History retention: {report['mean_history_retention']:.1%}; graph: {report['graph']['shared_concept_nodes']:,} shared concepts"
-            )
     if not dm.is_explicit:
         negatives = dm.train_ds.negative_item_ids
         print(

@@ -1,6 +1,5 @@
 import warnings
 from enum import StrEnum
-from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -50,21 +49,27 @@ def main(
         int | None,
         typer.Option("--random-state", "-r", help="Random state"),
     ] = settings.state["random_state"],
-    mooccubex_config: Annotated[
-        Path | None,
+    max_users: Annotated[
+        int | None,
         typer.Option(
-            "--mooccubex-config",
-            exists=True,
-            dir_okay=False,
-            help="MOOCCubeX selection YAML (shared by all commands).",
+            "--max-users",
+            min=1,
+            help="Sample this many complete user histories; omit for the full dataset.",
         ),
     ] = None,
+    selection_seed: Annotated[
+        int,
+        typer.Option(
+            "--selection-seed", help="User selection seed, independent of training."
+        ),
+    ] = 42,
     verbose: Annotated[
         bool,
         typer.Option("--verbose", "-v", help="Verbose mode"),
     ] = settings.state["verbose"],
 ):
-    settings.MOOCCUBEX_CONFIG_PATH = mooccubex_config
+    settings.SELECTION_MAX_USERS = max_users
+    settings.SELECTION_SEED = selection_seed
     settings.state["verbose"] = verbose
     settings.seed_everything(random_state)
     settings.state["device"] = device.value

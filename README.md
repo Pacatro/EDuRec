@@ -59,93 +59,58 @@ Concept nodes combine a learned ID embedding with a trainable projection of
 their name/context text embeddings, using the configured multilingual text
 encoder. Only concepts linked to retained courses are encoded, once per concept.
 
-### Reproducible MOOCCubeX subsets
+### Reproducible dataset subsets
 
-The default is a small course-enrollment experiment, not next-video prediction.
-Selection reads the complete `user.json` twice, one record at a time. The first
-pass counts course support and grows a catalog through shared concepts; the
-second keeps whole user histories in a bounded priority heap. No intermediate
-database or temporary history files are created. Inverse concept-frequency
-weights reduce the influence of generic concepts; teachers and schools are preserved as graph relations but do not
-choose the community. Without an explicit seed course, the starting course is
-the most popular eligible course (course ID breaks ties).
+All loaders read the full source population. After source cleaning and the
+existing eligibility filters, a common selection step samples users uniformly
+without replacement and retains every eligible interaction of each selected
+user. Selection precedes feature fitting and train/validation/test splitting.
+There is no course-community selection, row truncation or post-sampling support
+pruning. The full population is the default for every dataset, including COCO
+and MOOCCubeX; full mode still applies source cleaning and eligibility filters.
 
 ```bash
-uv run edurec --mooccubex-config configs/datasets/mooccubex-subset.yaml dataset --dataset mooccubex
-uv run edurec --device cpu --random-state 42 --mooccubex-config configs/datasets/mooccubex-subset.yaml train --dataset mooccubex --arch kg_rnn --use_processed
+# All eligible users
+uv run edurec train --dataset coco --arch kg_rnn
+# A reproducible subset; the same options apply to eval, hpo, ablation and dataset
+uv run edurec --max-users 10000 --selection-seed 42 train --dataset coco --arch kg_rnn
+uv run edurec --max-users 10000 --selection-seed 42 dataset --dataset mooccubex
 ```
 
-The selection YAML is separate from `configs/kg_rnn-mooccubex.yaml`, which
-controls model/training hyperparameters. The global `--mooccubex-config` option
-also applies to `eval`, `ablation`, `hpo` and `kg-image`; Python callers can pass
-`MooccubexSelection` as `ElearningDataModule(mooccubex_selection=...)`.
+Users are ranked by a stable hash of their identifier and selection seed.
+Selecting the first N gives nested samples independent of source row order and
+training seed. `--max-users` must be positive; omitting it uses all eligible
+users. The limit counts users rather than interactions: long histories are never
+cut to meet a budget. Python callers can pass
+`DatasetSelection(max_users=10000, seed=42)` to
+`ElearningDataModule(selection=...)` (both exported by `edurec.datasets`).
 
-Selection parameters:
+The previous `--mooccubex-config` option and community-selection YAML are
+replaced by these common options. MOOCCubeX still cleans unknown courses,
+invalid timestamps, misaligned arrays and duplicate enrollments (keeping the
+earliest enrollment), independently of selection. Concept text can be disabled
+through `settings.MOOCCUBEX_ENCODE_CONCEPT_TEXT`.
 
-| Parameter | Meaning |
-| --- | --- |
-| `max_interactions` | Upper bound across train/validation/test, not an exact target; `null` removes it. Never truncates a user's history to fill the budget. |
-| `max_courses` | Maximum community size before support pruning. `null` uses all eligible courses. |
-| `min_user_courses` | Minimum distinct courses per retained user; default 5. |
-| `min_course_users` | Minimum distinct users per retained course; default 5. |
-| `min_history_retention` | Minimum fraction of the user's valid, deduplicated original catalog history retained after thematic and support filtering; default 0.7. Use 1.0 for complete original histories. |
-| `fields` | Optional list of exact raw field labels; courses matching any label are eligible. Empty means unrestricted. |
-| `seed_course` | Optional original `C_...` ID to anchor a community. |
-| `seed` | Stable user-sampling seed, independent of model initialization and source file ordering; default 42. |
-| `candidate_multiplier` | Candidate event pool = this factor times the budget; default 10. Increase if support pruning leaves too few examples. |
-| `encode_concept_text` | Encode concept names/context in addition to their learned IDs; default true. Set false for quick CPU preparation while preserving all concept nodes and memberships. |
-| `min_birth_year`, `max_birth_year` | Inclusive plausible-year bounds (default 1900–2010 for this historical dataset); other values become missing. |
+`manifest.json` records selection parameters, source file sizes/modification
+times, eligible and retained counts, and per-split cold-course counts. Retained
+user IDs are stored in `users.feather`. `--use_processed` checks configuration,
+selection and source metadata before reusing a cache. Cache version 13
+invalidates earlier caches. A new selection overwrites the dataset's processed
+folder; copy it first if retaining multiple cohorts. Raw sources are unchanged.
 
-Selection grows a course community through shared concepts when `max_courses`
-is set; `null` keeps every eligible course. For a larger subset, copy the subset
-YAML and increase `max_interactions` and `max_courses`. Set either limit to
-`null` to remove it; cleaning and support/retention thresholds still apply. With
-both limits unset, all qualifying histories are retained in RAM.
-
-Final feature preparation/training scale with the retained data. A finite
-interaction budget bounds the candidate event pool in RAM. Selection reads all
-users twice, and the heap keeps the same priority prefix as sorting all
-candidates without keeping all their histories. Exact duplicate user detection
-additionally retains eligible user IDs during each pass, so this index grows
-with the source population.
-
-Unknown courses and invalid timestamps are discarded. Users with unaligned
-course/time arrays are skipped rather than guessing their alignment. Repeated
-matriculations of the same user/course are collapsed to the earliest valid
-enrollment. Times without offsets are interpreted as UTC, and equal times use
-course ID as a stable tie break. The iterative user/course core can remove
-courses from a retained history, but never below the configured retention.
-Whole users are sampled by stable hash priority; support filtering may leave
-unused budget and does not automatically relax thresholds.
-
-The existing chronological splits and full-catalog, one-target-per-interaction
-evaluation remain unchanged. Cohort selection uses activity counts from the
-source as a dataset-definition step before splitting; it does not use test
-recommendation scores. This defines a community/active-user population, not a
-representative estimate for all MOOCCubeX users. Fix its YAML and selection seed
-before comparing model variants. Generic CLI `--min_interactions` thresholds
-(when sparse filtering is enabled) also raise the selection support thresholds.
-Compare identical catalogs and report their
-sizes: shrinking the catalog changes ranking difficulty.
-
-`manifest.json` records selection parameters, source user file metadata,
-cleaning counts, history retention, user/course support, graph coverage and
-per-split cold-course counts. `dataset` prints selection diagnostics; training
-and evaluation print a summary. `--use_processed` reuses only a cache with the
-same MOOCCubeX selection definition. Changing it rebuilds the processed
-`mooccubex` folder (copy it first if retaining several cohorts). Source files are
-not overwritten. Cache version 12 invalidates earlier preprocessing caches.
-Static graph memberships and their reverse relations are kept for every
-retained course; no user–item edges are added. Concept text is encoded only for
-the retained concepts. To propagate course information through a shared
-attribute (`course → concept → course`), configure at least two GNN layers;
-more layers are an experimental choice, not a guaranteed improvement.
+Full source loading currently holds interactions in RAM; `--max-users` reduces
+feature preparation and training costs, not peak source-loading memory.
+Eligibility filtering defines an active-user population. Sampling preserves
+complete histories within that population, but does not guarantee identical
+item coverage or model rankings to the full dataset. Compare sample sizes and
+seeds before relying on reduced experiments. The chronological split and
+full-catalog evaluation protocol remain unchanged.
 
 Missing metadata falls back to the name in the concept ID and emits a warning.
 Embeddings and original IDs are saved with the processor; the KG exposes the
 ID-to-row correspondence as `node_ids`. The `use_text_features` ablation also
-disables concept text, including in contrastive graph views. Processed cache
-version 10 rebuilds older caches automatically on the next run. Course-concept
+disables concept text, including in contrastive graph views. Processed caches
+from older versions are rebuilt automatically on the next run. Course-concept
 links remain binary; video-based relevance weights require a separate extension.
 
 Attribute text is also used by other datasets when their static metadata permits:

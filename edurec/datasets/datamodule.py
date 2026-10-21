@@ -1,5 +1,4 @@
 import json
-from dataclasses import replace
 from pathlib import Path
 
 import lightning as L
@@ -19,11 +18,11 @@ from edurec.datasets.interaction_features import (
     build_interaction_features,
 )
 from edurec.datasets.knowledge_graph import build_knowledge_graph
-from edurec.datasets.loaders import DatasetName, RawData, load_mooccubex, load_raw_data
-from edurec.datasets.mooccubex import MooccubexSelection, selection_config
+from edurec.datasets.loaders import DatasetName, RawData, load_raw_data
 from edurec.datasets.preprocessing import (
     add_relevance,
     clean_cols,
+    deduplicate_interactions,
     filter_sparse,
     generate_negative_samples,
     get_relevance_threshold,
@@ -31,6 +30,7 @@ from edurec.datasets.preprocessing import (
     split_data,
 )
 from edurec.datasets.recsys_dataset import RecSysDataset
+from edurec.datasets.selection import DatasetSelection, select_dataset
 from edurec.datasets.user_history import build_histories
 
 
@@ -49,7 +49,7 @@ class ElearningDataModule(L.LightningDataModule):
         max_history: int = settings.MAX_HISTORY_LEN,
         deduplicate_interactions: bool = settings.DEDUPLICATE_INTERACTIONS,
         persistent_workers: bool = True,
-        mooccubex_selection: MooccubexSelection | None = None,
+        selection: DatasetSelection | None = None,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -67,18 +67,9 @@ class ElearningDataModule(L.LightningDataModule):
         self.deduplicate_interactions = deduplicate_interactions
         self.persistent_workers = persistent_workers
         self.data_variant = dataset.value
-        self.mooccubex_selection = None
-        if dataset == DatasetName.MOOCCUBEX:
-            selection = mooccubex_selection or selection_config()
-            # Honor explicit generic support thresholds in the selection itself,
-            # so subsequent filtering cannot silently destroy history retention.
-            if remove_sparse:
-                selection = replace(
-                    selection,
-                    min_user_courses=max(selection.min_user_courses, min_interactions),
-                    min_course_users=max(selection.min_course_users, min_interactions),
-                )
-            self.mooccubex_selection = selection
+        self.selection = selection or DatasetSelection(
+            max_users=settings.SELECTION_MAX_USERS, seed=settings.SELECTION_SEED
+        )
 
         self.cache_params = {
             "version": CACHE_VERSION,
@@ -96,9 +87,10 @@ class ElearningDataModule(L.LightningDataModule):
             "max_history_len": max_history,
         }
 
-        if self.mooccubex_selection is not None:
-            self.cache_params["mooccubex_selection"] = (
-                self.mooccubex_selection.metadata()
+        self.cache_params["selection"] = self.selection.metadata()
+        if dataset == DatasetName.MOOCCUBEX:
+            self.cache_params["encode_concept_text"] = (
+                settings.MOOCCUBEX_ENCODE_CONCEPT_TEXT
             )
 
         self.processed_folder = Path(settings.PROCESSED_FOLDER) / self.data_variant
@@ -109,12 +101,31 @@ class ElearningDataModule(L.LightningDataModule):
         self._knowledge_graph: HeteroData | None = None
         self._interaction_tables: InteractionFeatureTables | None = None
 
-    def _compatible_cache(self) -> bool:
-        expected = (
-            self.mooccubex_selection.metadata() if self.mooccubex_selection else None
+    def _source_metadata(self) -> dict[str, dict[str, int]]:
+        name = (
+            "mars"
+            if self.dataset_name
+            in {DatasetName.EXPLICIT_MARS, DatasetName.IMPLICIT_MARS}
+            else self.dataset_name.value
         )
+        folder = settings.RAW_DATA_FOLDER / name
+        return {
+            str(path.relative_to(folder)): {
+                "bytes": path.stat().st_size,
+                "mtime_ns": path.stat().st_mtime_ns,
+            }
+            for path in sorted(folder.rglob("*"))
+            if path.is_file()
+        }
+
+    def _compatible_cache(self) -> bool:
         return processed_cache_exists(
-            self.processed_folder, expected_selection=expected
+            self.processed_folder,
+            expected_selection=self.selection.metadata(),
+            expected_params={
+                **self.cache_params,
+                "raw_sources": self._source_metadata(),
+            },
         )
 
     def prepare_data(self) -> None:
@@ -127,13 +138,12 @@ class ElearningDataModule(L.LightningDataModule):
         if not self.is_processed:
             if self.use_processed_data and self._compatible_cache():
                 self.artifacts = ProcessedData.load(self.processed_folder)
-                if self.mooccubex_selection is not None:
-                    manifest = json.loads(
-                        (self.processed_folder / "manifest.json").read_text()
-                    )
-                    for key in ("selection_report", "split_report"):
-                        if key in manifest:
-                            self.cache_params[key] = manifest[key]
+                manifest = json.loads(
+                    (self.processed_folder / "manifest.json").read_text()
+                )
+                for key in ("selection_report", "split_report", "raw_sources"):
+                    if key in manifest:
+                        self.cache_params[key] = manifest[key]
             else:
                 self._process_raw_data()
 
@@ -235,11 +245,8 @@ class ElearningDataModule(L.LightningDataModule):
         )
 
     def _process_raw_data(self) -> None:
-        raw = (
-            load_mooccubex(self.mooccubex_selection)
-            if self.mooccubex_selection is not None
-            else load_raw_data(self.dataset_name)
-        )
+        self.cache_params["raw_sources"] = self._source_metadata()
+        raw = load_raw_data(self.dataset_name)
         interactions = clean_cols(raw.interactions)
 
         self.raw_dataset = RawData(
@@ -264,6 +271,31 @@ class ElearningDataModule(L.LightningDataModule):
                 deduplicate=self.deduplicate_interactions,
             )
 
+        # Deduplication belongs to eligibility, so selection preserves the exact
+        # histories that will subsequently be split.
+        if self.deduplicate_interactions or settings.TIME_COL not in interactions:
+            interactions = deduplicate_interactions(interactions)
+        eligible_counts = {
+            "loaded_interactions": len(raw.interactions),
+            "eligible_interactions": len(interactions),
+            "source_cleaning": raw.selection_report,
+        }
+        selected = select_dataset(
+            self.raw_dataset._replace(
+                interactions=interactions,
+                user_features=users,
+                item_features=items,
+                selection_report=eligible_counts,
+            ),
+            self.selection,
+        )
+        self.raw_dataset = selected
+        users, items, interactions = (
+            selected.user_features,
+            selected.item_features,
+            selected.interactions,
+        )
+
         self.artifacts.train, self.artifacts.val, self.artifacts.test = (
             self._split_with_relevance(interactions)
         )
@@ -278,9 +310,9 @@ class ElearningDataModule(L.LightningDataModule):
             graph_entities=raw.graph_entities,
         )
 
-        if raw.selection_report is not None:
+        if selected.selection_report is not None:
             train_items = self.artifacts.splits()["train"][settings.ITEM_COL]
-            self.cache_params["selection_report"] = raw.selection_report
+            self.cache_params["selection_report"] = selected.selection_report
             self.cache_params["split_report"] = {
                 name: {
                     "interactions": len(frame),

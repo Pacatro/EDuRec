@@ -80,9 +80,10 @@ MOOCCUBEX_REQUIRED_FILES = (
     "relations/course-teacher.txt",
     "relations/course-school.txt",
 )
-# Total enrollment budget before splitting; whole users are never truncated.
-MOOCCUBEX_MAX_INTERACTIONS: int = 3_000
-MOOCCUBEX_CONFIG_PATH: Path | None = None
+MOOCCUBEX_ENCODE_CONCEPT_TEXT: bool = True
+SELECTION_MAX_USERS: int | None = None
+SELECTION_SEED: int = 42
+
 ITM_REQUIRED_FILES = ("ratings.csv", "items.csv", "users.csv")
 KAGGLE_ITM_DATASET = "irecsys/itmrec"
 COCO_REQUIRED_FILES = (
@@ -92,7 +93,6 @@ COCO_REQUIRED_FILES = (
     "instructor_latest.csv",
     "teach_latest.csv",
 )
-COCO_MAX_INTERACTIONS: int = 500_000
 
 # Preprocessing
 PROCESSED_FOLDER: str = f"{DATA_FOLDER}/processed"

@@ -12,7 +12,7 @@ from edurec.datasets.dataprocessor import DataProcessor
 
 # Bump whenever the preprocessing logic changes in a way that invalidates
 # existing caches (e.g. deduplication or timestamp parsing changes).
-CACHE_VERSION = 12
+CACHE_VERSION = 13
 MANIFEST_FILENAME = "manifest.json"
 
 CACHE_FILES = (
@@ -30,13 +30,13 @@ CACHE_FILES = (
 def processed_cache_exists(
     folder: Path,
     expected_selection: Mapping[str, Any] | None = None,
+    expected_params: Mapping[str, Any] | None = None,
 ) -> bool:
     """Whether a complete, format-compatible cache is available in ``folder``.
 
-    General manifest parameters are informational when opting in to reuse.
-    MOOCCubeX additionally requires the requested subset definition to match;
-    changing its seed, budget or thresholds forces reprocessing. Fresh data
-    overwrite this folder; raw sources are never modified.
+    Selection and any supplied preprocessing/source parameters must match;
+    changing the user limit, seed or eligibility thresholds forces reprocessing.
+    Fresh data overwrite this folder; raw sources are never modified.
     """
     if not all((folder / name).exists() for name in CACHE_FILES):
         return False
@@ -49,8 +49,13 @@ def processed_cache_exists(
     if manifest.get("version") != CACHE_VERSION:
         return False
 
-    if expected_selection is not None and manifest.get("mooccubex_selection") != dict(
+    if expected_selection is not None and manifest.get("selection") != dict(
         expected_selection
+    ):
+        return False
+
+    if expected_params is not None and any(
+        manifest.get(key) != value for key, value in expected_params.items()
     ):
         return False
 
