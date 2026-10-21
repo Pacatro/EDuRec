@@ -1,15 +1,15 @@
-# Tests básicos
+# Basic Tests
 
-Ejecutar desde la raíz del proyecto, con las dependencias de desarrollo instaladas:
+Run from the project root, with the development dependencies installed:
 
 ```sh
 uv run python -m pytest -q
 ```
 
-La suite utiliza datos sintéticos pequeños en CPU, sin descargar datasets ni pesos.
-Cubre particiones temporales, historiales y contexto sin fugas de información;
-configuración y ablaciones; pooling, codificadores, scoring y pérdida contrastiva;
-forward/backward de KGSeq y SASRecText; métricas de ranking y entrada de la CLI.
+The suite uses small synthetic datasets on CPU, without downloading datasets or weights.
+It covers temporal splits, histories, and context without information leakage;
+configuration and ablations; pooling, encoders, scoring, and the contrastive loss;
+forward/backward passes of KGSeq and SASRecText; ranking metrics; and CLI input.
 
-Se comprueban los contratos esenciales, sin ejecutar entrenamientos completos,
-optimizaciones de hiperparámetros ni benchmarks de servicios externos.
+It checks the essential contracts, without running full training,
+hyperparameter optimization, or benchmarks against external services.
