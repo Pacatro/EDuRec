@@ -16,6 +16,8 @@ Keep dataset-specific YAML files in `configs/`, named `<arch>-<dataset>.yaml`, w
 
 Initial dataset preparation may download datasets and pretrained text weights.
 
+Do not write or run automated tests (no `tests/` folder, `pytest`, or `unittest`). Validate changes with static type checks and CLI smoke runs.
+
 ## Coding Style & Naming Conventions
 
 Use four-space indentation, `snake_case` for functions/modules, `PascalCase` for classes, and uppercase constants. Add type annotations to public interfaces and document tensor shapes where they clarify model behavior. Follow adjacent code's import ordering and formatting; no formatter is pinned in `pyproject.toml`. Keep tensors device-agnostic and configuration in dataclasses or YAML rather than hardcoded training parameters.
