@@ -10,6 +10,7 @@ from torch_geometric.utils import to_networkx
 
 from edurec import settings
 from edurec.datasets import DatasetName, ElearningDataModule
+from edurec.datasets.pipeline.prepare import DatasetSelection
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -22,7 +23,23 @@ def dataset_command(
     max_rows: Annotated[
         int, typer.Option("--max_rows", "-m", help="Maximum number of rows to show")
     ] = 10,
+    max_users: Annotated[
+        int | None,
+        typer.Option(
+            "--max-users",
+            min=1,
+            help="Sample this many complete user histories; omit for the full dataset.",
+        ),
+    ] = None,
+    selection_seed: Annotated[
+        int | None,
+        typer.Option("--selection-seed", help="User selection seed."),
+    ] = None,
 ) -> None:
+    selection = DatasetSelection(
+        max_users=max_users if max_users is not None else settings.SELECTION_MAX_USERS,
+        seed=selection_seed if selection_seed is not None else settings.SELECTION_SEED,
+    )
     dm = ElearningDataModule(
         dataset=dataset,
         batch_size=settings.BATCH_SIZE,
@@ -30,6 +47,7 @@ def dataset_command(
         val_ratio=settings.VAL_RATIO,
         use_processed_data=False,
         remove_sparse=False,
+        selection=selection,
     )
 
     dm.prepare_data()
