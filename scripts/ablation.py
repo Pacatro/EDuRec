@@ -1,23 +1,32 @@
+"""Run KGSeq ablation variants.
+
+Usage: uv run scripts/ablation.py -d coco --seeds 13,42,77
+"""
+
+import argparse
 import datetime
 from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Annotated
 
 import pandas as pd
-import typer
-
-from edurec import settings
-from edurec.cli.utils import (
+from common import (
+    add_configs_arg,
+    add_model_args,
+    add_preprocessing_args,
+    add_runtime_args,
+    add_seeds_args,
+    add_selection_args,
+    add_training_args,
     build_config,
-    config_path,
-    dataset_train_defaults,
     datasets_to_run,
     parse_seeds,
     print_data_summary,
-    print_model_modules,
+    setup_runtime,
 )
-from edurec.datasets import DatasetName, ElearningDataModule
+
+from edurec import settings
+from edurec.datasets import ElearningDataModule
 from edurec.evaluation.ablation import (
     ABLATIONS,
     ablation_applicable,
@@ -26,122 +35,83 @@ from edurec.evaluation.ablation import (
 from edurec.recsys import ModelArch, ModelConfig, RecSys, train_model
 from edurec.recsys.configs import resolve_train_config
 
-app = typer.Typer(no_args_is_help=True)
-
 # Dedicated MLflow experiment for ablation runs, separate from training (TFM),
 # evaluation (EVAL), and HPO runs.
 MLFLOW_EXPERIMENT_NAME = "ABLATION"
 
 
-@app.command(name="ablation", help="Run KGSeq ablation variants.")
-def run_ablation(
-    dataset: Annotated[DatasetName | None, typer.Option("--dataset", "-d")] = None,
-    arch: Annotated[
-        ModelArch | None,
-        typer.Option(
-            "--arch",
-            "-A",
-            help="Model architecture to ablate. Defaults to the saved/default kg_rnn.",
-        ),
-    ] = None,
-    seeds: Annotated[
-        str,
-        typer.Option("--seeds", "-s", help="Comma-separated seeds to run."),
-    ] = "13,42,77",
-    epochs: Annotated[
-        int | None,
-        typer.Option(
-            "--epochs",
-            "-e",
-            min=1,
-            help="Number of training epochs. Uses the saved training config if omitted.",
-        ),
-    ] = None,
-    lr: Annotated[
-        float | None,
-        typer.Option(
-            "--lr",
-            "-l",
-            help="Learning rate. Uses the saved training config if omitted.",
-        ),
-    ] = None,
-    batch_size: Annotated[int | None, typer.Option("--batch_size", "-b", min=1)] = None,
-    patience: Annotated[int | None, typer.Option("--patience", "-p", min=1)] = None,
-    val_size: Annotated[float, typer.Option("--val_size", "-v")] = settings.VAL_RATIO,
-    test_size: Annotated[
-        float, typer.Option("--test_size", "-t")
-    ] = settings.TEST_RATIO,
-    top_k: Annotated[int, typer.Option("--top_k", "-k")] = settings.TOP_K,
-    remove_sparse: Annotated[
-        bool, typer.Option("--remove_sparse", "-R")
-    ] = settings.REMOVE_SPARSE,
-    min_interactions: Annotated[
-        int, typer.Option("--min_interactions", "-i")
-    ] = settings.MIN_INTERACTIONS,
-    adaptive_k: Annotated[bool | None, typer.Option("--adaptive_k", "-a")] = None,
-    gcl_weight: Annotated[
-        float | None,
-        typer.Option(
-            "--gcl-weight",
-            min=0.0,
-            help="Override the GCL loss weight for the base config. The "
-            "leave-one-out `no_gcl` variant disables GCL entirely.",
-        ),
-    ] = None,
-    use_processed_data: Annotated[
-        bool, typer.Option("--use_processed", "-P")
-    ] = settings.SAVE_DATA,
-    compile: Annotated[
-        bool,
-        typer.Option("--compile", help="Compile each model before training."),
-    ] = settings.COMPILE_MODEL,
-    debug: Annotated[bool, typer.Option("--debug", "-D")] = False,
-    output_dir: Annotated[
-        Path,
-        typer.Option("--output-dir", "-o", help="Root folder for ablation results."),
-    ] = Path(settings.RESULTS_FOLDER) / "ablations",
-    logger: Annotated[
-        bool,
-        typer.Option(
-            "--logger",
-            "-L",
-            help="Log each ablation variant to the ABLATION MLflow experiment. "
-            "Each run is named <arch>-<dataset>-<variant>-seed.",
-        ),
-    ] = False,
-) -> None:
-    parsed_seeds = parse_seeds(seeds)
-    datasets = datasets_to_run(dataset)
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run KGSeq ablation variants.")
+    add_runtime_args(parser)
+    add_selection_args(parser)
+    add_preprocessing_args(parser)
+    add_model_args(parser)
+    add_training_args(parser)
+    add_seeds_args(parser)
+    add_configs_arg(parser)
+    parser.add_argument(
+        "--top-k",
+        "-k",
+        type=int,
+        default=settings.TOP_K,
+        help="Validation cutoff used by the ablation models.",
+    )
+    parser.add_argument(
+        "--gcl-weight",
+        type=float,
+        help="Override the GCL loss weight for the base config. The "
+        "leave-one-out `no_gcl` variant disables GCL entirely.",
+    )
+    parser.add_argument("--debug", "-D", action="store_true", help="Fast debug run.")
+    parser.add_argument(
+        "--output-dir",
+        "-o",
+        type=Path,
+        default=Path(settings.RESULTS_FOLDER) / "ablations",
+        help="Root folder for ablation results.",
+    )
+    parser.add_argument(
+        "--logger",
+        "-L",
+        action="store_true",
+        help="Log each ablation variant to the ABLATION MLflow experiment. "
+        "Each run is named <arch>-<dataset>-<variant>-seed.",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    setup_runtime(args)
+
+    parsed_seeds = parse_seeds(args.seeds)
+    datasets = datasets_to_run(args.dataset)
     started_at = datetime.datetime.now(datetime.UTC)
-    verbose = settings.state["verbose"]
 
     variants = list(ABLATIONS)
 
     print("\n[ABLATION] ablation run")
     print(f"[ABLATION] Datasets: {', '.join(ds.value for ds in datasets)}")
-    print(f"[ABLATION] Architecture: {(arch or ModelArch.KG_RNN).value}")
+    print(f"[ABLATION] Architecture: {(args.arch or ModelArch.KG_RNN).value}")
     print(f"[ABLATION] Variants: {', '.join(variants)}")
     print(f"[ABLATION] Seeds: {', '.join(str(seed) for seed in parsed_seeds)}")
-    print(f"[ABLATION] Output folder: {output_dir}")
+    print(f"[ABLATION] Output folder: {args.output_dir}")
 
     for dataset_name in datasets:
         run_name = dataset_name.value
-        resolved_arch = arch if arch is not None else ModelArch.KG_RNN
-        dataset_root = output_dir / run_name
+        resolved_arch = args.arch if args.arch is not None else ModelArch.KG_RNN
+        dataset_root = args.output_dir / run_name
         dataset_root.mkdir(parents=True, exist_ok=True)
-        run_config_path = config_path(
-            Path(settings.CONFIGS_FOLDER), run_name, resolved_arch
-        )
+        run_config_path = args.configs_folder / f"{resolved_arch.value}-{run_name}.yaml"
         train_cfg = resolve_train_config(
             cli={
-                "epochs": epochs,
-                "lr": lr,
-                "batch_size": batch_size,
-                "patience": patience,
-                "adaptive_k": adaptive_k,
+                "epochs": args.epochs,
+                "lr": args.lr,
+                "batch_size": args.batch_size,
+                "patience": args.patience,
+                "adaptive_k": args.adaptive_k,
             },
             saved_path=run_config_path,
-            defaults=dataset_train_defaults(dataset_name),
         )
         rows = []
 
@@ -151,15 +121,17 @@ def run_ablation(
             dm = ElearningDataModule(
                 dataset=dataset_name,
                 batch_size=train_cfg.batch_size,
-                test_ratio=test_size,
-                val_ratio=val_size,
-                use_processed_data=use_processed_data,
+                test_ratio=args.test_size,
+                val_ratio=args.val_size,
+                use_processed_data=args.use_processed,
                 random_state=seed,
-                min_interactions=min_interactions,
-                remove_sparse=remove_sparse,
+                min_interactions=args.min_interactions,
+                remove_sparse=args.remove_sparse,
                 save_atomic_files=False,
                 max_history=train_cfg.max_history,
                 deduplicate_interactions=train_cfg.deduplicate_interactions,
+                max_users=args.max_users,
+                selection_seed=args.selection_seed,
             )
             dm.prepare_data()
             dm.setup()
@@ -172,14 +144,16 @@ def run_ablation(
                     dm,
                     base=ModelConfig.load(run_config_path),
                     arch=resolved_arch,
-                    gcl_weight=gcl_weight,
+                    gcl_weight=args.gcl_weight,
                 )
             else:
                 print(
                     "[ABLATION] No model config file found, creating new config for dataset:",
                     run_name,
                 )
-                base_cfg = build_config(dm, arch=resolved_arch, gcl_weight=gcl_weight)
+                base_cfg = build_config(
+                    dm, arch=resolved_arch, gcl_weight=args.gcl_weight
+                )
 
             for variant in variants:
                 settings.seed_everything(seed)
@@ -234,7 +208,6 @@ def run_ablation(
                         f"that {run_name} does not provide; it is a no-op and its "
                         "row is marked applicable=0."
                     )
-                print_model_modules("ABLATION", cfg)
 
                 model = RecSys(
                     cfg=cfg,
@@ -243,7 +216,7 @@ def run_ablation(
                     u_static_feats=dm.u_static_feats,
                     u_cat_feats=dm.u_cat_feats,
                     train_cfg=train_cfg,
-                    val_topk=top_k,
+                    val_topk=args.top_k,
                 )
                 num_parameters = sum(
                     param.numel() for param in model.parameters() if param.requires_grad
@@ -251,10 +224,10 @@ def run_ablation(
 
                 mlflow_run_name = (
                     f"{resolved_arch.value}-{run_name}-{variant}-seed={seed}"
-                    if logger
+                    if args.logger
                     else None
                 )
-                if mlflow_run_name is not None and verbose:
+                if mlflow_run_name is not None and args.verbose:
                     print(f"[ABLATION] Logger: MLflow, run_name={mlflow_run_name}")
 
                 with TemporaryDirectory(
@@ -263,12 +236,12 @@ def run_ablation(
                     trainer, best_model_path, timer = train_model(
                         model=model,
                         dm=dm,
-                        debug=debug,
+                        debug=args.debug,
                         epochs=train_cfg.epochs,
                         patience=train_cfg.patience,
                         monitor=model.monitor,
-                        compile=compile,
-                        verbose=verbose,
+                        compile=args.compile,
+                        verbose=args.verbose,
                         default_root_dir=tmp,
                         run_name=mlflow_run_name,
                         experiment_name=MLFLOW_EXPERIMENT_NAME,
@@ -278,14 +251,14 @@ def run_ablation(
                     training_time = timer.time_elapsed("train")
                     metrics = (
                         {}
-                        if debug
+                        if args.debug
                         else trainer.test(
                             ckpt_path="best",
                             datamodule=dm,
                             weights_only=False,
                         )[0]
                     )
-                    inference_time = 0.0 if debug else timer.time_elapsed("test")
+                    inference_time = 0.0 if args.debug else timer.time_elapsed("test")
 
                 row: dict[str, float | int | str] = {
                     "variant": variant,
@@ -325,7 +298,7 @@ def run_ablation(
                     index=False,
                 )
 
-                if verbose:
+                if args.verbose:
                     print(f"[ABLATION] Best checkpoint: {best_model_path}")
 
         aggregate = pd.DataFrame(rows)
@@ -336,3 +309,7 @@ def run_ablation(
     finish = datetime.datetime.now(datetime.UTC)
     elapsed = str(finish - started_at).split(".", maxsplit=1)[0]
     print(f"[ABLATION] Finished in {elapsed}")
+
+
+if __name__ == "__main__":
+    main()

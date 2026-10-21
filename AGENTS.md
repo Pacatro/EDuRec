@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-EDuRec is a Python 3.12+ research project for e-learning recommendations, built with PyTorch, PyTorch Geometric, and Lightning. Source lives in `edurec/`: `cli/` defines Typer commands; `datasets/` handles loading, preprocessing, caching, and user histories; `recsys/` contains training, ranking, optimization, and model architectures; `evaluation/` implements benchmarks and ablations. Shared defaults live in `edurec/settings.py`.
+EDuRec is a Python 3.12+ research project for e-learning recommendations, built with PyTorch, PyTorch Geometric, and Lightning. Source lives in `edurec/`: `datasets/` handles loading, preprocessing, caching, and user histories; `recsys/` contains training, ranking, optimization, and model architectures; `evaluation/` implements benchmarks and ablations. Shared defaults live in `edurec/settings.py`. Command-line entry points are plain argparse scripts in `scripts/` (`train.py`, `eval.py`, `hpo.py`, `ablation.py`, `dataset.py`), sharing argument groups and helpers from `scripts/common.py`.
 
 Keep dataset-specific configuration in `configs/<arch>-<dataset>.yaml`. Tests live in `tests/`, exploratory notebooks in `notebooks/`, and the architecture illustration in `model-diagram.png`. Local datasets, checkpoints, and experiment outputs belong in ignored directories such as `data/`, `models/`, and `results/`.
 
@@ -12,11 +12,11 @@ Run commands from the repository root:
 
 - `uv sync --group dev`: install runtime and development dependencies from the lockfile.
 - `uv build`: build the Python distribution with Hatchling.
-- `uv run edurec --help`: inspect available commands and options.
+- `uv run scripts/train.py --help`: inspect available options (one script per command in `scripts/`).
 - `uv run python -m pytest -q`: run the CPU-based test suite.
 - `uv run ruff check .`: check Python lint issues.
 - `uv run pyright edurec`: check source types.
-- `uv run edurec --device cpu --random-state 42 train --dataset doris --arch kg_rnn --debug`: run a reproducible training smoke check; dataset preparation may download data and pretrained weights.
+- `uv run scripts/train.py --device cpu --random-state 42 --dataset doris --arch kg_rnn --debug`: run a reproducible training smoke check; dataset preparation may download data and pretrained weights.
 
 ## Coding Style & Naming Conventions
 

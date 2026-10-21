@@ -8,7 +8,6 @@ from edurec import settings
 from edurec.datasets.cache import ProcessedData
 from edurec.datasets.features.tabular import DataProcessor
 from edurec.datasets.pipeline.prepare import (
-    DatasetSelection,
     clean_cols,
     deduplicate_interactions,
     filter_sparse,
@@ -32,7 +31,8 @@ class BuildConfig:
     remove_sparse: bool
     deduplicate: bool
     random_state: int | None
-    selection: DatasetSelection
+    max_users: int | None
+    selection_seed: int
 
 
 def build_processed(raw: RawData, config: BuildConfig) -> ProcessedData:
@@ -71,7 +71,8 @@ def build_processed(raw: RawData, config: BuildConfig) -> ProcessedData:
             item_features=items,
             selection_report=eligible_report,
         ),
-        config.selection,
+        max_users=config.max_users,
+        seed=config.selection_seed,
     )
 
     train, val, test = _split_with_relevance(selected.interactions, config)

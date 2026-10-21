@@ -16,7 +16,7 @@ implicit and explicit student-resource interactions. The codebase includes:
 - The proposed EDuRec model, implemented with PyTorch, PyTorch Geometric, and
   Lightning.
 - Training, testing, dataset inspection, hyperparameter optimization, benchmark
-  evaluation, and ablation commands through a Typer CLI.
+  evaluation, and ablation commands as plain Python scripts in `scripts/`.
 - RecBole-based comparisons against classical and state-of-the-art recommenders.
 - Ranking metrics at multiple cutoffs, including Precision, Recall, NDCG, Hit
   Rate, MAP, and MRR.
@@ -71,10 +71,10 @@ and MOOCCubeX; full mode still applies source cleaning and eligibility filters.
 
 ```bash
 # All eligible users
-uv run edurec train --dataset coco --arch kg_rnn
+uv run scripts/train.py --dataset coco --arch kg_rnn
 # A reproducible subset; the same options apply to eval, hpo, ablation and dataset
-uv run edurec --max-users 10000 --selection-seed 42 train --dataset coco --arch kg_rnn
-uv run edurec --max-users 10000 --selection-seed 42 dataset --dataset mooccubex
+uv run scripts/train.py --max-users 10000 --selection-seed 42 --dataset coco --arch kg_rnn
+uv run scripts/dataset.py --max-users 10000 --selection-seed 42 --dataset mooccubex
 ```
 
 Users are ranked by a stable hash of their identifier and selection seed.
@@ -82,8 +82,8 @@ Selecting the first N gives nested samples independent of source row order and
 training seed. `--max-users` must be positive; omitting it uses all eligible
 users. The limit counts users rather than interactions: long histories are never
 cut to meet a budget. Python callers can pass
-`DatasetSelection(max_users=10000, seed=42)` to
-`ElearningDataModule(selection=...)` (both exported by `edurec.datasets`).
+`max_users=10000, selection_seed=42` to
+`ElearningDataModule` (exported by `edurec.datasets`).
 
 The previous `--mooccubex-config` option and community-selection YAML are
 replaced by these common options. MOOCCubeX still cleans unknown courses,
@@ -93,7 +93,7 @@ through `settings.MOOCCUBEX_ENCODE_CONCEPT_TEXT`.
 
 `manifest.json` records selection parameters, source file sizes/modification
 times, eligible and retained counts, and per-split cold-course counts. Retained
-user IDs are stored in `users.feather`. `--use_processed` checks configuration,
+user IDs are stored in `users.feather`. `--use-processed` checks configuration,
 selection and source metadata before reusing a cache. Cache version 13
 invalidates earlier caches. A new selection overwrites the dataset's processed
 folder; copy it first if retaining multiple cohorts. Raw sources are unchanged.
@@ -132,19 +132,21 @@ architectures continue to use item text.
 
 ## Usage
 
-All commands are exposed through the `edurec` CLI.
+Each command is a Python script in `scripts/`. `--help` lists the options of
+each one:
 
 ```bash
-uv run edurec --help
+uv run scripts/train.py --help
 ```
 
-Global options:
+Options shared by the training commands (`train`, `eval`, `hpo`, `ablation`):
 
 ```text
--d, --device [auto|cpu|cuda]  Device to use
--r, --random-state INTEGER    Random seed
--v, --verbose                 Verbose output
--h, --help                    Show help
+--device [auto|cpu|cuda]  Device to use
+--verbose                 Verbose output
+--max-users INTEGER       Sample this many complete user histories
+--selection-seed INTEGER  User selection seed
+-h, --help                Show help
 ```
 
 ### Inspect a Dataset
@@ -167,14 +169,16 @@ are opt-in through `ALLOW_DOWNLOAD`.
 Print basic statistics and sample rows from a dataset.
 
 ```bash
-uv run edurec dataset --dataset explicit_mars --max_rows 10
+uv run scripts/dataset.py --dataset explicit_mars --max-rows 10
 ```
 
 Options:
 
 ```text
 -d, --dataset [explicit_mars|implicit_mars|itm|doris|mooccubex|coco]  Dataset to use
--m, --max_rows INTEGER          Number of rows to show
+-m, --max-rows INTEGER          Number of rows to show
+--max-users INTEGER             Sample this many complete user histories
+--selection-seed INTEGER        User selection seed
 ```
 
 ### Train EDuRec
@@ -183,7 +187,7 @@ Train the proposed model on one dataset. If `--dataset` is omitted, the command
 iterates through all registered datasets.
 
 ```bash
-uv run edurec train --dataset explicit_mars --use_processed --save_model
+uv run scripts/train.py --dataset explicit_mars --use-processed --save-model
 ```
 
 Common options:
@@ -192,19 +196,20 @@ Common options:
 -d, --dataset [explicit_mars|implicit_mars|itm|doris|mooccubex|coco]
 -e, --epochs INTEGER            Default: from saved train config
 -l, --lr FLOAT                  Default: from saved train config
--b, --batch_size INTEGER        Default: from saved train config
+-b, --batch-size INTEGER        Default: from saved train config
 -p, --patience INTEGER          Default: from saved train config
--v, --val_size FLOAT            Default: 0.1
--t, --test_size FLOAT           Default: 0.2
--k, --top_k INTEGER             Default: 20
--R, --remove_sparse             Remove sparse users/items
--i, --min_interactions INTEGER  Default: 3
--a, --adaptive_k                Use adaptive-k metrics where supported
+--val-size FLOAT                Default: 0.1
+--test-size FLOAT               Default: 0.2
+-k, --top-k INTEGER             Default: 20
+--remove-sparse / --no-remove-sparse  Remove sparse users/items (default: on)
+-i, --min-interactions INTEGER  Default: 3
+-a, --adaptive-k               Use adaptive-k metrics where supported
+-r, --random-state INTEGER      Seed for training and data splits
 -D, --debug                     Fast debug run
--S, --save_model                Save checkpoint, config, and metrics
--P, --use_processed             Reuse cached processed data
--M, --models-folder TEXT        Default: models
--C, --configs-folder TEXT       Default: configs
+-S, --save-model                Save checkpoint, config, and metrics
+-P, --use-processed             Reuse cached processed data
+-M, --models-folder PATH        Default: models
+-C, --configs-folder PATH       Default: configs
 -N, --run-name TEXT             Optional MLflow run name
 ```
 
@@ -215,7 +220,7 @@ its explicit reverse relation. The objective is the existing weighted
 recommendation loss plus `gcl_weight * gcl_loss` (symmetric item InfoNCE).
 
 ```bash
-uv run edurec --device cpu --random-state 42 train --dataset doris --arch kg_rnn --gcl-weight 0.01 --debug
+uv run scripts/train.py --device cpu --random-state 42 --dataset doris --arch kg_rnn --gcl-weight 0.01 --debug
 ```
 
 Set these fields in `configs/kg_rnn-<dataset>.yaml`, or override
@@ -251,7 +256,7 @@ Run the proposed EDuRec model and baseline models on the selected dataset. If
 `--dataset` is omitted, all datasets are evaluated.
 
 ```bash
-uv run edurec eval --dataset itm --use-processed --top-k 5 --top-k 10 --top-k 20
+uv run scripts/eval.py --dataset itm --use-processed --top-k 5 --top-k 10 --top-k 20
 ```
 
 Default baseline models:
@@ -273,14 +278,18 @@ Useful options:
 -b, --batch-size INTEGER        Default: from saved train config
 -p, --patience INTEGER          Default: from saved train config
 -k, --top-k INTEGER             Repeat for multiple cutoffs
--R, --remove-sparse / -K, --keep-sparse
--I, --min-interactions INTEGER  Default: 3
--P, --use-processed / -N, --no-use-processed
--c, --cfg-path FILE             Extra RecBole config
+--remove-sparse / --no-remove-sparse
+-i, --min-interactions INTEGER  Default: 3
+-P, --use-processed / --no-use-processed
+-c, --cfg-path PATH             Extra RecBole config
 -m, --baseline-model TEXT       Baseline to evaluate (RecBole or native; repeat, or `all`)
+-s, --seeds TEXT                Comma-separated seeds (default: 13,42,77)
+-o, --output-dir PATH           Root folder for evaluation results
+-C, --configs-folder PATH       Folder with saved configurations
+-L, --logger                    Log the proposed model to MLflow
 --only-proposed                 Evaluate only the proposed model
 --only-baselines                Evaluate only the baseline models
--a, --adaptive-k / -A, --fixed-k
+-a, --adaptive-k / --fixed-k
 ```
 
 Every model that is not the proposed one is a baseline. Baselines implemented
@@ -294,8 +303,8 @@ knowledge graph and three rule-based interest factors; every interaction-derived
 quantity uses the train split only.
 
 ```bash
-uv run edurec eval --dataset doris --use-processed --only-baselines --baseline-model IDRMI
-uv run edurec eval --dataset doris --use-processed --only-baselines --baseline-model all
+uv run scripts/eval.py --dataset doris --use-processed --only-baselines --baseline-model IDRMI
+uv run scripts/eval.py --dataset doris --use-processed --only-baselines --baseline-model all
 ```
 
 #### Adding a new native baseline
@@ -322,7 +331,7 @@ def eval_my_model(
 ): ...  # return a one-row DataFrame whose "model" column is "MyModel"
 ```
 
-It then runs with `edurec eval --baseline-model MyModel` (or via
+It then runs with `uv run scripts/eval.py --baseline-model MyModel` (or via
 `--baseline-model all`) and is saved next to EDuRec and the RecBole baseline
 results.
 
@@ -335,7 +344,7 @@ and seed, the detailed `evaluation_results.csv`, and the aggregated
 Run Optuna-based hyperparameter optimization for EDuRec.
 
 ```bash
-uv run edurec hpo --dataset explicit_mars --trials 30 --use_processed -L
+uv run scripts/hpo.py --dataset explicit_mars --trials 30 --use-processed -L
 ```
 
 The command saves the best model and training configurations, trial log, and
@@ -383,7 +392,7 @@ Feature modules are toggled with `use_item_features`, `use_user_features`,
 Evaluate EDuRec variants across multiple random seeds.
 
 ```bash
-uv run edurec ablation --dataset doris --seeds 13,42,77,101,2026 --use_processed
+uv run scripts/ablation.py --dataset doris --seeds 13,42,77,101,2026 --use-processed
 ```
 
 Implemented main variants (all keep the item knowledge graph and the GRU):
@@ -430,7 +439,7 @@ are available, the model uses course ID embeddings alone. Only `full` and
 `no_text` (when text is available) apply in the ablation command.
 
 ```bash
-uv run edurec train --dataset doris --arch sasrec_text
+uv run scripts/train.py --dataset doris --arch sasrec_text
 ```
 
 Use the existing `transformer_hidden_dim`, `transformer_layers`,
@@ -488,7 +497,7 @@ chronological interaction field; datasets without one cannot train the model.
 
 ### Proposed Model Evaluation
 
-`uv run edurec eval` trains EDuRec, evaluates the best checkpoint on the test
+`uv run scripts/eval.py` trains EDuRec, evaluates the best checkpoint on the test
 split, and reports Precision, Recall, NDCG, Hit Rate, MAP, and MRR at the
 configured top-k values.
 
@@ -507,19 +516,19 @@ implementations for Precision, Recall, NDCG, Hit Rate, MAP, and MRR.
 
 ### Hyperparameter Optimization
 
-`uv run edurec hpo -L` logs each trial as a separate run in the MLflow
+`uv run scripts/hpo.py -L` logs each trial as a separate run in the MLflow
 experiment `HPO` (created if absent and reused across searches). Runs include
 the study, dataset, trial number, sampled parameters, training metrics and
 trial outcome (`COMPLETE`, `PRUNED`, or `FAIL`). Without `-L` / `--log-mlflow`,
 HPO does not create MLflow runs.
 
-`uv run edurec hpo` runs Optuna studies for EDuRec and saves the best model
+`uv run scripts/hpo.py` runs Optuna studies for EDuRec and saves the best model
 and training configurations as YAML for later training, evaluation, or ablation
 experiments.
 
 ### Ablation Study
 
-`uv run edurec ablation` evaluates architecture variants across configurable
+`uv run scripts/ablation.py` evaluates architecture variants across configurable
 seeds and records metrics, parameter counts, and per-run configuration files.
 This is intended to isolate the contribution of the knowledge-graph structure,
 text features, item bias, and the scoring function.

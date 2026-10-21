@@ -1,21 +1,31 @@
+"""Evaluate EDuRec against baseline models.
+
+Usage: uv run scripts/eval.py -d coco --only-proposed
+"""
+
+import argparse
 import datetime
 from pathlib import Path
-from typing import Annotated, Any, cast
+from typing import Any, cast
 
 import pandas as pd
-import typer
-
-from edurec import settings
-from edurec.cli.utils import (
+from common import (
+    add_configs_arg,
+    add_model_args,
+    add_preprocessing_args,
+    add_runtime_args,
+    add_seeds_args,
+    add_selection_args,
+    add_training_args,
     build_config,
-    config_path,
-    dataset_train_defaults,
     datasets_to_run,
     parse_seeds,
     print_data_summary,
-    print_model_modules,
+    setup_runtime,
 )
-from edurec.datasets import DatasetName, ElearningDataModule
+
+from edurec import settings
+from edurec.datasets import ElearningDataModule
 from edurec.evaluation import (
     baseline_labels,
     eval_model,
@@ -26,8 +36,6 @@ from edurec.recsys import ModelArch, ModelConfig
 from edurec.recsys.archs import ARCH_LABELS
 from edurec.recsys.configs import monitor_topk, resolve_train_config
 from edurec.recsys.ranking import EVALUATION_PROTOCOL
-
-app = typer.Typer(no_args_is_help=True)
 
 # Dedicated MLflow experiment for evaluation runs, separate from training (TFM)
 # and HPO runs.
@@ -150,217 +158,114 @@ def _summarize_seed_results(results: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(summary_rows, columns=["model", *metric_cols])
 
 
-@app.command(name="eval", help="Evaluate EDuRec against baseline models.")
-def eval_models(
-    dataset: Annotated[
-        DatasetName | None,
-        typer.Option("--dataset", "-d", help="Dataset to use."),
-    ] = None,
-    arch: Annotated[
-        ModelArch | None,
-        typer.Option(
-            "--arch",
-            "-A",
-            help="Proposed model architecture to evaluate. Defaults to kg_rnn.",
-        ),
-    ] = None,
-    seeds: Annotated[
-        str,
-        typer.Option("--seeds", "-s", help="Comma-separated seeds to run."),
-    ] = "13,42,77",
-    epochs: Annotated[
-        int | None,
-        typer.Option(
-            "--epochs",
-            "-e",
-            min=1,
-            help="Number of training epochs. Uses the saved training config if omitted.",
-        ),
-    ] = None,
-    lr: Annotated[
-        float | None,
-        typer.Option(
-            "--lr",
-            "-l",
-            min=0.0,
-            help="Learning rate. Uses the saved training config if omitted.",
-        ),
-    ] = None,
-    batch_size: Annotated[
-        int | None,
-        typer.Option(
-            "--batch-size",
-            "-b",
-            min=1,
-            help="Batch size used by KGSeq and RecBole. "
-            "Uses the saved training config if omitted.",
-        ),
-    ] = None,
-    patience: Annotated[
-        int | None,
-        typer.Option(
-            "--patience",
-            "-p",
-            min=1,
-            help="Early stopping patience. Uses the saved training config if omitted.",
-        ),
-    ] = None,
-    topks: Annotated[
-        list[int] | None,
-        typer.Option(
-            "--top-k",
-            "-k",
-            min=1,
-            help="Top-k values to evaluate. Repeat this option for multiple values. "
-            "Uses the saved training config if omitted.",
-        ),
-    ] = None,
-    remove_sparse: Annotated[
-        bool,
-        typer.Option(
-            "--remove-sparse/--keep-sparse",
-            "-R/-K",
-            help="Remove sparse users/items before preprocessing.",
-        ),
-    ] = settings.REMOVE_SPARSE,
-    min_interactions: Annotated[
-        int,
-        typer.Option(
-            "--min-interactions",
-            "-I",
-            min=1,
-            help="Minimum interactions per user/item after sparse filtering.",
-        ),
-    ] = settings.MIN_INTERACTIONS,
-    use_processed_data: Annotated[
-        bool,
-        typer.Option(
-            "--use-processed/--no-use-processed",
-            "-P/-N",
-            help="Reuse cached processed data when available.",
-        ),
-    ] = settings.SAVE_DATA,
-    cfg_path: Annotated[
-        Path | None,
-        typer.Option(
-            "--cfg-path",
-            "-c",
-            exists=True,
-            file_okay=True,
-            dir_okay=False,
-            readable=True,
-            help="Optional extra RecBole config file applied to RecBole baselines.",
-        ),
-    ] = None,
-    baseline_models: Annotated[
-        list[str],
-        typer.Option(
-            "--baseline-model",
-            "-m",
-            help="Baseline model to evaluate with the shared retrieval protocol. "
-            "Use a RecBole model name or a native baseline label such as IDRMI. "
-            "Repeat for multiple models, or use `all`.",
-        ),
-    ] = settings.BASELINES,
-    only_proposed: Annotated[
-        bool,
-        typer.Option(
-            "--only-proposed",
-            help="Only evaluate the proposed model, skipping baseline models.",
-        ),
-    ] = False,
-    only_baselines: Annotated[
-        bool,
-        typer.Option(
-            "--only-baselines",
-            help="Only evaluate baseline models, skipping the proposed model.",
-        ),
-    ] = False,
-    adaptive_k: Annotated[
-        bool | None,
-        typer.Option(
-            "--adaptive-k/--fixed-k",
-            "-a/-A",
-            help="Use adaptive k to compute metrics that support it in the proposed "
-            "model. Uses the saved training config if omitted.",
-        ),
-    ] = None,
-    compile: Annotated[
-        bool,
-        typer.Option("--compile", help="Compile KGSeq before training."),
-    ] = settings.COMPILE_MODEL,
-    output_dir: Annotated[
-        Path,
-        typer.Option("--output-dir", "-o", help="Root folder for evaluation results."),
-    ] = Path(settings.RESULTS_FOLDER) / "evaluations",
-    configs_folder: Annotated[
-        Path,
-        typer.Option(
-            "--configs-folder",
-            "-C",
-            help="Folder containing saved KGSeq configurations.",
-        ),
-    ] = Path(settings.CONFIGS_FOLDER),
-    logger: Annotated[
-        bool,
-        typer.Option(
-            "--logger",
-            "-L",
-            help="Log the proposed model training to the EVAL MLflow experiment. "
-            "Each run is named <arch>-<dataset>-<seed>.",
-        ),
-    ] = False,
-) -> None:
-    if only_proposed and only_baselines:
-        raise typer.BadParameter(
-            "--only-proposed and --only-baselines cannot be used together."
-        )
-    parsed_seeds = parse_seeds(seeds)
-    # ``all`` selects every RecBole and native baseline.
-    selected_baselines = _selected_baselines(baseline_models)
-    resolved_arch = arch if arch is not None else ModelArch.KG_RNN
-    proposed_label = ARCH_LABELS[resolved_arch.value]
-    val_ratio = settings.VAL_RATIO
-    test_ratio = settings.TEST_RATIO
-    verbose = settings.state["verbose"]
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Evaluate EDuRec against baseline models."
+    )
+    add_runtime_args(parser)
+    add_selection_args(parser)
+    add_preprocessing_args(parser)
+    add_model_args(parser)
+    add_training_args(parser)
+    add_seeds_args(parser)
+    add_configs_arg(parser)
+    parser.add_argument(
+        "--top-k",
+        "-k",
+        type=int,
+        action="append",
+        dest="top_k",
+        help="Top-k values to evaluate. Repeat this option for multiple values.",
+    )
+    parser.add_argument(
+        "--cfg-path",
+        "-c",
+        type=Path,
+        help="Optional extra RecBole config file applied to RecBole baselines.",
+    )
+    parser.add_argument(
+        "--baseline-model",
+        "-m",
+        action="append",
+        dest="baseline_model",
+        help="Baseline model to evaluate. Use a RecBole model name or a native "
+        "baseline label such as IDRMI. Repeat for multiple models, or use `all`.",
+    )
+    only = parser.add_mutually_exclusive_group()
+    only.add_argument(
+        "--only-proposed",
+        action="store_true",
+        help="Only evaluate the proposed model, skipping baseline models.",
+    )
+    only.add_argument(
+        "--only-baselines",
+        action="store_true",
+        help="Only evaluate baseline models, skipping the proposed model.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        "-o",
+        type=Path,
+        default=Path(settings.RESULTS_FOLDER) / "evaluations",
+        help="Root folder for evaluation results.",
+    )
+    parser.add_argument(
+        "--logger",
+        "-L",
+        action="store_true",
+        help="Log the proposed model training to the EVAL MLflow experiment. "
+        "Each run is named <arch>-<dataset>-<seed>.",
+    )
+    return parser.parse_args()
 
-    datasets = datasets_to_run(dataset)
+
+def main() -> None:
+    args = parse_args()
+    setup_runtime(args)
+
+    parsed_seeds = parse_seeds(args.seeds)
+    # ``all`` selects every RecBole and native baseline.
+    selected_baselines = _selected_baselines(args.baseline_model or settings.BASELINES)
+    resolved_arch = args.arch if args.arch is not None else ModelArch.KG_RNN
+    proposed_label = ARCH_LABELS[resolved_arch.value]
+    datasets = datasets_to_run(args.dataset)
 
     models = _target_models(
         proposed_label,
         selected_baselines,
-        only_proposed=only_proposed,
-        only_baselines=only_baselines,
+        only_proposed=args.only_proposed,
+        only_baselines=args.only_baselines,
     )
 
     print("\n[EVAL] Evaluation run")
     print(f"[EVAL] Datasets: {', '.join(ds.value for ds in datasets)}")
     print(f"[EVAL] Models: {', '.join(models)}")
     print(f"[EVAL] Seeds: {', '.join(str(seed) for seed in parsed_seeds)}")
-    print(f"[EVAL] Results folder: {output_dir}")
-    print(f"[EVAL] Configs folder: {configs_folder}\n")
+    print(f"[EVAL] Results folder: {args.output_dir}")
+    print(f"[EVAL] Configs folder: {args.configs_folder}\n")
 
     for dataset_idx, dataset_name in enumerate(datasets, start=1):
         dataset_label = dataset_name.value
-        dataset_root = output_dir / dataset_label
+        dataset_root = args.output_dir / dataset_label
         dataset_root.mkdir(parents=True, exist_ok=True)
         dataset_started_at = datetime.datetime.now(datetime.UTC)
-        run_config_path = config_path(configs_folder, dataset_label, resolved_arch)
+        run_config_path = (
+            args.configs_folder / f"{resolved_arch.value}-{dataset_label}.yaml"
+        )
         train_cfg = resolve_train_config(
             cli={
-                "epochs": epochs,
-                "lr": lr,
-                "batch_size": batch_size,
-                "patience": patience,
-                "topks": topks,
-                "adaptive_k": adaptive_k,
+                "epochs": args.epochs,
+                "lr": args.lr,
+                "batch_size": args.batch_size,
+                "patience": args.patience,
+                "topks": args.top_k,
+                "adaptive_k": args.adaptive_k,
             },
             saved_path=run_config_path,
-            defaults=dataset_train_defaults(dataset_name),
         )
         val_topk = monitor_topk(None, train_cfg)
         pending_by_seed = _pending_models_by_seed(dataset_root, models, parsed_seeds)
-        needs_proposed = not only_baselines and any(
+        needs_proposed = not args.only_baselines and any(
             proposed_label in pending_models
             for pending_models in pending_by_seed.values()
         )
@@ -380,9 +285,9 @@ def eval_models(
         if run_config_path.exists():
             print(f"[EVAL] Using saved training config: {run_config_path}")
 
-        if verbose:
-            if cfg_path is not None:
-                print(f"[EVAL] Extra RecBole config: {cfg_path}")
+        if args.verbose:
+            if args.cfg_path is not None:
+                print(f"[EVAL] Extra RecBole config: {args.cfg_path}")
             print(
                 "[EVAL] Config: "
                 f"epochs={train_cfg.epochs}, lr={train_cfg.lr}, "
@@ -391,9 +296,10 @@ def eval_models(
             )
             print(
                 "[EVAL] Data config: "
-                f"use_processed={use_processed_data}, remove_sparse={remove_sparse}, "
-                f"min_interactions={min_interactions}, "
-                f"val_ratio={val_ratio}, test_ratio={test_ratio}"
+                f"use_processed={args.use_processed}, "
+                f"remove_sparse={args.remove_sparse}, "
+                f"min_interactions={args.min_interactions}, "
+                f"val_ratio={args.val_size}, test_ratio={args.test_size}"
             )
 
         for seed, pending_models in pending_by_seed.items():
@@ -406,15 +312,17 @@ def eval_models(
             dm = ElearningDataModule(
                 dataset=dataset_name,
                 batch_size=train_cfg.batch_size,
-                test_ratio=test_ratio,
-                val_ratio=val_ratio,
-                min_interactions=min_interactions,
-                remove_sparse=remove_sparse,
-                use_processed_data=use_processed_data,
+                test_ratio=args.test_size,
+                val_ratio=args.val_size,
+                min_interactions=args.min_interactions,
+                remove_sparse=args.remove_sparse,
+                use_processed_data=args.use_processed,
                 save_atomic_files=True,
                 random_state=seed,
                 max_history=train_cfg.max_history,
                 deduplicate_interactions=train_cfg.deduplicate_interactions,
+                max_users=args.max_users,
+                selection_seed=args.selection_seed,
             )
 
             dm.prepare_data()
@@ -422,16 +330,15 @@ def eval_models(
 
             print_data_summary("EVAL", dm)
 
-            if not only_baselines and proposed_label in pending_models:
+            if not args.only_baselines and proposed_label in pending_models:
                 cfg = build_config(dm, base=saved_cfg, arch=resolved_arch)
-                print_model_modules("EVAL", cfg)
                 settings.seed_everything(seed)
                 mlflow_run_name = (
                     f"{resolved_arch.value}-{dataset_label}-seed={seed}"
-                    if logger
+                    if args.logger
                     else None
                 )
-                if mlflow_run_name is not None and verbose:
+                if mlflow_run_name is not None and args.verbose:
                     print(f"[EVAL] Logger: MLflow, run_name={mlflow_run_name}")
                 print(f"[EVAL] Running {proposed_label} | seed={seed}")
                 proposed_results = eval_model(
@@ -439,8 +346,8 @@ def eval_models(
                     cfg=cfg,
                     train_cfg=train_cfg,
                     val_topk=val_topk,
-                    compile=compile,
-                    verbose=verbose,
+                    compile=args.compile,
+                    verbose=args.verbose,
                     run_name=mlflow_run_name,
                     experiment_name=MLFLOW_EXPERIMENT_NAME,
                 )
@@ -467,15 +374,17 @@ def eval_models(
                         continue
                     settings.seed_everything(seed)
                     baseline_run_name = (
-                        f"{baseline}-{dataset_label}-seed={seed}" if logger else None
+                        f"{baseline}-{dataset_label}-seed={seed}"
+                        if args.logger
+                        else None
                     )
                     print(f"[EVAL] Running {baseline} | seed={seed}")
                     baseline_results = runner(
                         dm=dm,
                         train_cfg=train_cfg,
                         val_topk=val_topk,
-                        compile=compile,
-                        verbose=verbose,
+                        compile=args.compile,
+                        verbose=args.verbose,
                         run_name=baseline_run_name,
                         experiment_name=MLFLOW_EXPERIMENT_NAME,
                     )
@@ -490,21 +399,25 @@ def eval_models(
                 recbole_results = eval_recbole_baselines(
                     models=recbole_baselines,
                     dm=dm,
-                    cfg_path=cfg_path,
+                    cfg_path=args.cfg_path,
                     epochs=train_cfg.epochs,
                     lr=train_cfg.lr,
                     batch_size=train_cfg.batch_size,
                     patience=train_cfg.patience,
                     topks=train_cfg.topks,
                     adaptive_k=train_cfg.adaptive_k,
-                    show_progress=verbose,
+                    show_progress=args.verbose,
                 )
                 _save_seed_results(recbole_results, dataset_root, seed)
 
         rows = _collect_seed_results(dataset_root, models, parsed_seeds)
         results = pd.DataFrame(rows)
         suffix = (
-            "_baselines" if only_baselines else "_proposed" if only_proposed else ""
+            "_baselines"
+            if args.only_baselines
+            else "_proposed"
+            if args.only_proposed
+            else ""
         )
         csv_name = f"evaluation_results{suffix}.csv"
         summary_name = f"evaluation_summary{suffix}.csv"
@@ -523,3 +436,7 @@ def eval_models(
         now = datetime.datetime.now(datetime.UTC)
         elapsed = str(now - dataset_started_at).split(".", maxsplit=1)[0]
         print(f"[EVAL] Finished {dataset_label} in {elapsed}\n")
+
+
+if __name__ == "__main__":
+    main()

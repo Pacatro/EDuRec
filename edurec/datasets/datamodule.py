@@ -22,7 +22,7 @@ from edurec.datasets.features.interactions import (
 )
 from edurec.datasets.features.tabular import DataProcessor
 from edurec.datasets.pipeline.build import BuildConfig, build_processed
-from edurec.datasets.pipeline.prepare import DatasetSelection
+from edurec.datasets.pipeline.prepare import selection_metadata
 from edurec.datasets.pipeline.splits import build_histories, generate_negative_samples
 from edurec.datasets.recbole_export import save_atomic_files
 from edurec.datasets.registry import (
@@ -50,7 +50,8 @@ class ElearningDataModule(L.LightningDataModule):
         max_history: int = settings.MAX_HISTORY_LEN,
         deduplicate_interactions: bool = settings.DEDUPLICATE_INTERACTIONS,
         persistent_workers: bool = True,
-        selection: DatasetSelection | None = None,
+        max_users: int | None = settings.SELECTION_MAX_USERS,
+        selection_seed: int = settings.SELECTION_SEED,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -68,9 +69,8 @@ class ElearningDataModule(L.LightningDataModule):
         self.deduplicate_interactions = deduplicate_interactions
         self.persistent_workers = persistent_workers
         self.data_variant = dataset.value
-        self.selection = selection or DatasetSelection(
-            max_users=settings.SELECTION_MAX_USERS, seed=settings.SELECTION_SEED
-        )
+        self.max_users = max_users
+        self.selection_seed = selection_seed
 
         self.cache_params = {
             "version": CACHE_VERSION,
@@ -88,7 +88,9 @@ class ElearningDataModule(L.LightningDataModule):
             "max_history_len": max_history,
         }
 
-        self.cache_params["selection"] = self.selection.metadata()
+        self.cache_params["selection"] = selection_metadata(
+            self.max_users, self.selection_seed
+        )
         if dataset == DatasetName.MOOCCUBEX:
             self.cache_params["encode_concept_text"] = (
                 settings.MOOCCUBEX_ENCODE_CONCEPT_TEXT
@@ -114,7 +116,7 @@ class ElearningDataModule(L.LightningDataModule):
     def _compatible_cache(self) -> bool:
         return processed_cache_exists(
             self.processed_folder,
-            expected_selection=self.selection.metadata(),
+            expected_selection=selection_metadata(self.max_users, self.selection_seed),
             expected_params={
                 **self.cache_params,
                 "raw_sources": self._source_metadata(),
@@ -243,7 +245,8 @@ class ElearningDataModule(L.LightningDataModule):
             remove_sparse=self.remove_sparse,
             deduplicate=self.deduplicate_interactions,
             random_state=self.random_state,
-            selection=self.selection,
+            max_users=self.max_users,
+            selection_seed=self.selection_seed,
         )
 
     def _process_raw_data(self) -> None:
