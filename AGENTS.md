@@ -2,30 +2,34 @@
 
 ## Project Structure & Module Organization
 
-EDuRec uses Python 3.12+, PyTorch, PyTorch Geometric, and Lightning. Source lives in `edurec/`: `cli/` contains Typer commands, `datasets/` handles loading, preprocessing, caching, and histories, `recsys/archs/` defines models, and `evaluation/` implements benchmarks and ablations. Shared defaults live in `edurec/settings.py`.
+EDuRec is a Python 3.12+ research project for e-learning recommendations, built with PyTorch, PyTorch Geometric, and Lightning. Source lives in `edurec/`: `cli/` defines Typer commands; `datasets/` handles loading, preprocessing, caching, and user histories; `recsys/` contains training, ranking, optimization, and model architectures; `evaluation/` implements benchmarks and ablations. Shared defaults live in `edurec/settings.py`.
 
-Keep dataset-specific YAML files in `configs/`, named `<arch>-<dataset>.yaml`, with top-level `arch`, `model`, and `train` fields (matching the copies in `results/optimization/`). `notebooks/` contains experiment analysis; `model-diagram.png` illustrates the architecture. Local datasets, checkpoints, and results belong in the ignored `data/`, `models/`, and `results/` directories.
+Keep dataset-specific configuration in `configs/<arch>-<dataset>.yaml`. Tests live in `tests/`, exploratory notebooks in `notebooks/`, and the architecture illustration in `model-diagram.png`. Local datasets, checkpoints, and experiment outputs belong in ignored directories such as `data/`, `models/`, and `results/`.
 
 ## Build, Test, and Development Commands
 
-- `uv sync --group dev`: install runtime and development dependencies.
-- `uv build`: build the Python distribution using Hatchling.
-- `uv run edurec --help`: inspect CLI commands and options.
-- `uv run edurec --device cpu --random-state 42 train --dataset doris --arch sasrec_text --debug`: run a reproducible training smoke check.
-- `uv run pyright --pythonpath .venv/bin/python --pythonversion 3.12 edurec`: run static type checks.
+Run commands from the repository root:
 
-Initial dataset preparation may download datasets and pretrained text weights.
-
-Do not write or run automated tests (no `tests/` folder, `pytest`, or `unittest`). Validate changes with static type checks and CLI smoke runs.
+- `uv sync --group dev`: install runtime and development dependencies from the lockfile.
+- `uv build`: build the Python distribution with Hatchling.
+- `uv run edurec --help`: inspect available commands and options.
+- `uv run python -m pytest -q`: run the CPU-based test suite.
+- `uv run ruff check .`: check Python lint issues.
+- `uv run pyright edurec`: check source types.
+- `uv run edurec --device cpu --random-state 42 train --dataset doris --arch kg_rnn --debug`: run a reproducible training smoke check; dataset preparation may download data and pretrained weights.
 
 ## Coding Style & Naming Conventions
 
-Use four-space indentation, `snake_case` for functions/modules, `PascalCase` for classes, and uppercase constants. Add type annotations to public interfaces and document tensor shapes where they clarify model behavior. Follow adjacent code's import ordering and formatting; no formatter is pinned in `pyproject.toml`. Keep tensors device-agnostic and configuration in dataclasses or YAML rather than hardcoded training parameters.
+Use four-space indentation, `snake_case` for functions and modules, `PascalCase` for classes, and uppercase constants. Follow adjacent code's formatting and imports; `pyproject.toml` has no custom Ruff configuration. Annotate public interfaces and document tensor shapes where useful. Keep tensors device-agnostic and expose experiment parameters through configuration rather than hardcoding them.
+
+## Testing Guidelines
+
+Use pytest with `test_*.py` files and `test_*` functions. Shared fixtures belong in `tests/conftest.py`. Use small synthetic CPU datasets without downloading datasets or model weights. Cover affected contracts, especially temporal splits, leakage prevention, tensor shapes, ranking, and CLI behavior. Run focused checks with `uv run python -m pytest tests/test_datasets.py -q`. No coverage threshold is configured.
 
 ## Commit & Pull Request Guidelines
 
-Recent commits use scoped conventional messages, such as `feat(recsys): ...`, `fix(configs): ...`, and `refactor(cli): ...`. Keep commits focused. PR descriptions should explain the problem, resulting behavior, commands run, and configuration or cache changes. Link related issues when available; include plots for changes to experiment visualizations.
+Follow the history's scoped Conventional Commits, such as `feat(datasets): ...`, `test(datasets): ...`, and `chore(notebooks): ...`. Keep commits focused. PRs should explain the problem, resulting behavior, validation commands, and configuration or cache changes. Link related issues and include plots when changing visualizations.
 
 ## Data & Configuration Integrity
 
-Fit interaction preprocessing on training data and preserve the evaluation protocol. Increment `CACHE_VERSION` when changing cached preprocessing semantics. Explicit CLI values override saved configurations, then defaults. Never commit datasets, model weights, credentials, or experiment databases.
+Preserve temporal evaluation boundaries and fit preprocessing on training data. Never commit datasets, model weights, credentials, or experiment databases.
