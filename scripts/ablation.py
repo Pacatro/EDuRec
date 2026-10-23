@@ -127,7 +127,6 @@ def main() -> None:
                 random_state=seed,
                 min_interactions=args.min_interactions,
                 remove_sparse=args.remove_sparse,
-                save_atomic_files=False,
                 max_history=train_cfg.max_history,
                 deduplicate_interactions=train_cfg.deduplicate_interactions,
                 max_users=args.max_users,
@@ -140,7 +139,7 @@ def main() -> None:
             dm.prepare_data()
             dm.setup()
             print_data_summary("ABLATION", dm)
-            knowledge_graph = dm.knowledge_graph
+            knowledge_graph = dm.adapter.get_knowledge_graph()
 
             if run_config_path.exists():
                 print("[ABLATION] Using existing model config file:", run_config_path)

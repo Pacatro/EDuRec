@@ -58,7 +58,8 @@ def add_preprocessing_args(parser: argparse.ArgumentParser) -> None:
         "-P",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Reuse data/processed/<dataset> as-is, without checking parameters.",
+        help="Reuse data/processed/<dataset> only when its manifest matches the "
+        "current data options.",
     )
     parser.add_argument("--val-size", type=float, default=settings.VAL_RATIO)
     parser.add_argument("--test-size", type=float, default=settings.TEST_RATIO)

@@ -46,6 +46,7 @@ def test_setup_writes_processed_cache(make_datamodule, cache_dirs):
     assert (processed / "train.feather").exists()
     assert (processed / "static_feats.safetensors").exists()
     assert (processed / "report.json").exists()
+    assert (processed / "manifest.json").exists()
 
 
 def test_loaded_cache_matches_built_artifacts(make_datamodule, cache_dirs):
@@ -206,7 +207,67 @@ def test_atomic_files_are_replaced_when_written(make_datamodule, cache_dirs):
     stale = atomic / "coco.old.inter"
     stale.write_text("x")
 
-    make_datamodule(save_atomic_files=True).setup()
+    dm = make_datamodule()
+    dm.setup()
+    dm.export_recbole()
 
     assert not stale.exists()
     assert (atomic / "coco.inter").exists()
+
+
+def test_use_processed_rejects_incompatible_options(
+    make_datamodule, cache_dirs, monkeypatch
+):
+    make_datamodule().setup()
+    monkeypatch.setattr(datamodule, "load_raw_data", _unexpected_call)
+
+    dm = make_datamodule(use_processed_data=True, max_items=3)
+    with pytest.raises(RuntimeError, match="different data options"):
+        dm.setup()
+
+
+def test_use_processed_warns_on_cache_without_manifest(
+    make_datamodule, cache_dirs, monkeypatch
+):
+    processed, _ = cache_dirs
+    built = make_datamodule()
+    built.setup()
+    (processed / "manifest.json").unlink()
+    monkeypatch.setattr(datamodule, "load_raw_data", _unexpected_call)
+    dm = make_datamodule(use_processed_data=True)
+
+    with pytest.warns(UserWarning, match="manifest"):
+        dm.setup()
+
+    assert dm.num_interactions == built.num_interactions
+
+
+def test_setup_test_only_creates_test_queries(make_datamodule):
+    dm = make_datamodule()
+    dm.setup("test")
+
+    assert hasattr(dm, "test_ds")
+    assert not hasattr(dm, "train_ds")
+
+
+def test_repeated_setup_reuses_views(make_datamodule):
+    dm = make_datamodule()
+    dm.setup("fit")
+    train_ds = dm.train_ds
+    dm.setup("test")
+
+    assert dm.train_ds is train_ds
+    assert dm.test_ds is dm.adapter.get_queries("test", config=dm.query_config)
+
+
+def test_dataloader_batches_preserve_query_contract(make_datamodule, monkeypatch):
+    monkeypatch.setattr(settings, "NUM_WORKERS", 0)
+    dm = make_datamodule()
+    dm.setup("fit")
+
+    batch = next(iter(dm.train_dataloader()))
+
+    assert batch.history_items.shape == batch.history_valid_mask.shape
+    assert batch.history_items.shape[0] == batch.target_item_id.numel()
+    assert batch.history_dense_features.shape[:2] == batch.history_items.shape
+    assert batch.target_item_id.max().item() < dm.num_items

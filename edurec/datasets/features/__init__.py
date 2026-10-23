@@ -1,1 +1,1 @@
-"""Feature encoding: tabular, text, graph and interaction context."""
+"""Feature encoding: tabular, text and parsing."""

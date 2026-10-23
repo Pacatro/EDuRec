@@ -1,23 +1,29 @@
+"""Lightning data module: assemble queries and data loaders.
+
+All data views (interaction context, histories, negatives, knowledge graph and
+RecBole exports) come from :class:`~edurec.datasets.adapters.DataAdapter`. This
+module only builds/loads the canonical ``ProcessedData``, validates the cache
+fingerprint and serves ``DataLoader`` instances.
+"""
+
+import warnings
 from pathlib import Path
 
 import lightning as L
-import numpy as np
-import pandas as pd
 import torch
 from torch.utils.data import DataLoader
-from torch_geometric.data import HeteroData
 
 from edurec import settings
+from edurec.datasets.adapters import DataAdapter
+from edurec.datasets.adapters.queries import QueryConfig
 from edurec.datasets.cache import ProcessedData, replace_folder
-from edurec.datasets.features.graph import build_knowledge_graph
-from edurec.datasets.features.interactions import (
-    InteractionFeatureTables,
-    build_interaction_features,
-)
 from edurec.datasets.features.tabular import DataProcessor
-from edurec.datasets.pipeline.build import BuildConfig, build_processed
-from edurec.datasets.pipeline.splits import build_histories, generate_negative_samples
-from edurec.datasets.recbole_export import save_atomic_files
+from edurec.datasets.pipeline.build import (
+    BuildConfig,
+    build_processed,
+    expected_manifest,
+    split_strategy_for,
+)
 from edurec.datasets.registry import (
     DatasetName,
     RawData,
@@ -37,7 +43,6 @@ class ElearningDataModule(L.LightningDataModule):
         min_interactions: int = settings.MIN_INTERACTIONS,
         remove_sparse: bool = settings.REMOVE_SPARSE,
         use_processed_data: bool = False,
-        save_atomic_files: bool = False,
         random_state: int | None = None,
         max_history: int = settings.MAX_HISTORY_LEN,
         deduplicate_interactions: bool = settings.DEDUPLICATE_INTERACTIONS,
@@ -59,7 +64,6 @@ class ElearningDataModule(L.LightningDataModule):
         self.min_interactions = min_interactions
         self.remove_sparse = remove_sparse
         self.use_processed_data = use_processed_data
-        self.save_atomic_files = save_atomic_files
         self.random_state = random_state
         self.max_history = max_history
         self.deduplicate_interactions = deduplicate_interactions
@@ -76,13 +80,34 @@ class ElearningDataModule(L.LightningDataModule):
         self.atomic_folder = Path(settings.ATOMICFILES_FOLDER) / self.data_variant
 
         self.artifacts = ProcessedData()
-        self._knowledge_graph: HeteroData | None = None
-        self._interaction_tables: InteractionFeatureTables | None = None
+        self._adapter: DataAdapter | None = None
 
     @property
     def raw_dataset(self) -> RawData | None:
         """Selected source tables from the last build; None when loaded from cache."""
         return self.artifacts.selected_raw
+
+    @property
+    def adapter(self) -> DataAdapter:
+        """Lazy facade over the processed artifacts."""
+        if self._adapter is None:
+            if not self.is_processed:
+                raise RuntimeError(
+                    f"{self.data_variant}: data is not prepared; call setup() first."
+                )
+            self._adapter = DataAdapter(self.artifacts)
+
+        return self._adapter
+
+    @property
+    def query_config(self) -> QueryConfig:
+        """History and negative policy used by every query view of this run."""
+        return QueryConfig(
+            max_history=self.max_history,
+            negatives_per_positive=settings.TRAIN_NEGATIVES_PER_POSITIVE,
+            random_state=self.random_state,
+            use_histories=self.has_temporal_order,
+        )
 
     def prepare_data(self) -> None:
         if self.use_processed_data and self.processed_folder.exists():
@@ -91,91 +116,31 @@ class ElearningDataModule(L.LightningDataModule):
         download_raw_data(self.dataset_name)
 
     def setup(self, stage: str | None = None):
-        if not self.is_processed:
-            if self.use_processed_data and self.processed_folder.exists():
-                try:
-                    self.artifacts = ProcessedData.load(self.processed_folder)
-                except Exception as exc:
-                    raise RuntimeError(
-                        f"{self.data_variant}: cannot load processed data from "
-                        f"{self.processed_folder}. It was written by an incompatible "
-                        "version; delete the folder and rebuild without "
-                        "--use-processed."
-                    ) from exc
-            else:
-                self._process_raw_data()
+        self._ensure_artifacts()
 
-        splits = self.artifacts.splits()
-        relevant_splits = {
-            split: df.loc[df[settings.RELEVANT_COL] > 0].reset_index(drop=True)
-            for split, df in splits.items()
-        }
-        for split, frame in relevant_splits.items():
-            if frame.empty:
-                raise ValueError(
-                    f"{self.data_variant}: {split} split has no positive interactions. "
-                    "Check filtering, relevance thresholds and split ratios."
-                )
-            for column, size in (
-                (settings.USER_COL, self.num_users),
-                (settings.ITEM_COL, self.num_items),
-            ):
-                if not frame[column].between(0, size - 1).all():
-                    raise ValueError(
-                        f"{self.data_variant}: {split} contains invalid {column} values."
-                    )
-
-        if self.save_atomic_files:
-            replace_folder(
-                self.atomic_folder,
-                lambda staging: save_atomic_files(
-                    self.artifacts,
-                    dataset_name=self.data_variant,
-                    output_dir=staging,
-                ),
-            )
-
-        self._interaction_tables = build_interaction_features(
-            relevant_splits, self.data_processor
-        )
-
-        histories = build_histories(
-            relevant_splits,
-            max_history=self.max_history,
-            enabled=self.has_temporal_order,
-        )
-
+        config = self.query_config
         if stage in ("fit", None):
-            train_negatives = None
+            self.train_ds = self.adapter.get_queries("train", config=config)
+            self.val_ds = self.adapter.get_queries("val", config=config)
+        if stage in ("test", None):
+            self.test_ds = self.adapter.get_queries("test", config=config)
 
-            if not self.is_explicit:
-                train_interactions = relevant_splits["train"]
-                all_observed = pd.concat(
-                    relevant_splits.values(),
-                    ignore_index=True,
-                )
+    def export_recbole(self, *, mode: str = "general") -> dict[str, Path]:
+        """Write RecBole atomic files for the current processed data.
 
-                train_negatives = generate_negative_samples(
-                    interactions=train_interactions,
-                    item_ids=np.arange(self.num_items),
-                    num_negatives=settings.TRAIN_NEGATIVES_PER_POSITIVE,
-                    random_state=self.random_state,
-                    observed_interactions=all_observed,
-                )
-
-            self.train_ds = self._make_dataset(
-                relevant_splits["train"],
-                histories["train"],
-                negative_item_ids=train_negatives,
-            )
-
-            self.val_ds = self._make_dataset(relevant_splits["val"], histories["val"])
-
-        elif stage == "test":
-            self.test_ds = self._make_dataset(
-                relevant_splits["test"],
-                histories["test"],
-            )
+        ``mode="sequential"`` also writes the prebuilt ``*_seq`` benchmark
+        splits. The folder is replaced atomically, so a failure leaves the
+        previous export untouched.
+        """
+        return replace_folder(
+            self.atomic_folder,
+            lambda staging: self.adapter.export_recbole(
+                staging,
+                mode=mode,
+                dataset_name=self.data_variant,
+                config=self.query_config,
+            ),
+        )
 
     def validate_topks(self, topks: list[int]) -> None:
         """Reject impossible ranking cutoffs before any model is trained."""
@@ -185,25 +150,64 @@ class ElearningDataModule(L.LightningDataModule):
                 f"got {topks}."
             )
 
-    def _make_dataset(
-        self,
-        interactions: pd.DataFrame,
-        history: tuple[torch.Tensor, torch.Tensor, torch.Tensor],
-        negative_item_ids: np.ndarray | None = None,
-    ) -> RecSysDataset:
-        history_items, history_valid_mask, history_context_index = history
-        tables = self.interaction_tables
+    def _ensure_artifacts(self) -> None:
+        if self.is_processed:
+            return
 
-        return RecSysDataset(
-            interactions=interactions,
-            history_items=history_items,
-            history_valid_mask=history_valid_mask,
-            history_context_index=history_context_index,
-            interaction_dense=tables.dense,
-            interaction_cat=tables.cat,
-            interaction_timestamps=tables.timestamps,
-            negative_item_ids=negative_item_ids,
+        if self.use_processed_data and self.processed_folder.exists():
+            self._load_processed_data()
+        else:
+            self._process_raw_data()
+
+    def _load_processed_data(self) -> None:
+        try:
+            artifacts = ProcessedData.load(self.processed_folder)
+        except Exception as exc:
+            raise RuntimeError(
+                f"{self.data_variant}: cannot load processed data from "
+                f"{self.processed_folder}. It was written by an incompatible "
+                "version; delete the folder and rebuild without "
+                "--use-processed."
+            ) from exc
+
+        if not artifacts.is_ready:
+            raise RuntimeError(
+                f"{self.data_variant}: processed data in {self.processed_folder} "
+                "is incomplete; delete the folder and rebuild without "
+                "--use-processed."
+            )
+
+        self._validate_manifest(artifacts)
+        self._set_artifacts(artifacts)
+
+    def _validate_manifest(self, artifacts: ProcessedData) -> None:
+        """Reject a cache built with other data options, loudly but actionably."""
+        if artifacts.manifest is None:
+            warnings.warn(
+                f"{self.data_variant}: processed cache has no manifest; "
+                "compatibility with the current data options cannot be verified.",
+                stacklevel=2,
+            )
+            return
+
+        if artifacts.train is None:
+            raise RuntimeError("Processed training interactions are not available.")
+        expected = expected_manifest(
+            self.data_variant,
+            self._build_config(),
+            strategy=split_strategy_for(artifacts.train),
         )
+        issue = artifacts.manifest.incompatibility(expected)
+        if issue is not None:
+            raise RuntimeError(
+                f"{self.data_variant}: cannot reuse processed data in "
+                f"{self.processed_folder}: {issue}. Delete the folder and rebuild "
+                "without --use-processed, or pass the original data options."
+            )
+
+    def _set_artifacts(self, artifacts: ProcessedData) -> None:
+        self.artifacts = artifacts
+        self._adapter = None
 
     def _build_config(self) -> BuildConfig:
         return BuildConfig(
@@ -222,38 +226,27 @@ class ElearningDataModule(L.LightningDataModule):
         )
 
     def _process_raw_data(self) -> None:
-        self.artifacts = build_processed(
-            load_raw_data(self.dataset_name), self._build_config()
+        artifacts = build_processed(
+            load_raw_data(self.dataset_name),
+            self._build_config(),
+            dataset_name=self.data_variant,
         )
-        self.artifacts.save(self.processed_folder)
-
-    @property
-    def knowledge_graph(self) -> HeteroData:
-        if self._knowledge_graph is None:
-            artifacts = self.artifacts
-
-            if artifacts.i_static_feats is None or artifacts.item_features is None:
-                raise RuntimeError("Knowledge graph requires item data.")
-
-            self._knowledge_graph = build_knowledge_graph(
-                artifacts.item_features,
-                artifacts.i_static_feats,
-                self.data_processor,
-            )
-
-        return self._knowledge_graph
+        self._set_artifacts(artifacts)
+        artifacts.save(self.processed_folder)
 
     @property
     def kg_node_counts(self) -> dict[str, int]:
+        graph = self.adapter.get_knowledge_graph()
+
         return {
-            node: self.knowledge_graph[node].num_nodes
-            for node in self.knowledge_graph.node_types
+            node: graph[node].num_nodes
+            for node in graph.node_types
             if node not in {"user", "item"}
         }
 
     @property
     def kg_edge_types(self) -> list[tuple[str, str, str]]:
-        return list(self.knowledge_graph.edge_types)
+        return list(self.adapter.get_knowledge_graph().edge_types)
 
     def _data_generator(self) -> torch.Generator | None:
         if self.random_state is None:
@@ -462,21 +455,12 @@ class ElearningDataModule(L.LightningDataModule):
         )
 
     @property
-    def interaction_tables(self) -> InteractionFeatureTables:
-        if self._interaction_tables is None:
-            self._interaction_tables = build_interaction_features(
-                self.artifacts.splits(), self.data_processor
-            )
-
-        return self._interaction_tables
-
-    @property
     def num_interaction_dense_feats(self) -> int:
-        return len(self.interaction_tables.dense_cols)
+        return len(self.adapter.get_interaction_features().dense_cols)
 
     @property
     def interaction_cat_cardinalities(self) -> list[int]:
-        return list(self.interaction_tables.cat_cardinalities)
+        return list(self.adapter.get_interaction_features().cat_cardinalities)
 
     @property
     def num_user_text_feats(self) -> int:

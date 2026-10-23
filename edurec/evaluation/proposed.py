@@ -22,7 +22,7 @@ def eval_model(
     label = arch_label(cfg)
     recsys = RecSys(
         cfg=cfg,
-        knowledge_graph=dm.knowledge_graph,
+        knowledge_graph=dm.adapter.get_knowledge_graph(),
         i_static_feats=dm.i_static_feats,
         u_static_feats=dm.u_static_feats,
         u_cat_feats=dm.u_cat_feats,

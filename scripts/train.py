@@ -139,7 +139,6 @@ def main() -> None:
             random_state=args.random_state,
             min_interactions=args.min_interactions,
             remove_sparse=args.remove_sparse,
-            save_atomic_files=True,
             max_history=train_cfg.max_history,
             deduplicate_interactions=train_cfg.deduplicate_interactions,
             max_users=args.max_users,
@@ -180,7 +179,7 @@ def main() -> None:
 
         recsys = RecSys(
             cfg=cfg,
-            knowledge_graph=dm.knowledge_graph,
+            knowledge_graph=dm.adapter.get_knowledge_graph(),
             i_static_feats=dm.i_static_feats,
             u_static_feats=dm.u_static_feats,
             u_cat_feats=dm.u_cat_feats,

@@ -26,11 +26,12 @@ from recbole.utils import (
 from torch import nn
 
 from edurec import settings
-from edurec.datasets import ElearningDataModule, RecSysDataset, RecSysQuery
+from edurec.datasets import ElearningDataModule, RecSysQuery
+from edurec.datasets.adapters.recbole import (
+    BENCHMARK_SPLITS,
+    SEQUENTIAL_BENCHMARK_SPLITS,
+)
 from edurec.recsys.ranking import build_ranking_metrics, update_ranking_metrics
-
-BENCHMARK_SPLITS = ("train", "valid", "test")
-SEQUENTIAL_BENCHMARK_SPLITS = ("train_seq", "valid_seq", "test_seq")
 
 
 @contextmanager
@@ -71,8 +72,10 @@ def eval_recbole_baselines(
     atomic_dataset_dir = dm.atomic_folder
     dm.setup(stage="test")
 
-    if dm.has_temporal_order and any(_is_sequential_model(model) for model in models):
-        _save_sequential_benchmark_files(dm)
+    needs_sequential = dm.has_temporal_order and any(
+        _is_sequential_model(model) for model in models
+    )
+    dm.export_recbole(mode="sequential" if needs_sequential else "general")
 
     base_config = _build_config_dict(
         data_root=atomic_dataset_dir.parent,
@@ -364,56 +367,6 @@ def _full_sort_scores(
             scores = trainer._spilt_predict(repeated, len(repeated))
 
     return scores.view(len(interaction), dataset.item_num)
-
-
-def _save_sequential_benchmark_files(dm: ElearningDataModule) -> None:
-    """Export split-preserving sequence rows for RecBole sequential models."""
-    split_datasets = {
-        "train_seq": dm.train_ds,
-        "valid_seq": dm.val_ds,
-        "test_seq": dm.test_ds,
-    }
-    for split_name, split_dataset in split_datasets.items():
-        frame = _sequential_benchmark_frame(split_name, split_dataset)
-        path = dm.atomic_folder / f"{dm.data_variant}.{split_name}.inter"
-        frame.to_csv(path, sep="\t", index=False)
-
-
-def _sequential_benchmark_frame(
-    split_name: str,
-    split_dataset: RecSysDataset,
-) -> pd.DataFrame:
-    history_mask = split_dataset.history_valid_mask.bool()
-    user_ids = split_dataset.user_ids
-    target_item_ids = split_dataset.target_item_ids
-    history_items = split_dataset.history_items
-
-    if split_name == "train_seq":
-        keep = history_mask.any(dim=1)
-        keep_array = keep.cpu().numpy()
-        user_ids = user_ids[keep_array]
-        target_item_ids = target_item_ids[keep_array]
-        history_items = history_items[keep]
-        history_mask = history_mask[keep]
-
-    if len(user_ids) == 0:
-        raise RuntimeError(
-            f"Sequential benchmark split {split_name!r} has no usable queries."
-        )
-
-    histories = [
-        " ".join(str(int(item_id) - 1) for item_id in items[mask].tolist())
-        for items, mask in zip(history_items, history_mask, strict=True)
-    ]
-    return pd.DataFrame(
-        {
-            f"{settings.USER_COL}:token": [str(int(value)) for value in user_ids],
-            f"{settings.ITEM_COL}:token": [
-                str(int(value)) for value in target_item_ids
-            ],
-            f"{settings.ITEM_COL}_list:token_seq": histories,
-        }
-    )
 
 
 def _synchronize_device(device: torch.device) -> None:

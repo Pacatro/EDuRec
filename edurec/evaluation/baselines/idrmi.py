@@ -30,7 +30,6 @@ from pathlib import Path
 from typing import cast
 
 import lightning as L
-import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
@@ -272,7 +271,8 @@ def _build_bipartite_adjacency(
     """Row-normalised ``D^-1 (A + I)`` over the ``[users; items]`` adjacency.
 
     ``interactions`` holds the TRAIN ``(user, item)`` pairs as a
-    ``[num_edges, 2]`` long tensor.
+    ``[num_edges, 2]`` long tensor. The adapter already provides unique pairs;
+    coalescing below makes repeated pairs equivalent anyway.
     """
     size = num_users + num_items
     users = interactions[:, 0]
@@ -733,11 +733,14 @@ class IDRMIModule(L.LightningModule):
 
 
 def _train_interactions(dm: ElearningDataModule) -> torch.Tensor:
-    """TRAIN ``(user, item)`` pairs as a ``[num_edges, 2]`` long tensor."""
-    pairs = np.stack(
-        [dm.train_ds.user_ids, dm.train_ds.target_item_ids], axis=1
-    ).astype(np.int64)
-    return torch.as_tensor(pairs, dtype=torch.long)
+    """TRAIN ``(user, item)`` pairs as a ``[num_edges, 2]`` long tensor.
+
+    The adapter returns the bimodal TRAIN-only ``edge_index``; IDRMI applies its
+    own normalisation and factor tables, which stay baseline-specific.
+    """
+    edge_index = dm.adapter.get_bipartite_graph()
+
+    return edge_index.t().contiguous().long()
 
 
 @register_baseline(IDRMI_LABEL)
@@ -762,7 +765,7 @@ def eval_idrmi(
     resolved_train = train_cfg or TrainConfig()
     dm.setup("fit")
 
-    knowledge_graph = dm.knowledge_graph
+    knowledge_graph = dm.adapter.get_knowledge_graph()
     module = IDRMIModule(
         num_users=dm.num_users,
         num_items=dm.num_items,

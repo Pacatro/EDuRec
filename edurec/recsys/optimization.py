@@ -277,7 +277,7 @@ def optimize_model(
         batch_size=dm.batch_size,
     )
 
-    knowledge_graph = dm.knowledge_graph
+    knowledge_graph = dm.adapter.get_knowledge_graph()
     storage = None
     callbacks = None
 

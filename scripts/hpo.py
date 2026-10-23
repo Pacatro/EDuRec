@@ -116,7 +116,6 @@ def main() -> None:
             random_state=args.random_state,
             min_interactions=args.min_interactions,
             remove_sparse=args.remove_sparse,
-            save_atomic_files=False,
             # Trials are short and often pruned; reusing workers would keep
             # paused worker processes alive across trials, which makes the
             # known "can only test a child process" DataLoader fork warning

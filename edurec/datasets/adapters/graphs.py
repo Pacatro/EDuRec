@@ -1,31 +1,32 @@
-"""Item knowledge-graph construction.
+"""Graph views: item knowledge graph and user-item bipartite graph.
 
-The graph is strictly item-only: the :class:`~torch_geometric.data.HeteroData`
-holds an ``item`` node type plus one ``attr::<field>`` node type per
-categorical or list-valued item field. Items link to their attribute values
-through typed membership edges, and the dataset schema may declare extra
-``refs`` (item -> item) and ``cooc`` (attribute -> attribute) relations.
-Schema ``graph_list`` fields add memberships without dense feature encoding.
+The knowledge graph is strictly item-only: the
+:class:`~torch_geometric.data.HeteroData` holds an ``item`` node type plus one
+``attr::<field>`` node type per categorical or list-valued item field. Items link
+to their attribute values through typed membership edges, and the dataset schema
+may declare extra ``refs`` (item -> item) and ``cooc`` (attribute -> attribute)
+relations. Schema ``graph_list`` fields add memberships without dense feature
+encoding.
 
-User-item interactions never take part in message passing. They are used
-exclusively for history construction, prediction, training and evaluation, so
-this builder does not accept interactions at all and target/validation/test
-information cannot leak by construction. Every relation here is derived from
-static item metadata.
+User-item interactions never take part in knowledge-graph message passing. They
+are used exclusively for history construction, prediction, training and
+evaluation, so this builder does not accept interactions at all and
+target/validation/test information cannot leak by construction. Every relation
+here is derived from static item metadata.
 
 Relation direction is semantic and preserved: instead of a blind
-symmetrisation, each forward edge type gets an explicit reverse edge type with
-a distinct ``rev_``-prefixed relation name. Attribute membership therefore
-yields ``(item, field, attr::<field>)`` together with ``(attr::<field>,
-rev_<field>, item)``; reference edges yield ``(item, ref::<field>, item)``
-together with ``(item, rev_ref::<field>, item)``; and co-occurrence edges yield
+symmetrisation, each forward edge type gets an explicit reverse edge type with a
+distinct ``rev_``-prefixed relation name. Attribute membership therefore yields
+``(item, field, attr::<field>)`` together with ``(attr::<field>, rev_<field>,
+item)``; reference edges yield ``(item, ref::<field>, item)`` together with
+``(item, rev_ref::<field>, item)``; and co-occurrence edges yield
 ``(attr::<left>, cooc::<left>::<right>, attr::<right>)`` together with
 ``(attr::<right>, rev_cooc::<left>::<right>, attr::<left>)``.
 
-If an interaction-derived relation (for example item co-occurrence learned from
-co-view or co-purchase events) is ever added, it MUST be computed from the TRAIN
-split only. No such relation exists today: the current ``cooc`` relations are
-computed from item metadata (attribute co-occurrence) and are therefore static.
+The collaborative bipartite graph is a separate view and is built exclusively
+from TRAIN interactions. If an interaction-derived relation (for example item
+co-occurrence learned from co-view events) is ever added to the knowledge graph,
+it MUST also be computed from the TRAIN split only.
 """
 
 import numpy as np
@@ -41,8 +42,6 @@ from edurec.datasets.features.parsing import (
     single_token,
 )
 from edurec.datasets.features.tabular import DataProcessor
-
-EdgeType = tuple[str, str, str]
 
 
 def build_knowledge_graph(
@@ -74,6 +73,24 @@ def build_knowledge_graph(
     _add_reverse_edges(data)
     _clean_edges(data)
     return data
+
+
+def build_bipartite_graph(interactions: pd.DataFrame) -> torch.Tensor:
+    """User-item ``edge_index`` of shape ``[2, num_edges]`` built from TRAIN.
+
+    Columns are the canonical contiguous user and item IDs stored in
+    ``ProcessedData``; no offset is applied because translating them to a
+    ``[users; items]`` adjacency is model-specific. Repeated events are kept so
+    consumers that weigh repetition see the same input as the processed split.
+    """
+    missing = {settings.USER_COL, settings.ITEM_COL}.difference(interactions.columns)
+    if missing:
+        names = ", ".join(sorted(missing))
+        raise ValueError(f"Interactions are missing identifier columns: {names}.")
+
+    pairs = interactions[[settings.USER_COL, settings.ITEM_COL]].dropna()
+    edges = pairs.to_numpy(dtype=np.int64).T
+    return torch.as_tensor(np.ascontiguousarray(edges), dtype=torch.long)
 
 
 def _field_kinds(processor: DataProcessor, prefix: str = "items") -> dict[str, bool]:

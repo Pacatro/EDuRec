@@ -1,11 +1,11 @@
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 import numpy as np
 import pandas as pd
 import torch
 
 from edurec import settings
-from edurec.datasets.cache import ProcessedData
+from edurec.datasets.cache import BuildManifest, ProcessedData, config_fingerprint
 from edurec.datasets.features.tabular import DataProcessor
 from edurec.datasets.pipeline.prepare import (
     clean_cols,
@@ -39,12 +39,50 @@ class BuildConfig:
     min_history_retention: float = 0.7
 
 
-def build_processed(raw: RawData, config: BuildConfig) -> ProcessedData:
+def split_strategy_for(interactions: pd.DataFrame) -> str:
+    """Split strategy implied by the available interaction columns."""
+    return "temporal" if settings.TIME_COL in interactions.columns else "random"
+
+
+def expected_manifest(
+    dataset_name: str,
+    config: BuildConfig,
+    *,
+    strategy: str,
+    num_users: int = 0,
+    num_items: int = 0,
+) -> BuildManifest:
+    """Fingerprint a build from its data-affecting options.
+
+    The seed is tracked as ``split_seed`` because only random splits consume it.
+    ``num_users``/``num_items`` default to ``0`` because they are only known
+    after a cache is loaded; they are metadata, not part of the compatibility
+    check.
+    """
+    options = asdict(config)
+    options.pop("random_state", None)
+
+    return BuildManifest(
+        dataset=dataset_name,
+        config_hash=config_fingerprint(options),
+        split_seed=config.random_state,
+        split_strategy=strategy,
+        num_users=num_users,
+        num_items=num_items,
+    )
+
+
+def build_processed(
+    raw: RawData, config: BuildConfig, *, dataset_name: str = ""
+) -> ProcessedData:
     """Turn raw source tables into split, encoded and selected processed data.
 
     Order: column cleaning, sparsity filtering and deduplication, community selection,
     temporal or random split, relevance labelling, and preprocessing fitted on
     the training split only.
+
+    ``dataset_name`` is only recorded in the cache manifest, which lets
+    ``--use-processed`` reject folders built for another configuration.
     """
     interactions = clean_cols(raw.interactions)
     users = clean_cols(raw.user_features)
@@ -97,6 +135,13 @@ def build_processed(raw: RawData, config: BuildConfig) -> ProcessedData:
 
     train_items = artifacts.splits()["train"][settings.ITEM_COL]
     artifacts.selected_raw = selected
+    artifacts.manifest = expected_manifest(
+        dataset_name,
+        config,
+        strategy=split_strategy_for(selected.interactions),
+        num_users=len(selected.user_features),
+        num_items=len(selected.item_features),
+    )
     artifacts.reports = {
         "selection_report": selected.selection_report,
         "split_report": {

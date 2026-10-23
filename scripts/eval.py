@@ -317,7 +317,6 @@ def main() -> None:
                 min_interactions=args.min_interactions,
                 remove_sparse=args.remove_sparse,
                 use_processed_data=args.use_processed,
-                save_atomic_files=True,
                 random_state=seed,
                 max_history=train_cfg.max_history,
                 deduplicate_interactions=train_cfg.deduplicate_interactions,

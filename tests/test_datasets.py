@@ -2,8 +2,9 @@ import pandas as pd
 import torch
 
 from edurec import settings
+from edurec.datasets.adapters.queries import build_histories
 from edurec.datasets.pipeline.prepare import deduplicate_interactions
-from edurec.datasets.pipeline.splits import build_histories, split_data
+from edurec.datasets.pipeline.splits import split_data
 from edurec.datasets.torch_data import RecSysDataset
 
 
