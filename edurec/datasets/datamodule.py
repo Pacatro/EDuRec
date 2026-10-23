@@ -8,13 +8,7 @@ from torch.utils.data import DataLoader
 from torch_geometric.data import HeteroData
 
 from edurec import settings
-from edurec.datasets.cache import (
-    CACHE_VERSION,
-    ProcessedData,
-    processed_cache_exists,
-    read_manifest,
-    source_fingerprint,
-)
+from edurec.datasets.cache import ProcessedData, replace_folder
 from edurec.datasets.features.graph import build_knowledge_graph
 from edurec.datasets.features.interactions import (
     InteractionFeatureTables,
@@ -22,14 +16,12 @@ from edurec.datasets.features.interactions import (
 )
 from edurec.datasets.features.tabular import DataProcessor
 from edurec.datasets.pipeline.build import BuildConfig, build_processed
-from edurec.datasets.pipeline.prepare import selection_metadata
 from edurec.datasets.pipeline.splits import build_histories, generate_negative_samples
 from edurec.datasets.recbole_export import save_atomic_files
 from edurec.datasets.registry import (
     DatasetName,
     RawData,
     download_raw_data,
-    get_spec,
     load_raw_data,
 )
 from edurec.datasets.torch_data import RecSysDataset
@@ -80,36 +72,6 @@ class ElearningDataModule(L.LightningDataModule):
         self.community_fields = community_fields
         self.min_history_retention = min_history_retention
 
-        self.cache_params = {
-            "version": CACHE_VERSION,
-            "dataset": dataset.value,
-            "min_interactions": min_interactions,
-            "test_ratio": test_ratio,
-            "val_ratio": val_ratio,
-            "random_state": random_state,
-            "remove_sparse": remove_sparse,
-            "deduplicate_interactions": deduplicate_interactions,
-            "feature_types": list(settings.PREPROCESS_FEATURE_TYPES),
-            "text_embedding_model": settings.TEXT_EMBEDDING_MODEL,
-            "text_embedding_dim": settings.TEXT_EMBEDDING_DIM,
-            "text_max_tokens": settings.TEXT_MAX_TOKENS,
-            "max_history_len": max_history,
-        }
-
-        self.cache_params["selection"] = selection_metadata(
-            self.max_users,
-            self.selection_seed,
-            self.max_interactions,
-            max_items=max_items,
-            community_fields=community_fields,
-            min_interactions=min_interactions,
-            min_history_retention=min_history_retention,
-        )
-        if dataset == DatasetName.MOOCCUBEX:
-            self.cache_params["encode_concept_text"] = (
-                settings.MOOCCUBEX_ENCODE_CONCEPT_TEXT
-            )
-
         self.processed_folder = Path(settings.PROCESSED_FOLDER) / self.data_variant
         self.atomic_folder = Path(settings.ATOMICFILES_FOLDER) / self.data_variant
 
@@ -122,35 +84,24 @@ class ElearningDataModule(L.LightningDataModule):
         """Selected source tables from the last build; None when loaded from cache."""
         return self.artifacts.selected_raw
 
-    def _source_metadata(self) -> dict[str, dict[str, int]]:
-        return source_fingerprint(
-            settings.RAW_DATA_FOLDER / get_spec(self.dataset_name).folder
-        )
-
-    def _compatible_cache(self) -> bool:
-        return processed_cache_exists(
-            self.processed_folder,
-            expected_selection=self.cache_params["selection"],
-            expected_params={
-                **self.cache_params,
-                "raw_sources": self._source_metadata(),
-            },
-        )
-
     def prepare_data(self) -> None:
-        if self.use_processed_data and self._compatible_cache():
+        if self.use_processed_data and self.processed_folder.exists():
             return
 
         download_raw_data(self.dataset_name)
 
     def setup(self, stage: str | None = None):
         if not self.is_processed:
-            if self.use_processed_data and self._compatible_cache():
-                self.artifacts = ProcessedData.load(self.processed_folder)
-                manifest = read_manifest(self.processed_folder)
-                for key in ("selection_report", "split_report", "raw_sources"):
-                    if key in manifest:
-                        self.cache_params[key] = manifest[key]
+            if self.use_processed_data and self.processed_folder.exists():
+                try:
+                    self.artifacts = ProcessedData.load(self.processed_folder)
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"{self.data_variant}: cannot load processed data from "
+                        f"{self.processed_folder}. It was written by an incompatible "
+                        "version; delete the folder and rebuild without "
+                        "--use-processed."
+                    ) from exc
             else:
                 self._process_raw_data()
 
@@ -175,10 +126,13 @@ class ElearningDataModule(L.LightningDataModule):
                     )
 
         if self.save_atomic_files:
-            self.atomic_files = save_atomic_files(
-                self.artifacts,
-                dataset_name=self.data_variant,
-                output_dir=self.atomic_folder,
+            replace_folder(
+                self.atomic_folder,
+                lambda staging: save_atomic_files(
+                    self.artifacts,
+                    dataset_name=self.data_variant,
+                    output_dir=staging,
+                ),
             )
 
         self._interaction_tables = build_interaction_features(
@@ -268,12 +222,10 @@ class ElearningDataModule(L.LightningDataModule):
         )
 
     def _process_raw_data(self) -> None:
-        self.cache_params["raw_sources"] = self._source_metadata()
         self.artifacts = build_processed(
             load_raw_data(self.dataset_name), self._build_config()
         )
-        self.cache_params.update(self.artifacts.reports)
-        self.artifacts.save(self.processed_folder, manifest=self.cache_params)
+        self.artifacts.save(self.processed_folder)
 
     @property
     def knowledge_graph(self) -> HeteroData:

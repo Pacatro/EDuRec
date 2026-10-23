@@ -33,17 +33,17 @@ _HYPERBAND_REDUCTION_FACTOR = 3
 def _optim_digest(
     base_config: ModelConfig,
     base_train_config: TrainConfig,
-    cache_params: Mapping[str, Any] | None,
+    data_config: Mapping[str, Any],
     *,
     val_topk: int = settings.TOP_K,
     compile: bool = settings.COMPILE_MODEL,
 ) -> str:
-    """Namespace a study by base config, processed data and optimizer version."""
+    """Namespace a study by base config, data selection and optimizer version."""
     payload = {
         "optimizer_version": OPTIMIZER_VERSION,
         "model": asdict(base_config),
         "train": asdict(base_train_config),
-        "cache_params": cache_params,
+        "data": data_config,
         "val_topk": val_topk,
         "compile": compile,
         "random_state": settings.state["random_state"],
@@ -289,7 +289,18 @@ def optimize_model(
     digest = _optim_digest(
         base_config,
         base_train_config,
-        dm.cache_params,
+        {
+            "dataset": dm.data_variant,
+            "min_interactions": dm.min_interactions,
+            "test_ratio": dm.test_ratio,
+            "val_ratio": dm.val_ratio,
+            "max_users": dm.max_users,
+            "max_items": dm.max_items,
+            "max_interactions": dm.max_interactions,
+            "community_fields": dm.community_fields,
+            "selection_seed": dm.selection_seed,
+            "min_history_retention": dm.min_history_retention,
+        },
         val_topk=val_topk,
         compile=compile,
     )

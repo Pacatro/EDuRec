@@ -58,7 +58,7 @@ def add_preprocessing_args(parser: argparse.ArgumentParser) -> None:
         "-P",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Reuse cached processed data when it matches the configuration.",
+        help="Reuse data/processed/<dataset> as-is, without checking parameters.",
     )
     parser.add_argument("--val-size", type=float, default=settings.VAL_RATIO)
     parser.add_argument("--test-size", type=float, default=settings.TEST_RATIO)
@@ -175,7 +175,7 @@ def print_data_summary(prefix: str, dm: ElearningDataModule) -> None:
         f"max_users={dm.max_users or 'all'}, "
         f"max_interactions={dm.max_interactions or 'all'}"
     )
-    report = dm.cache_params.get("selection_report")
+    report = dm.artifacts.reports.get("selection_report")
     if isinstance(report, dict):
         print(
             f"[{prefix}] Selected {report['selected_users']:,}/{report['eligible_users']:,} users; "

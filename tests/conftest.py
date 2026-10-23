@@ -1,6 +1,53 @@
+import pandas as pd
 import pytest
 
+from edurec import settings
+from edurec.datasets.registry import RawData
 from edurec.recsys.configs import ModelConfig
+
+
+@pytest.fixture(autouse=True)
+def isolate_data_folders(tmp_path, monkeypatch):
+    """Keep every test away from the real data/ folders."""
+    monkeypatch.setattr(settings, "PROCESSED_FOLDER", str(tmp_path / "processed"))
+    monkeypatch.setattr(settings, "ATOMICFILES_FOLDER", str(tmp_path / "atomicfiles"))
+
+
+@pytest.fixture
+def make_raw():
+    def build(histories, concepts):
+        events = pd.DataFrame(
+            [
+                (user, item, time, 1.0)
+                for user, items in histories.items()
+                for time, item in enumerate(items)
+            ],
+            columns=[
+                settings.USER_COL,
+                settings.ITEM_COL,
+                settings.TIME_COL,
+                settings.RATING_COL,
+            ],
+        )
+        return RawData(
+            interactions=events,
+            user_features=pd.DataFrame({settings.USER_COL: list(histories)}),
+            item_features=pd.DataFrame(
+                {settings.ITEM_COL: list(concepts), "concept": list(concepts.values())}
+            ),
+            schema={
+                "items": {"graph_list": ["concept"], "community_fields": ["concept"]}
+            },
+        )
+
+    return build
+
+
+@pytest.fixture
+def raw_communities(make_raw):
+    histories = {user: [0, 1, 2, 3] for user in range(4)}
+    histories.update({user: [4, 5, 6, 7] for user in range(4, 7)})
+    return make_raw(histories, {item: ["a" if item < 4 else "b"] for item in range(8)})
 
 
 @pytest.fixture

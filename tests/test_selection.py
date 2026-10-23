@@ -1,5 +1,4 @@
 import hashlib
-import json
 
 import pandas as pd
 import pytest
@@ -8,41 +7,9 @@ from edurec import settings
 from edurec.datasets import DatasetName, ElearningDataModule
 from edurec.datasets.pipeline.prepare import select_dataset, selection_metadata
 from edurec.datasets.pipeline.splits import split_data
-from edurec.datasets.registry import RawData
 
 
-def make_raw(histories, concepts):
-    events = pd.DataFrame(
-        [
-            (user, item, time, 1.0)
-            for user, items in histories.items()
-            for time, item in enumerate(items)
-        ],
-        columns=[
-            settings.USER_COL,
-            settings.ITEM_COL,
-            settings.TIME_COL,
-            settings.RATING_COL,
-        ],
-    )
-    return RawData(
-        interactions=events,
-        user_features=pd.DataFrame({settings.USER_COL: list(histories)}),
-        item_features=pd.DataFrame(
-            {settings.ITEM_COL: list(concepts), "concept": list(concepts.values())}
-        ),
-        schema={"items": {"graph_list": ["concept"], "community_fields": ["concept"]}},
-    )
-
-
-@pytest.fixture
-def raw_communities():
-    histories = {user: [0, 1, 2, 3] for user in range(4)}
-    histories.update({user: [4, 5, 6, 7] for user in range(4, 7)})
-    return make_raw(histories, {item: ["a" if item < 4 else "b"] for item in range(8)})
-
-
-def test_initial_filter_removes_inactive_users_and_items(raw_communities):
+def test_initial_filter_removes_inactive_users_and_items(raw_communities, make_raw):
     extra = make_raw({99: [0, 1, 2, 3, 99], 100: [99]}, {99: ["a"]})
     raw = raw_communities._replace(
         interactions=pd.concat(
@@ -70,7 +37,7 @@ def test_unlimited_grows_only_one_connected_community(raw_communities):
     assert result.selection_report["policy"] == "community"
 
 
-def test_growth_uses_shared_users_even_without_shared_semantics():
+def test_growth_uses_shared_users_even_without_shared_semantics(make_raw):
     raw = make_raw(
         {0: [0, 2], 1: [0, 2], 2: [0], 10: [1]}, {0: ["a"], 1: ["a"], 2: ["b"]}
     )
@@ -81,7 +48,7 @@ def test_growth_uses_shared_users_even_without_shared_semantics():
     assert set(result.item_features[settings.ITEM_COL]) == {0, 2}
 
 
-def test_growth_uses_semantics_even_without_shared_users():
+def test_growth_uses_semantics_even_without_shared_users(make_raw):
     raw = make_raw(
         {0: [0], 1: [0], 2: [0], 10: [1], 11: [2], 12: [2]},
         {0: ["a"], 1: ["a"], 2: ["b"]},
@@ -125,7 +92,7 @@ def test_support_is_rechecked_after_budget(raw_communities):
         select_dataset(raw_communities, max_users=2)
 
 
-def test_final_connectivity_uses_only_surviving_users():
+def test_final_connectivity_uses_only_surviving_users(make_raw):
     raw = make_raw(
         {0: [0, 1], 1: [0, 1], 2: [3, 4], 3: [3, 4], 4: [1, 2], 5: [1, 2]},
         {0: ["a"], 1: ["a"], 2: ["a", "b"], 3: ["b"], 4: ["b"]},
@@ -215,64 +182,28 @@ def test_temporal_splits_follow_selection(raw_communities):
         )
 
 
-def test_all_selection_parameters_are_part_of_cache_identity():
-    params = {
-        "dataset": DatasetName.COCO,
-        "batch_size": 8,
-        "test_ratio": 0.2,
-        "val_ratio": 0.2,
-    }
-    base = ElearningDataModule(**params).cache_params["selection"]
-    for change in [
-        {"max_items": 10},
-        {"max_users": 100},
-        {"max_interactions": 1000},
-        {"community_fields": ["instructor"]},
-        {"min_history_retention": 0.9},
-        {"min_interactions": 5},
-        {"selection_seed": 7},
-    ]:
-        assert ElearningDataModule(**params, **change).cache_params["selection"] != base
-    assert json.loads(json.dumps(base)) == base
-
-
 @pytest.mark.parametrize("budget", [0, -1, True, 1.5])
 def test_invalid_budget(budget):
     with pytest.raises(ValueError, match="max_interactions"):
         selection_metadata(None, 42, budget)
 
 
-def test_pipeline_and_cache_use_the_same_community_parameters(
-    raw_communities, monkeypatch, tmp_path
-):
+def test_pipeline_applies_community_budgets(raw_communities, monkeypatch):
     from edurec.datasets import datamodule
 
-    monkeypatch.setattr(settings, "PROCESSED_FOLDER", str(tmp_path))
     monkeypatch.setattr(datamodule, "load_raw_data", lambda dataset: raw_communities)
-    monkeypatch.setattr(ElearningDataModule, "_source_metadata", lambda self: {})
-    params = {
-        "dataset": DatasetName.COCO,
-        "batch_size": 8,
-        "test_ratio": 0.2,
-        "val_ratio": 0.2,
-        "max_items": 3,
-        "random_state": 42,
-    }
-    built = ElearningDataModule(**params)
-    built.setup()
-    assert built.num_items == 3
-    assert built.num_users == 4
-    assert built.num_interactions == 12
-    assert built.cache_params["selection_report"]["min_history_retention"] == 0.75
-    cached = ElearningDataModule(**params, use_processed_data=True)
-    assert cached._compatible_cache()
-    cached.setup()
-    assert cached.num_interactions == built.num_interactions
-    assert (
-        cached.cache_params["selection_report"]
-        == built.cache_params["selection_report"]
+    dm = ElearningDataModule(
+        dataset=DatasetName.COCO,
+        batch_size=8,
+        test_ratio=0.2,
+        val_ratio=0.2,
+        max_items=3,
+        random_state=42,
+        use_processed_data=False,
     )
-    different = ElearningDataModule(
-        **{**params, "max_items": 4}, use_processed_data=True
-    )
-    assert not different._compatible_cache()
+    dm.setup()
+    assert dm.num_items == 3
+    assert dm.num_users == 4
+    assert dm.num_interactions == 12
+    report = dm.artifacts.reports["selection_report"]
+    assert report["min_history_retention"] == 0.75

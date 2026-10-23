@@ -1,5 +1,6 @@
 import json
-from collections.abc import Mapping
+import shutil
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Self
@@ -11,74 +12,35 @@ from safetensors.torch import load_file, save_file
 from edurec.datasets.features.tabular import DataProcessor
 from edurec.datasets.registry import RawData
 
-# Bump whenever the preprocessing logic changes in a way that invalidates
-# existing caches (e.g. deduplication or timestamp parsing changes), or when
-# the pickled processor's module path changes (v14: package restructure).
-CACHE_VERSION = 14
-MANIFEST_FILENAME = "manifest.json"
-
-CACHE_FILES = (
-    "train.feather",
-    "val.feather",
-    "test.feather",
-    "users.feather",
-    "items.feather",
-    "static_feats.safetensors",
-    "processor.joblib",
-    MANIFEST_FILENAME,
-)
+REPORT_FILENAME = "report.json"
 
 
-def source_fingerprint(folder: Path) -> dict[str, dict[str, int]]:
-    """Size and modification time of every raw source file under ``folder``."""
-    return {
-        str(path.relative_to(folder)): {
-            "bytes": path.stat().st_size,
-            "mtime_ns": path.stat().st_mtime_ns,
-        }
-        for path in sorted(folder.rglob("*"))
-        if path.is_file()
-    }
+def replace_folder[T](folder: Path, write: Callable[[Path], T]) -> T:
+    """Build ``folder`` in a sibling staging directory, then swap it in.
 
-
-def read_manifest(folder: Path) -> dict[str, Any]:
-    return json.loads((folder / MANIFEST_FILENAME).read_text(encoding="utf-8"))
-
-
-def processed_cache_exists(
-    folder: Path,
-    expected_selection: Mapping[str, Any] | None = None,
-    expected_params: Mapping[str, Any] | None = None,
-) -> bool:
-    """Whether a complete, format-compatible cache is available in ``folder``.
-
-    Selection and any supplied preprocessing/source parameters must match;
-    changing the user limit, seed or eligibility thresholds forces reprocessing.
-    Fresh data overwrite this folder; raw sources are never modified.
+    Readers see either the previous folder or the complete new one. If ``write``
+    fails, the previous folder is left untouched.
     """
-    if not all((folder / name).exists() for name in CACHE_FILES):
-        return False
-
+    staging = folder.with_name(f"{folder.name}.tmp")
+    if staging.exists():
+        shutil.rmtree(staging)
     try:
-        manifest = read_manifest(folder)
-    except (OSError, json.JSONDecodeError):
-        return False
+        result = write(staging)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
 
-    if manifest.get("version") != CACHE_VERSION:
-        return False
+    if folder.exists():
+        shutil.rmtree(folder)
+    folder.parent.mkdir(parents=True, exist_ok=True)
+    staging.rename(folder)
+    return result
 
-    if expected_selection is not None and manifest.get("selection") != dict(
-        expected_selection
-    ):
-        return False
 
-    if expected_params is not None and any(
-        manifest.get(key) != value for key, value in expected_params.items()
-    ):
-        return False
-
-    tensors = load_file(folder / "static_feats.safetensors")
-    return {"u_static_feats", "u_cat_feats", "i_static_feats"}.issubset(tensors)
+def _to_builtin(value: Any) -> Any:
+    if hasattr(value, "item"):
+        return value.item()
+    return str(value)
 
 
 @dataclass
@@ -123,12 +85,11 @@ class ProcessedData:
             "test": self.test,
         }
 
-    def save(
-        self,
-        folder: Path,
-        manifest: Mapping[str, Any] | None = None,
-    ) -> None:
-        folder.mkdir(parents=True, exist_ok=True)
+    def save(self, folder: Path) -> None:
+        replace_folder(folder, self._write)
+
+    def _write(self, folder: Path) -> None:
+        folder.mkdir(parents=True)
 
         for split, df in self.splits().items():
             df.to_feather(folder / f"{split}.feather")
@@ -160,14 +121,21 @@ class ProcessedData:
 
         self.data_processor.save(folder / "processor.joblib")
 
-        (folder / MANIFEST_FILENAME).write_text(
-            json.dumps(dict(manifest or {}), indent=2, sort_keys=True, default=str),
+        (folder / REPORT_FILENAME).write_text(
+            json.dumps(self.reports, indent=2, sort_keys=True, default=_to_builtin),
             encoding="utf-8",
         )
 
     @classmethod
     def load(cls, folder: Path) -> Self:
         tensors = load_file(folder / "static_feats.safetensors")
+        report_path = folder / REPORT_FILENAME
+        # Caches written before reports existed contain no report file.
+        reports = (
+            json.loads(report_path.read_text(encoding="utf-8"))
+            if report_path.exists()
+            else {}
+        )
 
         return cls(
             train=pd.read_feather(folder / "train.feather"),
@@ -179,4 +147,5 @@ class ProcessedData:
             user_features=pd.read_feather(folder / "users.feather"),
             item_features=pd.read_feather(folder / "items.feather"),
             data_processor=DataProcessor.load(folder / "processor.joblib"),
+            reports=reports,
         )

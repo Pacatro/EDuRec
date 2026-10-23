@@ -106,10 +106,16 @@ uv run scripts/train.py --dataset coco --max-items 100 \
 
 The same options apply to train, eval, hpo, ablation and dataset. Python callers
 pass `max_items`, `community_fields` and `min_history_retention` directly to
-`ElearningDataModule` or `select_dataset`. The manifest records the parameters,
-resolved semantic fields, retained counts, final support, connectivity and
-history retention. Existing user-sampling caches fail the new selection identity
-and are rebuilt; changing any selection parameter also invalidates the cache.
+`ElearningDataModule` or `select_dataset`. The selection report in
+`report.json` records the resolved semantic fields, retained counts, final
+support, connectivity and history retention.
+
+Processed data is written to `data/processed/<dataset>/` after every build and
+replaces the previous folder. `--use-processed` reuses that folder as it is and
+does not check the parameters, so rebuild without the flag after changing any
+selection, split or preprocessing option. Folders written by an older version of
+the code may not be readable; delete the folder and rebuild when the loader
+reports an incompatible cache.
 
 Selection defines a retrospective cohort using all eligible interactions. Its
 support and connectivity are not train-only guarantees. Ratings and timestamp
@@ -226,7 +232,7 @@ Common options:
 -r, --random-state INTEGER      Seed for training and data splits
 -D, --debug                     Fast debug run
 -S, --save-model                Save checkpoint, config, and metrics
--P, --use-processed             Reuse cached processed data
+-P, --use-processed             Reuse processed data in data/processed/<dataset>
 -M, --models-folder PATH        Default: models
 -C, --configs-folder PATH       Default: configs
 -N, --run-name TEXT             Optional MLflow run name
@@ -299,7 +305,7 @@ Useful options:
 -k, --top-k INTEGER             Repeat for multiple cutoffs
 --remove-sparse / --no-remove-sparse
 -i, --min-interactions INTEGER  Default: 3
--P, --use-processed / --no-use-processed
+-P, --use-processed / --no-use-processed  Reuse data/processed/<dataset> as-is
 -c, --cfg-path PATH             Extra RecBole config
 -m, --baseline-model TEXT       Baseline to evaluate (RecBole or native; repeat, or `all`)
 -s, --seeds TEXT                Comma-separated seeds (default: 13,42,77)

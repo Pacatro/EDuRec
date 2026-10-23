@@ -150,7 +150,6 @@ DELTA: float = 0.001
 NUM_WORKERS: int = 4
 VAL_RATIO: float = 0.1
 TEST_RATIO: float = 0.2
-SAVE_DATA: bool = False
 ADAPTIVE_K: bool = False
 COMPILE_MODEL: bool = False
 TOP_KS: list[int] = [5, 10, 20]
