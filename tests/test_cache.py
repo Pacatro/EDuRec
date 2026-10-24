@@ -1,6 +1,8 @@
 import pandas as pd
 import pytest
 import torch
+import yaml
+from lightning.pytorch.core.saving import save_hparams_to_yaml
 
 from edurec import settings
 from edurec.datasets import (
@@ -293,6 +295,18 @@ def test_repeated_setup_reuses_views(make_datamodule):
 
     assert dm.train_ds is train_ds
     assert dm.test_ds is dm.adapter.get_queries("test", config=dm.query_config)
+
+
+def test_hparams_are_serialisable_for_logging(make_datamodule, tmp_path):
+    dm = make_datamodule()
+
+    hparams_file = tmp_path / "hparams.yaml"
+    save_hparams_to_yaml(hparams_file, dm.hparams)
+
+    saved = yaml.safe_load(hparams_file.read_text())
+    assert saved["config"]["dataset"] == DatasetName.COCO.value
+    assert saved["config"]["community"]["seed"] == settings.SELECTION_SEED
+    assert saved["batch_size"] == 8
 
 
 def test_dataloader_batches_preserve_query_contract(make_datamodule, monkeypatch):

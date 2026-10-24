@@ -86,7 +86,7 @@ def implicit_adapter():
 
 def test_processed_data_requires_every_data_field():
     with pytest.raises(TypeError):
-        ProcessedData()
+        ProcessedData()  # pyright: ignore[reportCallIssue]
 
 
 def test_bipartite_graph_uses_train_pairs_only(adapter):

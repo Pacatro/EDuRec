@@ -106,7 +106,9 @@ def test_raw_features_reach_graph_torch_queries_and_models(
     pd.testing.assert_frame_equal(loaded.test, data.test)
     assert loaded.id_maps == data.id_maps
     assert loaded.schema == data.schema
-    assert loaded.transforms["inter"].named_transformers_["num"].named_steps[
+    inter_transformer = loaded.transforms["inter"]
+    assert inter_transformer is not None
+    assert inter_transformer.named_transformers_["num"].named_steps[
         "scaler"
     ].data_max_.tolist() == [10.0]
 

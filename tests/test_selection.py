@@ -187,14 +187,11 @@ def test_temporal_splits_follow_selection(raw_communities):
     train, val, test = split_data(selected.data.interactions, 0.2, 0.2, 3, 42)
     assert len(train) + len(val) + len(test) == len(selected.data.interactions)
     for user in selected.data.user_features[settings.USER_COL]:
-        assert (
-            train.loc[train[settings.USER_COL] == user, settings.TIME_COL].max()
-            < val.loc[val[settings.USER_COL] == user, settings.TIME_COL].min()
-        )
-        assert (
-            val.loc[val[settings.USER_COL] == user, settings.TIME_COL].max()
-            < test.loc[test[settings.USER_COL] == user, settings.TIME_COL].min()
-        )
+        train_user = train.loc[train[settings.USER_COL] == user]
+        val_user = val.loc[val[settings.USER_COL] == user]
+        test_user = test.loc[test[settings.USER_COL] == user]
+        assert train_user[settings.TIME_COL].max() < val_user[settings.TIME_COL].min()
+        assert val_user[settings.TIME_COL].max() < test_user[settings.TIME_COL].min()
 
 
 @pytest.mark.parametrize("budget", [0, -1, True, 1.5])
