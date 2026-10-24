@@ -260,7 +260,6 @@ def _load_concept_metadata(path: Path, concept_ids: set[str]) -> pd.DataFrame:
 def _load_course_relations(
     path: Path,
     course_ids: pd.Series,
-    *,
     course_column: int,
 ) -> list[list[str]]:
     """Stream official TSV links, preserving entity IDs and all course memberships.

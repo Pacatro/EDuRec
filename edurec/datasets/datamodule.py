@@ -109,7 +109,7 @@ class ElearningDataModule(L.LightningDataModule):
         if stage in ("test", None):
             self.test_ds = self.adapter.get_queries("test", config=config)
 
-    def export_recbole(self, *, mode: str = "general") -> dict[str, Path]:
+    def export_recbole(self, mode: str = "general") -> dict[str, Path]:
         """Write RecBole atomic files for the current processed data.
 
         ``mode="sequential"`` also writes the prebuilt ``*_seq`` benchmark

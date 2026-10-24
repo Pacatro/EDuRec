@@ -69,7 +69,6 @@ def _selected_baselines(baseline_models: list[str]) -> list[str]:
 def _target_models(
     proposed_label: str,
     baseline_models: list[str],
-    *,
     only_proposed: bool = False,
     only_baselines: bool = False,
 ) -> list[str]:

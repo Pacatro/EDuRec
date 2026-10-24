@@ -14,7 +14,6 @@ Adding a new baseline
 
     @register_baseline("MyModel")
     def eval_my_model(
-        *,
         dm: ElearningDataModule,
         train_cfg: TrainConfig,
         val_topk: int = settings.TOP_K,
@@ -51,7 +50,6 @@ class BaselineRunner(Protocol):
 
     def __call__(
         self,
-        *,
         dm: ElearningDataModule,
         train_cfg: TrainConfig | None = ...,
         val_topk: int = ...,

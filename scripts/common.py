@@ -128,7 +128,6 @@ def datasets_to_run(dataset: DatasetName | None) -> list[DatasetName]:
 def data_config(
     args: argparse.Namespace,
     dataset: DatasetName,
-    *,
     random_state: int | None = None,
     deduplicate: bool = settings.DEDUPLICATE_INTERACTIONS,
 ) -> DataConfig:

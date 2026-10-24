@@ -410,7 +410,6 @@ class IDRMIModule(L.LightningModule):
 
     def __init__(
         self,
-        *,
         num_users: int,
         num_items: int,
         i_static_feats: torch.Tensor,

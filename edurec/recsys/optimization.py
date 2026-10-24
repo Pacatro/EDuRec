@@ -34,7 +34,6 @@ def _optim_digest(
     base_config: ModelConfig,
     base_train_config: TrainConfig,
     data_config: Mapping[str, Any],
-    *,
     val_topk: int = settings.TOP_K,
     compile: bool = settings.COMPILE_MODEL,
 ) -> str:
