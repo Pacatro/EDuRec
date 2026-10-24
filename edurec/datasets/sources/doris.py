@@ -79,7 +79,6 @@ def load_doris() -> RawData:
             "list": [],
         },
         "items": {
-            "community_fields": ["department", "coursecollege"],
             "bin": [],
             "num": [],
             "cat": ["item_type", "grade", "coursecollege", "department"],

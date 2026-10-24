@@ -81,9 +81,6 @@ MOOCCUBEX_REQUIRED_FILES = (
     "relations/course-school.txt",
 )
 MOOCCUBEX_ENCODE_CONCEPT_TEXT: bool = True
-SELECTION_MAX_USERS: int | None = None
-SELECTION_MAX_INTERACTIONS: int | None = None
-SELECTION_SEED: int = 42
 
 ITM_REQUIRED_FILES = ("ratings.csv", "items.csv", "users.csv")
 KAGGLE_ITM_DATASET = "irecsys/itmrec"

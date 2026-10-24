@@ -9,10 +9,10 @@ from pathlib import Path
 
 from common import (
     add_configs_arg,
+    add_dataset_args,
     add_model_args,
     add_preprocessing_args,
     add_runtime_args,
-    add_selection_args,
     build_config,
     data_config,
     datasets_to_run,
@@ -32,7 +32,7 @@ def parse_args() -> argparse.Namespace:
     )
     add_runtime_args(parser)
     parser.add_argument("--random-state", "-r", type=int)
-    add_selection_args(parser)
+    add_dataset_args(parser)
     add_preprocessing_args(parser)
     add_model_args(parser, with_arch=False)
     add_configs_arg(parser)

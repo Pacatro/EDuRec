@@ -16,11 +16,9 @@ from edurec.datasets.features.tabular import (
 )
 from edurec.datasets.features.text import encode_graph_text
 from edurec.datasets.pipeline.prepare import (
-    SelectionResult,
     clean_cols,
     deduplicate_interactions,
     filter_sparse,
-    select_dataset,
 )
 from edurec.datasets.pipeline.splits import (
     add_relevance,
@@ -44,10 +42,10 @@ def split_strategy_for(interactions: pd.DataFrame) -> SplitStrategy:
 
 
 def build_processed(raw: RawData, config: DataConfig) -> BuildResult:
-    """Turn raw source tables into split, encoded and selected processed data.
+    """Turn raw source tables into split and encoded processed data.
 
     Order: column cleaning, one normalization/deduplication step, sparsity
-    filtering, community selection, temporal or random split, relevance
+    filtering, temporal or random split, relevance
     labelling, and preprocessing fitted on the training split only.
     """
     interactions = clean_cols(raw.interactions)
@@ -65,22 +63,17 @@ def build_processed(raw: RawData, config: DataConfig) -> BuildResult:
             min_interactions=config.min_interactions,
         )
 
-    selected = select_dataset(
-        raw._replace(
-            interactions=interactions,
-            user_features=users,
-            item_features=items,
-        ),
-        community=config.community,
-        min_interactions=config.min_interactions,
+    prepared_raw = raw._replace(
+        interactions=interactions,
+        user_features=users,
+        item_features=items,
     )
-    selected_raw = selected.data
 
-    train, val, test = _split_with_relevance(selected_raw.interactions, config)
+    train, val, test = _split_with_relevance(prepared_raw.interactions, config)
     artifacts = preprocess(
         schema=raw.schema,
-        users=selected_raw.user_features,
-        items=selected_raw.item_features,
+        users=prepared_raw.user_features,
+        items=prepared_raw.item_features,
         train=train,
         val=val,
         test=test,
@@ -88,17 +81,16 @@ def build_processed(raw: RawData, config: DataConfig) -> BuildResult:
     )
 
     artifacts.manifest = config.manifest(
-        strategy=split_strategy_for(selected_raw.interactions),
-        num_users=len(selected_raw.user_features),
-        num_items=len(selected_raw.item_features),
+        strategy=split_strategy_for(prepared_raw.interactions),
+        num_users=len(prepared_raw.user_features),
+        num_items=len(prepared_raw.item_features),
     )
-    artifacts.reports = _reports(raw, selected, artifacts, train)
-    return BuildResult(data=artifacts, raw=selected_raw)
+    artifacts.reports = _reports(raw, artifacts, train)
+    return BuildResult(data=artifacts, raw=prepared_raw)
 
 
 def _reports(
     raw: RawData,
-    selected: SelectionResult,
     artifacts: ProcessedData,
     train: pd.DataFrame,
 ) -> dict:
@@ -106,7 +98,6 @@ def _reports(
 
     return {
         "source_report": raw.source_report,
-        "selection_report": selected.report,
         "split_report": {
             name: {
                 "interactions": len(frame),

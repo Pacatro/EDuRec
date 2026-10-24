@@ -7,7 +7,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from edurec import settings
-from edurec.datasets import CommunityConfig, DataAdapter, DataConfig, DatasetName
+from edurec.datasets import DataAdapter, DataConfig, DatasetName
 from edurec.datasets.adapters.queries import QueryConfig
 from edurec.datasets.cache import ProcessedData
 from edurec.datasets.features import text
@@ -87,7 +87,6 @@ def test_raw_features_reach_graph_torch_queries_and_models(
         dataset=DatasetName.COCO,
         min_interactions=3,
         random_state=42,
-        community=CommunityConfig(fields=["concept"]),
     )
     result = build_processed(raw, config)
     data = result.data

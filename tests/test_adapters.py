@@ -6,7 +6,7 @@ import pytest
 import torch
 
 from edurec import settings
-from edurec.datasets import CommunityConfig, DataAdapter, DataConfig, DatasetName
+from edurec.datasets import DataAdapter, DataConfig, DatasetName
 from edurec.datasets.adapters import graphs, queries
 from edurec.datasets.adapters.queries import QueryConfig
 from edurec.datasets.cache import ProcessedData
@@ -24,27 +24,10 @@ DATA_DEFAULTS = {
     "random_state": 42,
 }
 
-COMMUNITY_KEY_MAP = {
-    "max_users": "max_users",
-    "selection_seed": "seed",
-    "max_interactions": "max_interactions",
-    "max_items": "max_items",
-    "community_fields": "fields",
-    "min_history_retention": "min_history_retention",
-}
-
 
 def make_config(**overrides) -> DataConfig:
-    community = CommunityConfig(
-        **{
-            field: overrides.pop(key)
-            for key, field in COMMUNITY_KEY_MAP.items()
-            if key in overrides
-        }
-    )
     return DataConfig(
         dataset=DatasetName.COCO,
-        community=community,
         **{**DATA_DEFAULTS, **overrides},
     )
 
@@ -79,7 +62,7 @@ def implicit_adapter():
         item_features=pd.DataFrame(
             {settings.ITEM_COL: list(range(12)), "concept": ["a"] * 12}
         ),
-        schema={"items": {"graph_list": ["concept"], "community_fields": ["concept"]}},
+        schema={"items": {"graph_list": ["concept"]}},
     )
     return DataAdapter(build_processed(raw, make_config()).data)
 
@@ -197,7 +180,7 @@ def test_manifest_roundtrip_and_fingerprint(processed, tmp_path):
 
 
 def test_manifest_rejects_other_data_options(processed):
-    expected = make_config(max_items=3).manifest("temporal")
+    expected = make_config(remove_sparse=False).manifest("temporal")
 
     assert processed.manifest.incompatibility(expected) is not None
 

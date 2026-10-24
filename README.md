@@ -59,63 +59,18 @@ Concept nodes combine a learned ID embedding with a trainable projection of
 their name/context text embeddings, using the configured multilingual text
 encoder. Only concepts linked to retained courses are encoded, once per concept.
 
-### Community selection
+### Data preprocessing and cache
 
-All datasets use the same community protocol, before feature fitting and
-train/validation/test splitting:
-
-1. Iteratively remove users and items with fewer than `--min-interactions`
-   distinct neighbors (default: 3). Repeated events do not inflate support.
-2. Connect items through shared users and configurable semantic memberships.
-   Default semantic fields are concepts for MOOCCubeX; second-level categories
-   and instructors for COCO; theme/software/job for MARS; and department/college
-   for DORIS. Other sources use their categorical/list memberships. Sources
-   without semantic fields use shared users within the same algorithm.
-3. Start with the item having the most users and grow its community up to
-   `--max-items`. Choose the item with the greatest accumulated connection
-   weight to selected items. Each shared user or semantic entity contributes
-   `log(1 + eligible_items / entity_item_count)`, reducing the influence of
-   ubiquitous links. Support and a seeded ID hash break ties.
-4. Keep users with sufficient activity inside the catalog and at least
-   `--min-history-retention` of their eligible interaction rows (default: 0.7).
-   Retention is measured after the initial activity filter.
-5. Reapply support and retention after selection and budgets. Rebuild shared-user
-   links from surviving users, retain the connected component of the most
-   supported remaining item, and repeat until the result is stable and connected.
-
-`--community-fields` overrides the source's semantic fields. Field names are
-namespaced, so identical labels in different fields do not create links.
-The community activity threshold always applies, including with
-`--no-remove-sparse`. Without `--max-items`, selection grows the seed's entire
-reachable component; this does not necessarily include the full dataset.
-
-`--max-users` and `--max-interactions` remain optional budgets **inside the
-community**. Users are visited in seeded hash order. A history that does not fit
-is skipped rather than truncated to fill the budget. Subsequent support and
-retention filtering can shrink the result further; an empty community raises an
-error. There is no alternative random-user selection policy.
-
-```bash
-uv run scripts/dataset.py --dataset coco --max-items 100
-uv run scripts/dataset.py --dataset mooccubex --max-items 100
-uv run scripts/train.py --dataset coco --max-items 100 \
-  --community-fields second_level_category instructor \
-  --min-interactions 5 --min-history-retention 0.8 \
-  --max-interactions 10000 --selection-seed 42
-```
-
-The same options apply to train, eval, hpo, ablation and dataset. Python callers
-build a `DataConfig` with a `CommunityConfig` and pass it to
-`ElearningDataModule` or `select_dataset`. The selection report in
-`report.json` records the resolved semantic fields, retained counts, final
-support, connectivity and history retention.
+Datasets retain all users and items after source cleaning and optional sparsity
+filtering (`--remove-sparse`). Data is then split into train, validation and test
+sets, with preprocessing fitted on training data.
 
 Processed data is written to `data/processed/<dataset>/` after every build and
 replaces the previous folder. A `manifest.json` records the dataset, the
 processing version, the full data configuration and the split seed.
 `--use-processed` reuses that folder only when the configuration matches the
 current options; otherwise the loader raises an actionable error, so rebuild
-without the flag after changing any selection, split or preprocessing option.
+without the flag after changing any split or preprocessing option.
 A temporal split does not depend on the seed, so the same cache can be reused
 across training seeds; random splits must match the seed
 they were built with. Folders written by an older version of the code may not
@@ -123,17 +78,8 @@ be readable; delete the folder and rebuild when the loader reports an
 incompatible cache. Caches without a manifest are still loaded, with a warning
 that compatibility cannot be verified.
 
-Selection defines a retrospective cohort using all eligible interactions. Its
-support and connectivity are not train-only guarantees. Ratings and timestamp
-values do not guide selection; retained events keep their original values and
-are subsequently split as before. Interaction links are used for selection,
-not added to the model's item-only KG. Connectivity here refers to the combined
-semantic/shared-user graph, not necessarily to either graph separately.
-
-All loaders still read the full source population into RAM. Selection budgets
-reduce preprocessing and training size, not peak source-loading memory. A small
-community may still reference many concept nodes. The lightweight MOOCCubeX
-model configuration can be used with `--configs-folder configs/small`.
+The lightweight MOOCCubeX model configuration can be used with
+`--configs-folder configs/small`.
 MOOCCubeX keeps its existing source cleaning and earliest-enrollment handling;
 concept text can be disabled through `settings.MOOCCUBEX_ENCODE_CONCEPT_TEXT`.
 
@@ -175,8 +121,6 @@ Options shared by the training commands (`train`, `eval`, `hpo`, `ablation`):
 ```text
 --device [auto|cpu|cuda]  Device to use
 --verbose                 Verbose output
---max-users INTEGER       Sample this many complete user histories
---selection-seed INTEGER  User selection seed
 -h, --help                Show help
 ```
 
@@ -208,8 +152,6 @@ Options:
 ```text
 -d, --dataset [explicit_mars|implicit_mars|itm|doris|mooccubex|coco]  Dataset to use
 -m, --max-rows INTEGER          Number of rows to show
---max-users INTEGER             Sample this many complete user histories
---selection-seed INTEGER        User selection seed
 ```
 
 ### Train EDuRec

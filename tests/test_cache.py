@@ -6,7 +6,6 @@ from lightning.pytorch.core.saving import save_hparams_to_yaml
 
 from edurec import settings
 from edurec.datasets import (
-    CommunityConfig,
     DataConfig,
     DatasetName,
     ElearningDataModule,
@@ -14,15 +13,6 @@ from edurec.datasets import (
 )
 from edurec.datasets import cache as cache_module
 from edurec.datasets.cache import ProcessedData
-
-COMMUNITY_KEYS = (
-    "max_users",
-    "max_interactions",
-    "max_items",
-    "seed",
-    "community_fields",
-    "min_history_retention",
-)
 
 
 def _unexpected_call(*args, **kwargs):
@@ -45,9 +35,6 @@ def make_datamodule(raw_communities, monkeypatch, cache_dirs):
             datamodule, "load_raw_data", lambda dataset: raw_communities
         )
         use_processed_data = overrides.pop("use_processed_data", False)
-        community = CommunityConfig(
-            **{key: overrides.pop(key) for key in COMMUNITY_KEYS if key in overrides}
-        )
         params = {
             "test_ratio": 0.2,
             "val_ratio": 0.2,
@@ -55,7 +42,6 @@ def make_datamodule(raw_communities, monkeypatch, cache_dirs):
         }
         config = DataConfig(
             dataset=DatasetName.COCO,
-            community=community,
             **{**params, **overrides},
         )
         return ElearningDataModule(
@@ -182,12 +168,12 @@ def test_prepare_data_downloads_only_when_cache_is_missing(
     assert calls == []
 
 
-def test_subset_build_replaces_previous_cache(make_datamodule, cache_dirs):
+def test_rebuild_replaces_previous_cache(make_datamodule, cache_dirs):
     processed, _ = cache_dirs
     make_datamodule().setup()
-    make_datamodule(max_items=3).setup()
+    make_datamodule(remove_sparse=False).setup()
 
-    assert ProcessedData.load(processed).i_static_feats.shape[0] == 3
+    assert ProcessedData.load(processed).manifest.config["remove_sparse"] is False
 
 
 def test_save_replaces_folder_without_leftovers(make_datamodule, tmp_path):
@@ -223,7 +209,7 @@ def test_interrupted_save_keeps_previous_cache(make_datamodule, tmp_path, monkey
     full.data.save(folder)
     previous = (folder / "train.feather").read_bytes()
 
-    subset = make_datamodule(max_items=3)
+    subset = make_datamodule(remove_sparse=False)
     subset.setup()
 
     def fail(*args, **kwargs):
@@ -258,7 +244,7 @@ def test_use_processed_rejects_incompatible_options(
     make_datamodule().setup()
     monkeypatch.setattr(datamodule, "load_raw_data", _unexpected_call)
 
-    dm = make_datamodule(use_processed_data=True, max_items=3)
+    dm = make_datamodule(use_processed_data=True, remove_sparse=False)
     with pytest.raises(RuntimeError, match="different data options"):
         dm.setup()
 
@@ -305,7 +291,7 @@ def test_hparams_are_serialisable_for_logging(make_datamodule, tmp_path):
 
     saved = yaml.safe_load(hparams_file.read_text())
     assert saved["config"]["dataset"] == DatasetName.COCO.value
-    assert saved["config"]["community"]["seed"] == settings.SELECTION_SEED
+    assert saved["config"]["min_interactions"] == settings.MIN_INTERACTIONS
     assert saved["batch_size"] == 8
 
 

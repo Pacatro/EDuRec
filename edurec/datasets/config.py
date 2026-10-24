@@ -8,49 +8,9 @@ from edurec.datasets.registry import DatasetName
 
 #: Schema version of the persisted processed data. Bump when the layout or the
 #: meaning of any stored artefact changes.
-PROCESSING_VERSION = "v4"
+PROCESSING_VERSION = "v5"
 
 type SplitStrategy = Literal["temporal", "random"]
-
-
-@dataclass(frozen=True)
-class CommunityConfig:
-    """Budgets and thresholds for the connected-community selection."""
-
-    max_users: int | None = None
-    max_interactions: int | None = None
-    max_items: int | None = None
-    seed: int = settings.SELECTION_SEED
-    fields: list[str] | None = None
-    min_history_retention: float = 0.7
-
-    def __post_init__(self) -> None:
-        for name, value in (
-            ("max_users", self.max_users),
-            ("max_interactions", self.max_interactions),
-            ("max_items", self.max_items),
-        ):
-            if value is not None and (
-                isinstance(value, bool) or not isinstance(value, int) or value < 1
-            ):
-                raise ValueError(f"{name} must be a positive integer or None.")
-        if not 0 < self.min_history_retention <= 1:
-            raise ValueError("min_history_retention must be in (0, 1].")
-        if self.fields is not None:
-            object.__setattr__(self, "fields", sorted(set(self.fields)))
-
-    def metadata(self, min_interactions: int) -> dict[str, Any]:
-        """Report-friendly representation shared by selection and cache identity."""
-        return {
-            "policy": "community",
-            "max_users": self.max_users,
-            "max_interactions": self.max_interactions,
-            "max_items": self.max_items,
-            "seed": self.seed,
-            "community_fields": self.fields,
-            "min_interactions": min_interactions,
-            "min_history_retention": self.min_history_retention,
-        }
 
 
 @dataclass(frozen=True)
@@ -64,7 +24,6 @@ class DataConfig:
     remove_sparse: bool = settings.REMOVE_SPARSE
     deduplicate: bool = settings.DEDUPLICATE_INTERACTIONS
     random_state: int | None = None
-    community: CommunityConfig = field(default_factory=CommunityConfig)
 
     def __post_init__(self) -> None:
         if not 0 < self.test_ratio < 1 or not 0 < self.val_ratio < 1:

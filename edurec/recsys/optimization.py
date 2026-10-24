@@ -37,7 +37,7 @@ def _optim_digest(
     val_topk: int = settings.TOP_K,
     compile: bool = settings.COMPILE_MODEL,
 ) -> str:
-    """Namespace a study by base config, data selection and optimizer version."""
+    """Namespace a study by base config, data options and optimizer version."""
     payload = {
         "optimizer_version": OPTIMIZER_VERSION,
         "model": asdict(base_config),
@@ -286,7 +286,6 @@ def optimize_model(
         callbacks = [_save_trials_callback(results_path / "trials.csv")]
 
     data_config = dm.config
-    community = data_config.community
     digest = _optim_digest(
         base_config,
         base_train_config,
@@ -295,12 +294,6 @@ def optimize_model(
             "min_interactions": data_config.min_interactions,
             "test_ratio": data_config.test_ratio,
             "val_ratio": data_config.val_ratio,
-            "max_users": community.max_users,
-            "max_items": community.max_items,
-            "max_interactions": community.max_interactions,
-            "community_fields": community.fields,
-            "selection_seed": community.seed,
-            "min_history_retention": community.min_history_retention,
         },
         val_topk=val_topk,
         compile=compile,

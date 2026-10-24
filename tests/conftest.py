@@ -35,9 +35,7 @@ def make_raw():
             item_features=pd.DataFrame(
                 {settings.ITEM_COL: list(concepts), "concept": list(concepts.values())}
             ),
-            schema={
-                "items": {"graph_list": ["concept"], "community_fields": ["concept"]}
-            },
+            schema={"items": {"graph_list": ["concept"]}},
         )
 
     return build

@@ -9,10 +9,10 @@ from pathlib import Path
 
 from common import (
     add_configs_arg,
+    add_dataset_args,
     add_model_args,
     add_preprocessing_args,
     add_runtime_args,
-    add_selection_args,
     add_training_args,
     build_config,
     data_config,
@@ -31,7 +31,7 @@ from edurec.recsys.io import save_metrics, save_model
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train the model.")
     add_runtime_args(parser)
-    add_selection_args(parser)
+    add_dataset_args(parser)
     add_preprocessing_args(parser)
     add_model_args(parser)
     add_training_args(parser)

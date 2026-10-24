@@ -6,7 +6,6 @@ from typing import Any
 from edurec import settings
 from edurec.datasets import (
     DATASETS,
-    CommunityConfig,
     DataConfig,
     DatasetName,
     ElearningDataModule,
@@ -20,7 +19,7 @@ def add_runtime_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--verbose", action="store_true")
 
 
-def add_selection_args(
+def add_dataset_args(
     parser: argparse.ArgumentParser,
     dataset_default: DatasetName | None = None,
 ) -> None:
@@ -31,24 +30,6 @@ def add_selection_args(
         choices=list(DatasetName),
         default=dataset_default,
     )
-    parser.add_argument(
-        "--max-users",
-        type=int,
-        help="Maximum users retained within the community.",
-    )
-    parser.add_argument(
-        "--max-interactions",
-        type=int,
-        help="Maximum community interactions across all splits; never cut histories to fit.",
-    )
-    parser.add_argument("--max-items", type=int, help="Maximum items in the community.")
-    parser.add_argument(
-        "--community-fields",
-        nargs="+",
-        help="Semantic item fields; defaults to the source schema.",
-    )
-    parser.add_argument("--min-history-retention", type=float, default=0.7)
-    parser.add_argument("--selection-seed", type=int, default=settings.SELECTION_SEED)
 
 
 def add_preprocessing_args(parser: argparse.ArgumentParser) -> None:
@@ -132,15 +113,6 @@ def data_config(
     deduplicate: bool = settings.DEDUPLICATE_INTERACTIONS,
 ) -> DataConfig:
     """Build the data configuration from the shared CLI arguments."""
-    community = CommunityConfig(
-        max_users=args.max_users,
-        max_interactions=args.max_interactions,
-        max_items=args.max_items,
-        seed=args.selection_seed,
-        fields=args.community_fields,
-        min_history_retention=args.min_history_retention,
-    )
-
     return DataConfig(
         dataset=dataset,
         test_ratio=args.test_size,
@@ -149,7 +121,6 @@ def data_config(
         remove_sparse=args.remove_sparse,
         deduplicate=deduplicate,
         random_state=random_state,
-        community=community,
     )
 
 
@@ -205,19 +176,6 @@ def print_data_summary(prefix: str, dm: ElearningDataModule) -> None:
         f"[{prefix}] Splits: "
         + ", ".join(f"{split}={size:,}" for split, size in split_sizes.items())
     )
-    community = dm.config.community
-    print(
-        f"[{prefix}] Selection: community, seed={community.seed}, "
-        f"max_items={community.max_items or 'reachable'}, "
-        f"max_users={community.max_users or 'all'}, "
-        f"max_interactions={community.max_interactions or 'all'}"
-    )
-    report = data.reports.get("selection_report")
-    if isinstance(report, dict):
-        print(
-            f"[{prefix}] Selected {report['selected_users']:,}/{report['eligible_users']:,} users; "
-            f"{report['selected_interactions']:,}/{report['eligible_interactions']:,} interactions"
-        )
     if not data.is_explicit:
         negatives = dm.train_ds.negative_item_ids
         print(

@@ -1,17 +1,16 @@
 """Show dataset information.
 
-Usage: uv run scripts/dataset.py -d coco --max-users 200
+Usage: uv run scripts/dataset.py -d coco
 """
 
 import argparse
 import json
 
 import pandas as pd
-from common import add_selection_args
+from common import add_dataset_args
 
 from edurec import settings
 from edurec.datasets import (
-    CommunityConfig,
     DataConfig,
     DatasetName,
     ElearningDataModule,
@@ -21,7 +20,7 @@ from edurec.datasets.features.tabular import categorical_cardinalities
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Show dataset information.")
-    add_selection_args(parser, dataset_default=DatasetName.EXPLICIT_MARS)
+    add_dataset_args(parser, dataset_default=DatasetName.EXPLICIT_MARS)
     parser.add_argument(
         "--max-rows",
         "-m",
@@ -37,15 +36,8 @@ def main() -> None:
     config = DataConfig(
         dataset=args.dataset,
         min_interactions=args.min_interactions,
-        community=CommunityConfig(
-            max_users=args.max_users,
-            max_interactions=args.max_interactions,
-            max_items=args.max_items,
-            seed=args.selection_seed,
-            fields=args.community_fields,
-            min_history_retention=args.min_history_retention,
-        ),
     )
+
     dm = ElearningDataModule(config=config, batch_size=settings.BATCH_SIZE)
 
     dm.prepare_data()
@@ -70,10 +62,7 @@ def main() -> None:
     item_categorical = len(categorical_cardinalities(data.transforms["items"]))
     print(f"Number of item features: {data.i_static_feats.shape[1] + item_categorical}")
 
-    for label, report in (
-        ("source", data.reports.get("source_report")),
-        ("selection", data.reports.get("selection_report")),
-    ):
+    for label, report in (("source", data.reports.get("source_report")),):
         if report is not None:
             print(f"\nDataset {label} diagnostics:")
             print(json.dumps(report, indent=2, ensure_ascii=False, default=str))

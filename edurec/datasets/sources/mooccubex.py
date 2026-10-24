@@ -79,7 +79,7 @@ def _mooccubex_enrollments(
             counts["duplicate_enrollments"] += 1
         first[course_id] = min(first.get(course_id, stamp), stamp)
     # Stable course-ID tie break is explicit; equal times do not establish a
-    # pedagogical order and are reported in the selection diagnostics.
+    # pedagogical order and are reported in the source diagnostics.
     return sorted(first.items(), key=lambda event: (event[1], event[0]))
 
 
@@ -135,7 +135,7 @@ def load_mooccubex() -> RawData:
     items = pd.read_json(entities_folder / "course.json", lines=True)
     items.rename(columns={"id": settings.ITEM_COL}, inplace=True)
     items = items.drop_duplicates(settings.ITEM_COL).copy()
-    # Load static memberships independently of the common user selection step.
+    # Load static memberships for the full source catalog.
     # The processor encodes only entities linked to selected courses.
     relations_folder = entities_folder.parent / "relations"
     items["concept"] = _load_course_relations(
@@ -193,7 +193,6 @@ def load_mooccubex() -> RawData:
             "list": [],
         },
         "items": {
-            "community_fields": ["concept"],
             "bin": [],
             "num": ["resource_count"],
             "cat": [],
