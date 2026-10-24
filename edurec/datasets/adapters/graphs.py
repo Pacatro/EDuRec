@@ -29,6 +29,8 @@ co-occurrence learned from co-view events) is ever added to the knowledge graph,
 it MUST also be computed from the TRAIN split only.
 """
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 import torch
@@ -36,18 +38,19 @@ from torch_geometric.data import HeteroData
 from torch_geometric.utils import coalesce, remove_self_loops
 
 from edurec import settings
+from edurec.datasets.features.lists import graph_field_kinds
 from edurec.datasets.features.parsing import (
     coerce_list_tokens,
     normalize_label,
     single_token,
 )
-from edurec.datasets.features.tabular import DataProcessor
 
 
 def build_knowledge_graph(
     item_frame: pd.DataFrame,
     item_feats: torch.Tensor,
-    processor: DataProcessor,
+    schema: dict[str, Any],
+    node_features: dict[str, pd.DataFrame],
 ) -> HeteroData:
     """Build the item-only knowledge graph from static item metadata.
 
@@ -65,10 +68,10 @@ def build_knowledge_graph(
     data = HeteroData()
     data["item"].x = item_feats
 
-    node_ids = item_frame[settings.ITEM_COL].map(processor.item_id_map)
-    vocab = _add_attribute_edges(data, item_frame, node_ids, processor)
-    _add_reference_edges(data, item_frame, node_ids, processor)
-    _add_cooccurrence_edges(data, item_frame, node_ids, processor, vocab)
+    node_ids = item_frame[settings.ITEM_COL]
+    vocab = _add_attribute_edges(data, item_frame, node_ids, schema, node_features)
+    _add_reference_edges(data, item_frame, node_ids, schema)
+    _add_cooccurrence_edges(data, item_frame, node_ids, schema, vocab)
 
     _add_reverse_edges(data)
     _clean_edges(data)
@@ -93,28 +96,17 @@ def build_bipartite_graph(interactions: pd.DataFrame) -> torch.Tensor:
     return torch.as_tensor(np.ascontiguousarray(edges), dtype=torch.long)
 
 
-def _field_kinds(processor: DataProcessor, prefix: str = "items") -> dict[str, bool]:
-    """Map each entity feature field to whether it is list-valued."""
-    pipeline = processor.pipelines.get(prefix)
-    groups = {} if pipeline is None else pipeline.groups
-    kinds: dict[str, bool] = {col: False for col in groups.get("categorical", [])}
-    for col in groups.get("list", []):
-        kinds[col] = True
-    for col in processor.schema.get(prefix, {}).get("graph_list", []):
-        kinds[col] = True
-    return kinds
-
-
 def _add_attribute_edges(
     data: HeteroData,
     item_frame: pd.DataFrame,
     node_ids: pd.Series,
-    processor: DataProcessor,
+    schema: dict[str, Any],
+    node_features: dict[str, pd.DataFrame],
 ) -> dict[str, dict[str, int]]:
     """Create one attribute node type per item field and return its vocabulary."""
     vocab: dict[str, dict[str, int]] = {}
 
-    for field, is_list in _field_kinds(processor).items():
+    for field, is_list in graph_field_kinds(schema).items():
         tokens = item_frame[field].map(coerce_list_tokens if is_list else single_token)
         long = pd.DataFrame({"node": node_ids.to_numpy(), "token": tokens.to_numpy()})
         long = long.explode("token").dropna(subset=["token", "node"])
@@ -130,10 +122,8 @@ def _add_attribute_edges(
         attr_node = f"attr::{field}"
         data[attr_node].num_nodes = len(uniques)
         data[attr_node].node_ids = [str(token) for token in uniques]
-        if field in processor.graph_node_features:
-            features = processor.graph_node_features[field].loc[
-                data[attr_node].node_ids
-            ]
+        if field in node_features:
+            features = node_features[field].loc[data[attr_node].node_ids]
             data[attr_node].x = torch.as_tensor(features.to_numpy(dtype=np.float32))
         data["item", field, attr_node].edge_index = torch.as_tensor(
             np.stack([long["node"].to_numpy(), codes]),
@@ -147,11 +137,9 @@ def _add_reference_edges(
     data: HeteroData,
     item_frame: pd.DataFrame,
     node_ids: pd.Series,
-    processor: DataProcessor,
+    schema: dict[str, Any],
 ) -> None:
-    for field, target_field in (
-        processor.schema.get("items", {}).get("refs", {}).items()
-    ):
+    for field, target_field in schema.get("refs", {}).items():
         if field not in item_frame.columns or target_field not in item_frame.columns:
             continue
 
@@ -182,10 +170,10 @@ def _add_cooccurrence_edges(
     data: HeteroData,
     item_frame: pd.DataFrame,
     node_ids: pd.Series,
-    processor: DataProcessor,
+    schema: dict[str, Any],
     vocab: dict[str, dict[str, int]],
 ) -> None:
-    for left, right in processor.schema.get("items", {}).get("cooc", []):
+    for left, right in schema.get("cooc", []):
         if left not in vocab or right not in vocab:
             continue
 

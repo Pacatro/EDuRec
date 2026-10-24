@@ -11,6 +11,7 @@ from edurec.datasets import (
     DatasetName,
     ElearningDataModule,
 )
+from edurec.datasets.features.tabular import categorical_cardinalities, feature_columns
 from edurec.recsys import ModelArch, ModelConfig
 
 
@@ -166,19 +167,16 @@ def build_config(
     **overrides: Any,
 ) -> ModelConfig:
     data = dm.data
-    counts_users = data.data_processor.counts("users")
-    counts_items = data.data_processor.counts("items")
     interaction_features = dm.adapter.interaction_features
     dataset_config = {
         "num_users": data.num_users,
         "num_items": data.num_items,
-        "num_item_dense_feats": counts_items.dense,
-        "num_item_text_feats": counts_items.text,
-        "num_user_dense_feats": counts_users.dense,
+        "num_item_dense_feats": data.i_static_feats.shape[1],
+        "num_item_text_feats": data.i_static_feats.shape[1]
+        - len(feature_columns(data.transforms["items"], "num")),
+        "num_user_dense_feats": data.u_static_feats.shape[1],
         "num_interaction_dense_feats": len(interaction_features.dense_cols),
-        "user_cat_cardinalities": data.data_processor.categorical_cardinalities(
-            "users"
-        ),
+        "user_cat_cardinalities": categorical_cardinalities(data.transforms["users"]),
         "interaction_cat_cardinalities": interaction_features.cat_cardinalities,
         "kg_node_counts": dm.adapter.kg_node_counts,
         "kg_edge_types": [list(edge) for edge in dm.adapter.kg_edge_types],
@@ -230,14 +228,18 @@ def print_data_summary(prefix: str, dm: ElearningDataModule) -> None:
         )
 
     if settings.state["verbose"]:
-        counts_users = data.data_processor.counts("users")
-        counts_items = data.data_processor.counts("items")
+        user_text = data.u_static_feats.shape[1] - len(
+            feature_columns(data.transforms["users"], "num")
+        )
+        item_text = data.i_static_feats.shape[1] - len(
+            feature_columns(data.transforms["items"], "num")
+        )
         print(
             f"[{prefix}] Features: "
-            f"user_dense={counts_users.dense}, "
-            f"item_dense={counts_items.dense}, "
-            f"user_text={counts_users.text}, "
-            f"item_text={counts_items.text}, "
-            f"user_cat={counts_users.categorical}, "
-            f"item_cat={counts_items.categorical}"
+            f"user_dense={data.u_static_feats.shape[1]}, "
+            f"item_dense={data.i_static_feats.shape[1]}, "
+            f"user_text={user_text}, "
+            f"item_text={item_text}, "
+            f"user_cat={data.u_cat_feats.shape[1]}, "
+            f"item_cat={len(categorical_cardinalities(data.transforms['items']))}"
         )

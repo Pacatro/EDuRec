@@ -1,13 +1,20 @@
 from dataclasses import dataclass
 
-import numpy as np
 import pandas as pd
-import torch
 
 from edurec import settings
 from edurec.datasets.cache import ProcessedData
 from edurec.datasets.config import DataConfig, SplitStrategy
-from edurec.datasets.features.tabular import DataProcessor
+from edurec.datasets.features.ids import encode_ids
+from edurec.datasets.features.lists import normalize_lists
+from edurec.datasets.features.tabular import (
+    categorical_tensor,
+    dense_tensor,
+    fit_tabular,
+    resolve_schema,
+    transform_features,
+)
+from edurec.datasets.features.text import encode_graph_text
 from edurec.datasets.pipeline.prepare import (
     SelectionResult,
     clean_cols,
@@ -20,7 +27,7 @@ from edurec.datasets.pipeline.splits import (
     get_relevance_threshold,
     split_data,
 )
-from edurec.datasets.registry import RawData
+from edurec.datasets.registry import RawData, Schema
 
 
 @dataclass(frozen=True)
@@ -71,7 +78,7 @@ def build_processed(raw: RawData, config: DataConfig) -> BuildResult:
 
     train, val, test = _split_with_relevance(selected_raw.interactions, config)
     artifacts = preprocess(
-        processor=DataProcessor(schema=raw.schema),
+        schema=raw.schema,
         users=selected_raw.user_features,
         items=selected_raw.item_features,
         train=train,
@@ -95,7 +102,7 @@ def _reports(
     artifacts: ProcessedData,
     train: pd.DataFrame,
 ) -> dict:
-    train_items = train[settings.ITEM_COL]
+    train_items = train[settings.ITEM_COL].map(artifacts.id_maps["items"])
 
     return {
         "source_report": raw.source_report,
@@ -136,7 +143,7 @@ def _split_with_relevance(
 
 
 def preprocess(
-    processor: DataProcessor,
+    schema: Schema,
     users: pd.DataFrame,
     items: pd.DataFrame,
     train: pd.DataFrame,
@@ -144,83 +151,39 @@ def preprocess(
     test: pd.DataFrame,
     graph_entities: dict[str, pd.DataFrame] | None = None,
 ) -> ProcessedData:
-    processor.fit(users_train=users, items_train=items, interactions_train=train)
-    processor.fit_graph_text_features(items, graph_entities)
-
-    features = processor.transform(users=users, items=items)
-    split_features = {
-        "train": processor.transform(interactions=train),
-        "val": processor.transform(interactions=val),
-        "test": processor.transform(interactions=test),
+    """Fit static catalog metadata and TRAIN context, then transform every split."""
+    schema = resolve_schema(schema, {"users": users, "items": items, "inter": train})
+    users, items, splits, id_maps = encode_ids(
+        users, items, {"train": train, "val": val, "test": test}
+    )
+    users = normalize_lists(users, schema["users"])
+    items = normalize_lists(items, schema["items"])
+    splits = {
+        name: normalize_lists(frame, schema["inter"]) for name, frame in splits.items()
+    }
+    transforms = {
+        "users": fit_tabular(users, schema["users"]),
+        "items": fit_tabular(items, schema["items"]),
+        "inter": fit_tabular(splits["train"], schema["inter"]),
+    }
+    user_frame = transform_features(users, transforms["users"], schema["users"])
+    item_frame = transform_features(items, transforms["items"], schema["items"])
+    encoded_splits = {
+        name: transform_features(frame, transforms["inter"], schema["inter"])
+        for name, frame in splits.items()
     }
 
-    if features.users is None or features.items is None:
-        raise RuntimeError("User/item features were not processed.")
-
-    user_frame = features.users
-    item_frame = features.items
-    if features.text_embeddings["users"] is not None:
-        user_frame = pd.concat([user_frame, features.text_embeddings["users"]], axis=1)
-    if features.text_embeddings["items"] is not None:
-        item_frame = pd.concat([item_frame, features.text_embeddings["items"]], axis=1)
-
-    split_dfs: dict[str, pd.DataFrame] = {}
-    for name, processed in split_features.items():
-        if processed.interactions is None:
-            raise RuntimeError(f"{name} interactions were not processed.")
-        split_dfs[name] = processed.interactions
-        if processed.text_embeddings["inter"] is not None:
-            split_dfs[name] = pd.concat(
-                [split_dfs[name], processed.text_embeddings["inter"]],
-                axis=1,
-            )
-        split_dfs[name] = split_dfs[name].reset_index(drop=True)
-
-    static_feats = {}
-    for name, df, prefix, id_col in (
-        ("users", user_frame, "users", settings.USER_COL),
-        ("items", item_frame, "items", settings.ITEM_COL),
-    ):
-        metadata = processor.pipeline(prefix).metadata
-        cols = metadata.numeric_cols + metadata.text_embedding_cols
-        static_feats[name] = torch.as_tensor(
-            df.sort_values(id_col)[cols].to_numpy(dtype=np.float32),
-            dtype=torch.float32,
-        )
-
-    u_cat_feats = _categorical_codes(
-        user_frame,
-        processor.pipeline("users").metadata.categorical_cols,
-        id_col=settings.USER_COL,
-    )
-
     return ProcessedData(
-        train=split_dfs["train"],
-        val=split_dfs["val"],
-        test=split_dfs["test"],
-        u_static_feats=static_feats["users"],
-        u_cat_feats=u_cat_feats,
-        i_static_feats=static_feats["items"],
-        user_features=users.reset_index(drop=True),
-        item_features=items.reset_index(drop=True),
-        data_processor=processor,
+        train=encoded_splits["train"],
+        val=encoded_splits["val"],
+        test=encoded_splits["test"],
+        u_static_feats=dense_tensor(user_frame),
+        u_cat_feats=categorical_tensor(user_frame),
+        i_static_feats=dense_tensor(item_frame),
+        user_features=users,
+        item_features=items,
+        schema=schema,
+        id_maps=id_maps,
+        transforms=transforms,
+        graph_node_features=encode_graph_text(items, graph_entities, schema["items"]),
     )
-
-
-def _categorical_codes(
-    frame: pd.DataFrame,
-    categorical_cols: list[str],
-    id_col: str,
-) -> torch.Tensor:
-    """Integer codes for the encoded categorical columns, ordered by mapped id.
-
-    The processor already ordinal-encodes categorical fields, so the values are
-    reused as-is. ``-1`` marks unknown categories and is preserved for the model
-    to map to a padding embedding.
-    """
-    if not categorical_cols:
-        return torch.zeros((len(frame), 0), dtype=torch.long)
-
-    values = frame.sort_values(id_col)[categorical_cols].to_numpy(dtype=np.float32)
-    values = np.nan_to_num(values, nan=-1.0)
-    return torch.as_tensor(values.astype(np.int64), dtype=torch.long)

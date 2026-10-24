@@ -16,6 +16,7 @@ from edurec.datasets import (
     DatasetName,
     ElearningDataModule,
 )
+from edurec.datasets.features.tabular import categorical_cardinalities
 
 
 def main() -> None:
@@ -63,8 +64,11 @@ def main() -> None:
     print(f"Number of users: {data.num_users}")
     print(f"Number of items: {data.num_items}")
     print(f"Number of interactions: {data.num_interactions}")
-    print(f"Number of user features: {data.data_processor.counts('users').total}")
-    print(f"Number of item features: {data.data_processor.counts('items').total}")
+    print(
+        f"Number of user features: {data.u_static_feats.shape[1] + data.u_cat_feats.shape[1]}"
+    )
+    item_categorical = len(categorical_cardinalities(data.transforms["items"]))
+    print(f"Number of item features: {data.i_static_feats.shape[1] + item_categorical}")
 
     for label, report in (
         ("source", data.reports.get("source_report")),

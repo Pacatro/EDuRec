@@ -8,7 +8,7 @@ from edurec.datasets.registry import DatasetName
 
 #: Schema version of the persisted processed data. Bump when the layout or the
 #: meaning of any stored artefact changes.
-PROCESSING_VERSION = "v3"
+PROCESSING_VERSION = "v4"
 
 type SplitStrategy = Literal["temporal", "random"]
 

@@ -15,9 +15,10 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 import torch
+from sklearn.compose import ColumnTransformer
 
 from edurec import settings
-from edurec.datasets.features.tabular import DataProcessor
+from edurec.datasets.features.tabular import categorical_cardinalities, feature_columns
 from edurec.datasets.pipeline.splits import SPLIT_ORDER
 
 
@@ -65,14 +66,14 @@ class InteractionFeatureTables:
 
 def build_interaction_features(
     splits: dict[str, pd.DataFrame],
-    processor: DataProcessor,
+    transformer: ColumnTransformer | None,
 ) -> InteractionFeatureTables:
     """Build aligned dense/categorical/timestamp interaction tables.
 
     These tables are used ONLY as historical interaction context (past events),
     never for the target event, so no future/target information can leak into a
     prediction. The vocabulary and scaler are fitted on the training split by
-    the ``DataProcessor``; val/test are merely transformed, so they cannot leak
+    the tabular transformer; val/test are merely transformed, so they cannot leak
     into the fit.
 
     Splits are processed in the fixed order ``("train", "val", "test")`` and
@@ -86,7 +87,6 @@ def build_interaction_features(
     ``RuntimeError`` is raised when an available split is missing an expected
     feature column.
     """
-    metadata = processor.pipeline("inter").metadata
     available = [
         (name, splits[name]) for name in SPLIT_ORDER if splits.get(name) is not None
     ]
@@ -94,9 +94,10 @@ def build_interaction_features(
     dense_cols: list[str] = []
     if available and settings.RATING_COL in available[0][1].columns:
         dense_cols.append(settings.RATING_COL)
-    dense_cols.extend(metadata.numeric_cols)
-    dense_cols.extend(metadata.text_embedding_cols)
-    cat_cols = list(metadata.categorical_cols)
+    dense_cols.extend(feature_columns(transformer, "num"))
+    if available:
+        dense_cols.extend(available[0][1].filter(regex=r"^text__").columns)
+    cat_cols = feature_columns(transformer, "cat")
 
     dense_parts: list[np.ndarray] = []
     cat_parts: list[np.ndarray] = []
@@ -116,9 +117,7 @@ def build_interaction_features(
             else np.zeros((len(df), 0), dtype=np.float32)
         )
         cat = (
-            np.nan_to_num(df[cat_cols].to_numpy(dtype=np.float32), nan=-1.0).astype(
-                np.int64
-            )
+            df[cat_cols].fillna(-1).to_numpy(dtype=np.int64)
             if cat_cols
             else np.zeros((len(df), 0), dtype=np.int64)
         )
@@ -146,7 +145,7 @@ def build_interaction_features(
         cat=np.ascontiguousarray(cat, dtype=np.int64),
         timestamps=np.ascontiguousarray(timestamps, dtype=np.float64),
         dense_cols=dense_cols,
-        cat_cardinalities=[metadata.categorical_cardinalities[col] for col in cat_cols],
+        cat_cardinalities=categorical_cardinalities(transformer),
     )
 
 

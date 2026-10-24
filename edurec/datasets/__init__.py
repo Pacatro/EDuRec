@@ -3,7 +3,6 @@ from edurec.datasets.adapters import DataAdapter
 from edurec.datasets.adapters.queries import QueryConfig
 from edurec.datasets.config import CommunityConfig, DataConfig
 from edurec.datasets.datamodule import ElearningDataModule
-from edurec.datasets.features.tabular import DataProcessor, FeatureMetadata
 from edurec.datasets.pipeline.prepare import select_dataset
 from edurec.datasets.registry import (
     DATASETS,
@@ -18,10 +17,8 @@ __all__ = [
     "CommunityConfig",
     "DataAdapter",
     "DataConfig",
-    "DataProcessor",
     "DatasetName",
     "ElearningDataModule",
-    "FeatureMetadata",
     "QueryConfig",
     "RawData",
     "RecSysDataset",

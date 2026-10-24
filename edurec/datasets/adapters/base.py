@@ -23,7 +23,6 @@ from torch_geometric.data import HeteroData
 from edurec.datasets.adapters import graphs, queries, recbole
 from edurec.datasets.adapters.queries import InteractionFeatureTables, QueryConfig
 from edurec.datasets.cache import ProcessedData
-from edurec.datasets.features.tabular import DataProcessor
 from edurec.datasets.pipeline.splits import SPLIT_ORDER
 from edurec.datasets.torch_data import RecSysDataset
 
@@ -48,10 +47,6 @@ class DataAdapter:
     def dataset_name(self) -> str:
         return self.data.dataset_name
 
-    @property
-    def _processor(self) -> DataProcessor:
-        return self.data.data_processor
-
     # ------------------------------------------------------------------
     # Interaction views
     # ------------------------------------------------------------------
@@ -63,7 +58,9 @@ class DataAdapter:
     @cached_property
     def interaction_features(self) -> InteractionFeatureTables:
         """Aligned interaction context tables for the positive splits."""
-        return queries.build_interaction_features(self.relevant_splits, self._processor)
+        return queries.build_interaction_features(
+            self.relevant_splits, self.data.transforms["inter"]
+        )
 
     # ------------------------------------------------------------------
     # Graph views
@@ -74,7 +71,8 @@ class DataAdapter:
         return graphs.build_knowledge_graph(
             self.data.item_features,
             self.data.i_static_feats,
-            self._processor,
+            self.data.schema["items"],
+            self.data.graph_node_features,
         )
 
     @cached_property

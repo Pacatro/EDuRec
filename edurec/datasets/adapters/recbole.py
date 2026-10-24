@@ -42,7 +42,6 @@ def export_atomic_files(
     :func:`edurec.evaluation.baselines.recbole._build_config_dict`), so user/item
     side features are intentionally omitted.
     """
-    processor = data.data_processor
     output_dir.mkdir(parents=True, exist_ok=True)
 
     positives = data.positive_splits()
@@ -67,14 +66,12 @@ def export_atomic_files(
     atomic_files["user"] = output_dir / f"{dataset_name}.user"
     _id_frame(
         data.user_features,
-        processor.user_id_map,
         settings.USER_COL,
     ).to_csv(atomic_files["user"], sep="\t", index=False)
 
     atomic_files["item"] = output_dir / f"{dataset_name}.item"
     _id_frame(
         data.item_features,
-        processor.item_id_map,
         settings.ITEM_COL,
     ).to_csv(atomic_files["item"], sep="\t", index=False)
 
@@ -161,20 +158,14 @@ def _inter_id_frame(df: pd.DataFrame) -> pd.DataFrame:
 
 def _id_frame(
     frame: pd.DataFrame | None,
-    id_map: dict[object, int],
     id_col: str,
 ) -> pd.DataFrame:
     if frame is None:
         raise RuntimeError(f"{id_col} features are not available.")
 
-    mapped = cast(pd.Series, frame[id_col]).map(id_map.get)
-    ids = cast(pd.Series, mapped.dropna().astype("int64")).sort_values()
+    ids = frame[id_col].astype("int64").sort_values()
     return pd.DataFrame({f"{id_col}:token": ids.astype(str).to_numpy()})
 
 
 def _token_column(values: pd.Series) -> pd.Series:
-    numeric = cast(pd.Series, pd.to_numeric(values, errors="coerce"))
-    return pd.Series(
-        numeric.to_numpy(dtype="float64").round().astype("int64").astype(str),
-        index=values.index,
-    )
+    return values.astype("int64").astype(str)

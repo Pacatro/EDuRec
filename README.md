@@ -511,7 +511,7 @@ example item co-occurrence) is ever added it must be computed from the training
 split only. Histories are built strictly chronologically and a row's own event
 is never part of its own history (history, interaction context and timestamps
 are aligned per step and only contain earlier events). Interaction features are
-fitted on the training split by the `DataProcessor`.
+fitted on the training split by the tabular preprocessing functions.
 
 Repeated `(user, item)` rows are preserved by default
 (`deduplicate_interactions: false`) so real temporally-distinct events (view ->
@@ -525,6 +525,23 @@ declared by each dataset schema. Sequential history requires a real
 chronological interaction field; datasets without one cannot train the model.
 
 ### Shared data views
+
+Preprocessing is coordinated by `datasets/pipeline/build.py` using functions:
+`encode_ids`, `normalize_lists`, `fit_tabular`, `transform_features`, and
+`encode_graph_text`. IDs remain `int64`, and user/item row positions match their
+canonical IDs. Numeric (`num__`), categorical (`cat__`), and text (`text__`)
+columns have explicit prefixes. Dense tensors contain numeric columns followed
+by text embeddings; categorical tensors contain integer codes with `-1` for
+unknown values. Item lists stay as normalized tokens for knowledge-graph edges,
+without allocating unused multi-hot matrices. Both table and graph text use
+the same document encoder, with zero vectors for empty documents.
+
+`ProcessedData` stores the resolved schema, original-to-canonical ID maps,
+fitted sklearn transformers, and graph-node embeddings directly. Static
+user/item transformers are fitted on the selected catalog, while interaction
+transformers are fitted only on the training split. The preprocessing state is
+saved in `preprocessing.joblib`; the v4 cache format replaces the former
+`processor.joblib`. Rebuild older caches without `--use-processed`.
 
 `ProcessedData` remains the only canonical source of splits, labels and
 features. Every consumer reads it through `edurec.datasets.DataAdapter`, which

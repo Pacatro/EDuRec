@@ -256,7 +256,10 @@ def test_sequential_export_requires_temporal_history(implicit_adapter, tmp_path)
         i_static_feats=implicit_adapter.data.i_static_feats,
         user_features=implicit_adapter.data.user_features,
         item_features=implicit_adapter.data.item_features,
-        data_processor=implicit_adapter.data.data_processor,
+        schema=implicit_adapter.data.schema,
+        id_maps=implicit_adapter.data.id_maps,
+        transforms=implicit_adapter.data.transforms,
+        graph_node_features=implicit_adapter.data.graph_node_features,
     )
 
     with pytest.raises(ValueError, match="chronological"):

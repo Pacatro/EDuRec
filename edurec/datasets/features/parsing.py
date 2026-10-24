@@ -13,7 +13,9 @@ def coerce_list_tokens(value: object) -> list[str]:
 
     # Feather restores list-valued columns as NumPy arrays.
     if isinstance(value, (list, tuple, set, np.ndarray)):
-        return [str(item).strip() for item in value if str(item).strip()]
+        return list(
+            dict.fromkeys(token for item in value for token in single_token(item))
+        )
 
     if isinstance(value, str):
         stripped = value.strip()
@@ -25,14 +27,10 @@ def coerce_list_tokens(value: object) -> list[str]:
             except (SyntaxError, ValueError):
                 parsed = None
             if isinstance(parsed, (list, tuple, set)):
-                return [str(item).strip() for item in parsed if str(item).strip()]
+                return coerce_list_tokens(parsed)
         for separator in (",", ";", "|"):
             if separator in stripped:
-                return [
-                    token.strip()
-                    for token in stripped.split(separator)
-                    if token.strip()
-                ]
+                return coerce_list_tokens(stripped.split(separator))
         return [stripped]
 
     return [str(value).strip()]

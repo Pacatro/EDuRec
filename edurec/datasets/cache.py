@@ -5,13 +5,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Self
 
+import joblib
 import pandas as pd
 import torch
 from safetensors.torch import load_file, save_file
+from sklearn.compose import ColumnTransformer
 
 from edurec import settings
 from edurec.datasets.config import BuildManifest
-from edurec.datasets.features.tabular import DataProcessor
+from edurec.datasets.registry import Schema
 
 REPORT_FILENAME = "report.json"
 MANIFEST_FILENAME = "manifest.json"
@@ -57,7 +59,10 @@ class ProcessedData:
     i_static_feats: torch.Tensor
     user_features: pd.DataFrame
     item_features: pd.DataFrame
-    data_processor: DataProcessor
+    schema: Schema
+    id_maps: dict[str, dict[object, int]]
+    transforms: dict[str, ColumnTransformer | None]
+    graph_node_features: dict[str, pd.DataFrame] = field(default_factory=dict)
     reports: dict[str, Any] = field(default_factory=dict)
     manifest: BuildManifest | None = None
 
@@ -150,7 +155,15 @@ class ProcessedData:
             folder / "static_feats.safetensors",
         )
 
-        self.data_processor.save(folder / "processor.joblib")
+        joblib.dump(
+            {
+                "schema": self.schema,
+                "id_maps": self.id_maps,
+                "transforms": self.transforms,
+                "graph_node_features": self.graph_node_features,
+            },
+            folder / "preprocessing.joblib",
+        )
 
         (folder / REPORT_FILENAME).write_text(
             json.dumps(self.reports, indent=2, sort_keys=True, default=_to_builtin),
@@ -164,6 +177,11 @@ class ProcessedData:
 
     @classmethod
     def load(cls, folder: Path) -> Self:
+        if not (folder / "preprocessing.joblib").exists():
+            raise ValueError(
+                "Legacy preprocessing cache: rebuild without --use-processed."
+            )
+        preprocessing = joblib.load(folder / "preprocessing.joblib")
         tensors = load_file(folder / "static_feats.safetensors")
         report_path = folder / REPORT_FILENAME
         # Caches written before reports existed contain no report file.
@@ -190,7 +208,10 @@ class ProcessedData:
             i_static_feats=tensors["i_static_feats"],
             user_features=pd.read_feather(folder / "users.feather"),
             item_features=pd.read_feather(folder / "items.feather"),
-            data_processor=DataProcessor.load(folder / "processor.joblib"),
+            schema=preprocessing["schema"],
+            id_maps=preprocessing["id_maps"],
+            transforms=preprocessing["transforms"],
+            graph_node_features=preprocessing["graph_node_features"],
             reports=reports,
             manifest=manifest,
         )

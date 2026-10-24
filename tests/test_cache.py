@@ -138,12 +138,21 @@ def test_incompatible_cache_raises_actionable_error(
 ):
     processed, _ = cache_dirs
     make_datamodule().setup()
-    (processed / "processor.joblib").write_bytes(b"not a pickle")
+    (processed / "preprocessing.joblib").write_bytes(b"not a pickle")
     monkeypatch.setattr(datamodule, "load_raw_data", _unexpected_call)
 
     dm = make_datamodule(use_processed_data=True)
     with pytest.raises(RuntimeError, match="incompatible"):
         dm.setup()
+
+
+def test_legacy_processor_cache_requires_rebuild(make_datamodule, cache_dirs):
+    processed, _ = cache_dirs
+    make_datamodule().setup()
+    (processed / "preprocessing.joblib").rename(processed / "processor.joblib")
+
+    with pytest.raises(ValueError, match="rebuild without --use-processed"):
+        ProcessedData.load(processed)
 
 
 def test_use_processed_builds_when_cache_is_missing(make_datamodule, cache_dirs):

@@ -1,531 +1,218 @@
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Self
+"""Fit tabular encoders and transform one DataFrame at a time."""
 
-import joblib
+from typing import Any
+
 import numpy as np
 import pandas as pd
+import torch
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import MinMaxScaler, MultiLabelBinarizer, OrdinalEncoder
+from sklearn.preprocessing import MinMaxScaler, OrdinalEncoder
 
 from edurec import settings
 from edurec.datasets.features import text
-from edurec.datasets.features.parsing import (
-    as_float_array,
-    clean_text,
-    coerce_list_tokens,
-    is_missing,
-)
+from edurec.datasets.features.parsing import is_missing
 from edurec.datasets.registry import Schema
 
-PREFIXES = ("users", "items", "inter")
-SUPPORTED_FEATURE_TYPES = {"numeric", "categorical", "text", "list"}
-IGNORED_FEATURE_TYPES = {"time"}
+FEATURE_TYPES = {"num": "numeric", "cat": "categorical", "list": "list", "text": "text"}
+RESERVED_COLUMNS = {
+    settings.USER_COL,
+    settings.ITEM_COL,
+    settings.RATING_COL,
+    settings.RELEVANT_COL,
+    settings.TIME_COL,
+}
+FEATURE_PREFIXES = ("num__", "cat__", "text__")
 
 
-@dataclass
-class ProcessedFeatures:
-    users: pd.DataFrame | None
-    items: pd.DataFrame | None
-    interactions: pd.DataFrame | None
-    text_embeddings: dict[str, pd.DataFrame | None]
-
-
-@dataclass
-class FeatureMetadata:
-    numeric_cols: list[str] = field(default_factory=list)
-    categorical_cols: list[str] = field(default_factory=list)
-    categorical_cardinalities: dict[str, int] = field(default_factory=dict)
-    text_embedding_cols: list[str] = field(default_factory=list)
-
-
-@dataclass
-class FeatureCounts:
-    dense: int  # numeric columns plus text embeddings
-    categorical: int
-    text: int  # subset of ``dense``
-
-    @property
-    def total(self) -> int:
-        # Text embeddings are part of the dense block; do not count them twice.
-        return self.dense + self.categorical
-
-
-@dataclass
-class FeaturePipeline:
-    groups: dict[str, list[str]]
-    preprocessor: ColumnTransformer | None
-    metadata: FeatureMetadata
-    columns: list[str]
-    text_columns: list[str]
-    list_binarizers: dict[str, MultiLabelBinarizer]
-
-
-class DataProcessor:
-    """
-    Preprocesses users, items and interactions.
-
-    Inputs and outputs are pandas DataFrames. Text embeddings are returned
-    separately from the remaining features. Timestamp columns are ignored.
-    """
-
-    def __init__(
-        self,
-        schema: Schema,
-        ct_sparse_threshold: float = 0.0,
-        text_embedding_model: str = settings.TEXT_EMBEDDING_MODEL,
-        text_embedding_dim: int = settings.TEXT_EMBEDDING_DIM,
-        text_embedding_batch_size: int = settings.TEXT_EMBEDDING_BATCH_SIZE,
-        text_max_tokens: int = settings.TEXT_MAX_TOKENS,
-    ):
-        self.schema = schema
-        self.ct_sparse_threshold = ct_sparse_threshold
-        self.text_embedding_model = text_embedding_model
-        self.text_embedding_dim = text_embedding_dim
-        self.text_embedding_batch_size = text_embedding_batch_size
-        self.text_max_tokens = text_max_tokens
-        self.active_feature_types = self._normalize_feature_types(
-            settings.PREPROCESS_FEATURE_TYPES
+def resolve_schema(schema: Schema, frames: dict[str, pd.DataFrame]) -> Schema:
+    """Resolve enabled, available features once and persist that schema."""
+    active = set(settings.PREPROCESS_FEATURE_TYPES)
+    invalid = active - set(FEATURE_TYPES.values()) - {"time"}
+    if invalid:
+        raise ValueError(
+            f"Unsupported preprocess feature types: {', '.join(sorted(invalid))}"
         )
 
-        self.user_id_map: dict[object, int] = {}
-        self.item_id_map: dict[object, int] = {}
-        self.pipelines: dict[str, FeaturePipeline] = {}
-        # Indexed by original entity ID; persisted with the processor in joblib.
-        self.graph_node_features: dict[str, pd.DataFrame] = {}
-        self.is_fitted_ = False
-
-    def fit(
-        self,
-        users_train: pd.DataFrame,
-        items_train: pd.DataFrame,
-        interactions_train: pd.DataFrame,
-    ) -> Self:
-        self.graph_node_features = {}
-        self.user_id_map = _build_id_map(
-            users_train[settings.USER_COL],
-            interactions_train[settings.USER_COL],
-        )
-        self.item_id_map = _build_id_map(
-            items_train[settings.ITEM_COL],
-            interactions_train[settings.ITEM_COL],
-        )
-
-        for prefix, df in {
-            "users": users_train,
-            "items": items_train,
-            "inter": interactions_train,
-        }.items():
-            self.pipelines[prefix] = self._fit_prefix(prefix, df)
-
-        self.is_fitted_ = True
-        return self
-
-    def pipeline(self, prefix: str) -> FeaturePipeline:
-        return self.pipelines[prefix]
-
-    def counts(self, prefix: str) -> FeatureCounts:
-        metadata = self.pipeline(prefix).metadata
-        return FeatureCounts(
-            dense=len(metadata.numeric_cols) + len(metadata.text_embedding_cols),
-            categorical=len(metadata.categorical_cols),
-            text=len(metadata.text_embedding_cols),
-        )
-
-    def categorical_cardinalities(self, prefix: str) -> list[int]:
-        metadata = self.pipeline(prefix).metadata
-        return [
-            metadata.categorical_cardinalities[col] for col in metadata.categorical_cols
+    resolved: Schema = {}
+    for prefix, frame in frames.items():
+        if any(str(col).startswith(FEATURE_PREFIXES) for col in frame.columns):
+            raise ValueError(f"{prefix}: source columns use reserved feature prefixes.")
+        group = dict(schema.get(prefix, {}))
+        group["cat"] = [*group.get("bin", []), *group.get("cat", [])]
+        group.pop("bin", None)
+        for kind, feature_type in FEATURE_TYPES.items():
+            group[kind] = list(
+                dict.fromkeys(
+                    col
+                    for col in group.get(kind, [])
+                    if feature_type in active
+                    and col in frame
+                    and col not in RESERVED_COLUMNS
+                )
+            )
+        group["graph_list"] = [
+            col for col in group.get("graph_list", []) if col in frame
         ]
+        if "text" not in active:
+            group["graph_text"] = {}
+        assigned = [col for kind in FEATURE_TYPES for col in group[kind]]
+        if len(assigned) != len(set(assigned)):
+            raise ValueError(f"{prefix}: a column belongs to multiple feature types.")
+        resolved[prefix] = group
+    return resolved
 
-    def _fit_prefix(self, prefix: str, df: pd.DataFrame) -> FeaturePipeline:
-        groups = self._resolve_columns(prefix, df.columns)
 
-        preprocessor, preprocessor_cols, dense_cols, categorical_cols = (
-            self._fit_preprocessor(groups, df)
+def clean_tabular(
+    frame: pd.DataFrame, numeric: list[str], categorical: list[str]
+) -> pd.DataFrame:
+    """Use consistent numeric and object dtypes, including entirely empty fields."""
+    result = frame[[*numeric, *categorical]].copy()
+    for col in numeric:
+        result[col] = pd.to_numeric(result[col], errors="coerce")
+    for col in categorical:
+        values = result[col].map(
+            lambda value: np.nan if is_missing(value) else str(value).strip()
         )
+        result[col] = values.mask(values == "", np.nan).astype(object)
+    return result
 
-        list_binarizers, list_cols = self._fit_list_binarizers(groups, df)
 
-        text_cols = (
-            [f"text__embedding_{idx:03d}" for idx in range(self.text_embedding_dim)]
-            if groups["text"]
-            else []
+def fit_tabular(
+    frame: pd.DataFrame, schema: dict[str, Any]
+) -> ColumnTransformer | None:
+    """Fit numeric/categorical preprocessing; interactions must use TRAIN only."""
+    numeric = schema.get("num", [])
+    categorical = [*schema.get("bin", []), *schema.get("cat", [])]
+    transformers = []
+    if numeric:
+        transformers.append(
+            (
+                "num",
+                Pipeline(
+                    [
+                        (
+                            "imputer",
+                            SimpleImputer(strategy="mean", keep_empty_features=True),
+                        ),
+                        ("scaler", MinMaxScaler()),
+                    ]
+                ),
+                numeric,
+            )
         )
-
-        columns = [
-            *groups["passthrough"],
-            *preprocessor_cols,
-            *list_cols,
-        ]
-
-        metadata = self._build_metadata(
-            groups,
-            preprocessor,
-            dense_cols,
-            categorical_cols,
-            text_cols,
-        )
-
-        return FeaturePipeline(
-            groups=groups,
-            preprocessor=preprocessor,
-            metadata=metadata,
-            columns=columns,
-            text_columns=text_cols,
-            list_binarizers=list_binarizers,
-        )
-
-    def _fit_preprocessor(
-        self,
-        groups: dict[str, list[str]],
-        df: pd.DataFrame,
-    ) -> tuple[ColumnTransformer | None, list[str], list[str], list[str]]:
-        transformers = []
-        if groups["numeric"]:
-            transformers.append(
-                (
-                    "num",
-                    Pipeline(
-                        [
-                            (
-                                "imputer",
-                                SimpleImputer(
-                                    strategy="mean", keep_empty_features=True
-                                ),
+    if categorical:
+        transformers.append(
+            (
+                "cat",
+                Pipeline(
+                    [
+                        (
+                            "imputer",
+                            SimpleImputer(
+                                strategy="constant",
+                                fill_value="Undefined",
+                                keep_empty_features=True,
                             ),
-                            ("scaler", MinMaxScaler()),
-                        ]
-                    ),
-                    groups["numeric"],
-                )
-            )
-        if groups["categorical"]:
-            transformers.append(
-                (
-                    "cat",
-                    Pipeline(
-                        [
-                            (
-                                "imputer",
-                                SimpleImputer(
-                                    strategy="constant", fill_value="Undefined"
-                                ),
+                        ),
+                        (
+                            "encoder",
+                            OrdinalEncoder(
+                                handle_unknown="use_encoded_value",
+                                unknown_value=-1,
                             ),
-                            (
-                                "encoder",
-                                OrdinalEncoder(
-                                    handle_unknown="use_encoded_value",
-                                    unknown_value=-1,
-                                ),
-                            ),
-                        ]
-                    ),
-                    groups["categorical"],
-                )
+                        ),
+                    ]
+                ),
+                categorical,
             )
-
-        preprocessor = (
-            ColumnTransformer(
-                transformers=transformers,
-                remainder="drop",
-                sparse_threshold=self.ct_sparse_threshold,
-                verbose_feature_names_out=True,
-            )
-            if transformers
-            else None
         )
-        preprocessor_cols: list[str] = []
-        dense_cols: list[str] = []
-        categorical_cols: list[str] = []
-        if preprocessor is not None:
-            preprocessor.fit(self._preprocessor_frame(df, groups))
-            preprocessor_cols = preprocessor.get_feature_names_out().tolist()
-            for name, target in (("num", dense_cols), ("cat", categorical_cols)):
-                indices = preprocessor.output_indices_.get(name)
-                if isinstance(indices, slice):
-                    target.extend(preprocessor_cols[indices])
-        return preprocessor, preprocessor_cols, dense_cols, categorical_cols
+    if not transformers:
+        return None
+    transformer = ColumnTransformer(transformers, sparse_threshold=0)
+    transformer.fit(clean_tabular(frame, numeric, categorical))
+    return transformer
 
-    def _fit_list_binarizers(
-        self,
-        groups: dict[str, list[str]],
-        df: pd.DataFrame,
-    ) -> tuple[dict[str, MultiLabelBinarizer], list[str]]:
-        binarizers: dict[str, MultiLabelBinarizer] = {}
-        list_cols: list[str] = []
-        for col in groups["list"]:
-            binarizer = MultiLabelBinarizer().fit(df[col].map(coerce_list_tokens))
-            binarizers[col] = binarizer
-            list_cols.extend(f"list__{col}__{value}" for value in binarizer.classes_)
-        return binarizers, list_cols
 
-    def _build_metadata(
-        self,
-        groups: dict[str, list[str]],
-        preprocessor: ColumnTransformer | None,
-        numeric_cols: list[str],
-        categorical_cols: list[str],
-        text_cols: list[str],
-    ) -> FeatureMetadata:
-        metadata = FeatureMetadata(
-            numeric_cols=numeric_cols,
-            categorical_cols=categorical_cols,
-            text_embedding_cols=text_cols,
-        )
-        if preprocessor is not None and groups["categorical"]:
-            encoder = preprocessor.named_transformers_["cat"].named_steps["encoder"]
-            metadata.categorical_cardinalities = {
-                col: len(categories) + 1
-                for col, categories in zip(
-                    categorical_cols,
-                    encoder.categories_,
-                    strict=True,
-                )
-            }
-        return metadata
+def feature_columns(transformer: ColumnTransformer | None, kind: str) -> list[str]:
+    """Encoded column names in the same order as their fitted transformer."""
+    if transformer is None:
+        return []
+    return [
+        str(col)
+        for col in transformer.get_feature_names_out()
+        if col.startswith(f"{kind}__")
+    ]
 
-    def _resolve_columns(
-        self,
-        prefix: str,
-        available_columns: pd.Index | list[str],
-    ) -> dict[str, list[str]]:
-        schema_group = self.schema.get(prefix, {})
-        available = set(available_columns)
-        reserved = {
-            settings.USER_COL,
-            settings.ITEM_COL,
-            settings.RATING_COL,
-            settings.RELEVANT_COL,
-            settings.TIME_COL,
-        }
 
-        def present(cols: list[str]) -> list[str]:
-            return [col for col in cols if col in available and col not in reserved]
+def categorical_cardinalities(transformer: ColumnTransformer | None) -> list[int]:
+    """Include row zero for unknown codes, which models shift from -1 to zero."""
+    if transformer is None or "cat" not in transformer.named_transformers_:
+        return []
+    encoder = transformer.named_transformers_["cat"].named_steps["encoder"]
+    return [len(categories) + 1 for categories in encoder.categories_]
 
-        numeric_cols = (
-            present(list(schema_group.get("num", [])))
-            if "numeric" in self.active_feature_types
-            else []
-        )
-        categorical_cols = (
-            present([*schema_group.get("bin", []), *schema_group.get("cat", [])])
-            if "categorical" in self.active_feature_types
-            else []
-        )
 
-        return {
-            "numeric": numeric_cols,
-            "categorical": categorical_cols,
-            "text": (
-                present(list(schema_group.get("text", [])))
-                if "text" in self.active_feature_types
-                else []
-            ),
-            "list": (
-                present(list(schema_group.get("list", [])))
-                if "list" in self.active_feature_types
-                else []
-            ),
-            "passthrough": [
-                col for col in self._passthrough_cols(prefix) if col in available
-            ],
-        }
-
-    def _passthrough_cols(self, prefix: str) -> list[str]:
-        if prefix == "users":
-            return [settings.USER_COL]
-        if prefix == "items":
-            return [settings.ITEM_COL]
-        return [
-            settings.USER_COL,
-            settings.ITEM_COL,
-            settings.RATING_COL,
-            settings.RELEVANT_COL,
-            settings.TIME_COL,
-        ]
-
-    def _preprocessor_frame(
-        self,
-        df: pd.DataFrame,
-        groups: dict[str, list[str]],
-    ) -> pd.DataFrame:
-        cols = [*groups["numeric"], *groups["categorical"]]
-        frame = df[cols].copy() if cols else pd.DataFrame(index=df.index)
-        for col in groups["categorical"]:
-            values = frame[col].map(
-                lambda value: np.nan if is_missing(value) else str(value).strip()
+def transform_features(
+    frame: pd.DataFrame,
+    transformer: ColumnTransformer | None,
+    schema: dict[str, Any],
+) -> pd.DataFrame:
+    """Replace declared features with num__/cat__/text__ columns; keep IDs intact."""
+    numeric = schema.get("num", [])
+    categorical = [*schema.get("bin", []), *schema.get("cat", [])]
+    text_columns = schema.get("text", [])
+    result = frame.drop(columns=[*numeric, *categorical, *text_columns]).copy()
+    for col in (settings.RATING_COL, settings.RELEVANT_COL):
+        if col in result:
+            result[col] = (
+                pd.to_numeric(result[col], errors="coerce").fillna(0).astype(np.float32)
             )
-            frame[col] = values.mask(values == "", np.nan)
-        return frame
-
-    def transform(
-        self,
-        users: pd.DataFrame | None = None,
-        items: pd.DataFrame | None = None,
-        interactions: pd.DataFrame | None = None,
-    ) -> ProcessedFeatures:
-        if not self.is_fitted_:
-            raise RuntimeError("DataProcessor not fitted")
-
-        return ProcessedFeatures(
-            users=self._transform("users", users),
-            items=self._transform("items", items),
-            interactions=self._transform("inter", interactions),
-            text_embeddings={
-                "users": self._text_embeddings("users", users),
-                "items": self._text_embeddings("items", items),
-                "inter": self._text_embeddings("inter", interactions),
-            },
-        )
-
-    def _transform(
-        self,
-        prefix: str,
-        df: pd.DataFrame | None,
-    ) -> pd.DataFrame | None:
-        if df is None:
-            return None
-
-        pipeline = self.pipeline(prefix)
-        groups = pipeline.groups
-        parts: list[pd.DataFrame] = []
-
-        for col in groups["passthrough"]:
-            # Epoch-second timestamps must keep full precision: casting them to
-            # float32 quantises gaps of a few seconds to zero near 1.7e9.
-            dtype = np.float64 if col == settings.TIME_COL else np.float32
-            if col == settings.USER_COL:
-                values = df[col].map(self.user_id_map).fillna(-1)
-            elif col == settings.ITEM_COL:
-                values = df[col].map(self.item_id_map).fillna(-1)
-            elif col == settings.TIME_COL:
-                values = pd.to_numeric(df[col], errors="coerce")
-                if values.isna().any():
-                    raise ValueError(
-                        f"Temporal column {col!r} contains invalid timestamps."
-                    )
-            else:
-                values = pd.to_numeric(df[col], errors="coerce").fillna(0)
-            parts.append(
-                pd.DataFrame({col: values.to_numpy(dtype=dtype)}, index=df.index)
-            )
-
-        preprocessor = pipeline.preprocessor
-        if preprocessor is not None:
-            parts.append(
-                pd.DataFrame(
-                    as_float_array(
-                        preprocessor.transform(self._preprocessor_frame(df, groups)),
-                        n_rows=len(df),
-                    ),
-                    columns=preprocessor.get_feature_names_out(),
-                    index=df.index,
-                )
-            )
-
-        for col, binarizer in pipeline.list_binarizers.items():
-            tokens = (
-                df[col].map(coerce_list_tokens)
-                if col in df
-                else [[] for _ in range(len(df))]
-            )
-
-            transformed_tokens = binarizer.transform(tokens)
-            transformed_tokens = np.asarray(transformed_tokens, dtype=np.float32)
-
-            parts.append(
-                pd.DataFrame(
-                    transformed_tokens,
-                    columns=[f"list__{col}__{value}" for value in binarizer.classes_],
-                    index=df.index,
-                )
-            )
-
-        if not parts:
-            return pd.DataFrame(index=df.index)
-
-        return pd.concat(parts, axis=1)[pipeline.columns]
-
-    def _text_embeddings(
-        self,
-        prefix: str,
-        df: pd.DataFrame | None,
-    ) -> pd.DataFrame | None:
-        if df is None:
-            return None
-
-        pipeline = self.pipeline(prefix)
-        text_cols = pipeline.groups["text"]
-        embedding_cols = pipeline.text_columns
-        if not text_cols:
-            return pd.DataFrame(
-                index=df.index, columns=embedding_cols, dtype=np.float32
-            )
-
-        docs: list[str] = []
-        for row in df[text_cols].itertuples(index=False, name=None):
-            parts = []
-            for col, value in zip(text_cols, row, strict=True):
-                cleaned = clean_text(value)
-                if cleaned:
-                    parts.append(f"{col}: {cleaned}")
-            docs.append(" [SEP] ".join(parts))
-
-        return pd.DataFrame(
-            self.encode_text_documents(docs),
-            columns=embedding_cols,
-            index=df.index,
-            dtype=np.float32,
-        )
-
-    def fit_graph_text_features(
-        self,
-        items: pd.DataFrame,
-        entities: dict[str, pd.DataFrame] | None,
-    ) -> None:
-        self.graph_node_features = text.graph_node_features(self, items, entities)
-
-    def encode_text_documents(self, docs: list[str]) -> np.ndarray:
-        """Return normalized float32 embeddings [num_documents, text_embedding_dim]."""
-        return text.encode_documents(
-            docs,
-            self.text_embedding_model,
-            self.text_embedding_dim,
-            self.text_embedding_batch_size,
-            self.text_max_tokens,
-        )
-
-    def _normalize_feature_types(
-        self, feature_types: tuple[str, ...]
-    ) -> tuple[str, ...]:
-        invalid = set(feature_types) - SUPPORTED_FEATURE_TYPES - IGNORED_FEATURE_TYPES
-        if invalid:
+    if settings.TIME_COL in result:
+        timestamps = pd.to_numeric(result[settings.TIME_COL], errors="coerce")
+        if not np.isfinite(timestamps.to_numpy(dtype=np.float64)).all():
             raise ValueError(
-                f"Unsupported preprocess feature types: {', '.join(sorted(invalid))}"
+                f"Temporal column {settings.TIME_COL!r} contains invalid timestamps."
             )
-        return tuple(
-            dict.fromkeys(
-                feature_type
-                for feature_type in feature_types
-                if feature_type in SUPPORTED_FEATURE_TYPES
+        result[settings.TIME_COL] = timestamps.astype(np.float64)
+
+    if transformer is not None:
+        columns = transformer.get_feature_names_out()
+        values = (
+            np.asarray(
+                transformer.transform(clean_tabular(frame, numeric, categorical)),
+                dtype=np.float64,
             )
+            if len(frame)
+            else np.empty((0, len(columns)), dtype=np.float64)
         )
+        encoded = pd.DataFrame(values, columns=columns, index=frame.index)
+        num_columns = feature_columns(transformer, "num")
+        cat_columns = feature_columns(transformer, "cat")
+        encoded[num_columns] = encoded[num_columns].astype(np.float32)
+        encoded[cat_columns] = encoded[cat_columns].astype(np.int64)
+        result = pd.concat([result, encoded], axis=1)
 
-    def save(self, path: str | Path) -> None:
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-        joblib.dump(self, path)
+    if text_columns:
+        vectors = text.encode_documents(text.build_documents(frame, text_columns))
+        embeddings = pd.DataFrame(
+            vectors,
+            columns=[f"text__embedding_{idx:03d}" for idx in range(vectors.shape[1])],
+            index=frame.index,
+        )
+        result = pd.concat([result, embeddings], axis=1)
+    return result
 
-    @classmethod
-    def load(cls, path: str | Path) -> Self:
-        processor = joblib.load(path)
-        if not isinstance(processor, cls):
-            raise TypeError(f"File at {path} is not a {cls.__name__} object")
-        return processor
+
+def dense_tensor(frame: pd.DataFrame) -> torch.Tensor:
+    """Numeric features followed by text, as required by the content encoders."""
+    columns = [
+        *frame.filter(regex=r"^num__").columns,
+        *frame.filter(regex=r"^text__").columns,
+    ]
+    return torch.from_numpy(frame[columns].to_numpy(dtype=np.float32))
 
 
-def _build_id_map(*series_list: pd.Series) -> dict[object, int]:
-    values = pd.concat(series_list, ignore_index=True).dropna().drop_duplicates()
-    return {value: idx for idx, value in enumerate(values.tolist())}
+def categorical_tensor(frame: pd.DataFrame) -> torch.Tensor:
+    return torch.from_numpy(frame.filter(regex=r"^cat__").to_numpy(dtype=np.int64))
