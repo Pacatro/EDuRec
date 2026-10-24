@@ -86,7 +86,7 @@ def build_interaction_features(
     ``RuntimeError`` is raised when an available split is missing an expected
     feature column.
     """
-    metadata = processor.feature_metadata["inter"]
+    metadata = processor.pipeline("inter").metadata
     available = [
         (name, splits[name]) for name in SPLIT_ORDER if splits.get(name) is not None
     ]

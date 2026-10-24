@@ -3,13 +3,22 @@
 import hashlib
 import math
 from collections import Counter, defaultdict
+from dataclasses import dataclass
+from functools import cache
 from typing import Any
 
 import pandas as pd
 
 from edurec import settings
+from edurec.datasets.config import CommunityConfig
 from edurec.datasets.features.parsing import coerce_list_tokens, single_token
 from edurec.datasets.registry import RawData
+
+
+@dataclass(frozen=True)
+class SelectionResult:
+    data: RawData
+    report: dict[str, Any]
 
 
 def clean_cols(df: pd.DataFrame) -> pd.DataFrame:
@@ -47,19 +56,13 @@ def filter_sparse(
     items: pd.DataFrame,
     interactions: pd.DataFrame,
     min_interactions: int,
-    deduplicate: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Remove users and items with fewer than ``min_interactions``.
 
-    Repeated ``(user, item)`` events are only collapsed when explicitly
-    requested or when no timestamp can order them (see ``split_data``).
+    Interactions are expected to be normalized already: repeated pairs are
+    collapsed once before filtering.
     """
-
-    has_time = settings.TIME_COL in interactions.columns
-    if deduplicate or not has_time:
-        filtered = deduplicate_interactions(interactions)
-    else:
-        filtered = interactions.copy()
+    filtered = interactions.copy()
 
     while True:
         previous_size = len(filtered)
@@ -86,44 +89,6 @@ def filter_sparse(
         items.loc[items[settings.ITEM_COL].isin(valid_items)].reset_index(drop=True),
         filtered.reset_index(drop=True),
     )
-
-
-def selection_metadata(
-    max_users: int | None,
-    seed: int,
-    max_interactions: int | None = None,
-    *,
-    max_items: int | None = None,
-    community_fields: list[str] | None = None,
-    min_interactions: int = settings.MIN_INTERACTIONS,
-    min_history_retention: float = 0.7,
-) -> dict[str, Any]:
-    """Community parameters shared by selection and cache identity."""
-    for name, value in (
-        ("max_users", max_users),
-        ("max_interactions", max_interactions),
-        ("max_items", max_items),
-    ):
-        if value is not None and (
-            isinstance(value, bool) or not isinstance(value, int) or value < 1
-        ):
-            raise ValueError(f"{name} must be a positive integer or None.")
-    if min_interactions < 1 or not 0 < min_history_retention <= 1:
-        raise ValueError(
-            "Require min_interactions >= 1 and history retention in (0, 1]."
-        )
-    return {
-        "policy": "community",
-        "max_users": max_users,
-        "max_interactions": max_interactions,
-        "max_items": max_items,
-        "seed": seed,
-        "community_fields": sorted(set(community_fields))
-        if community_fields is not None
-        else None,
-        "min_interactions": min_interactions,
-        "min_history_retention": min_history_retention,
-    }
 
 
 def _prune_community(
@@ -171,32 +136,36 @@ def _item_links(raw: RawData, events: pd.DataFrame, fields: list[str]) -> dict:
     return dict(links)
 
 
-def _connected_items(items: set, links: dict, start: Any) -> set:
-    """Traverse memberships without constructing a dense item-item graph."""
+def _link_members(links: dict, items) -> dict:
     members = defaultdict(set)
     for item in items:
         for link in links.get(item, ()):
             members[link].add(item)
+    return members
+
+
+def _connected_items(links: dict, members: dict, start: Any) -> set:
+    """Traverse memberships without constructing a dense item-item graph."""
     reached = {start}
     stack = [start]
+    visited_links: set = set()
     while stack:
         for link in links.get(stack.pop(), ()):
-            neighbors = members.pop(link, set()) - reached
+            if link in visited_links:
+                continue
+            visited_links.add(link)
+            neighbors = members.get(link, set()) - reached
             reached.update(neighbors)
             stack.extend(neighbors)
     return reached
 
 
 def _grow_community(
-    links: dict, support: pd.Series, limit: int | None, priority
+    links: dict, members: dict, support: pd.Series, limit: int | None, priority
 ) -> set:
     start = min(support.index, key=lambda item: (-support[item], priority(item)))
     if limit is None:
-        return _connected_items(set(support.index), links, start)
-    members = defaultdict(set)
-    for item in support.index:
-        for link in links.get(item, ()):
-            members[link].add(item)
+        return _connected_items(links, members, start)
     weights = {
         link: math.log1p(len(support) / len(group)) for link, group in members.items()
     }
@@ -216,30 +185,20 @@ def _grow_community(
 
 def select_dataset(
     raw: RawData,
+    community: CommunityConfig | None = None,
     *,
-    max_users: int | None = None,
-    seed: int = 42,
-    max_interactions: int | None = None,
-    max_items: int | None = None,
-    community_fields: list[str] | None = None,
     min_interactions: int = settings.MIN_INTERACTIONS,
-    min_history_retention: float = 0.7,
-) -> RawData:
+) -> SelectionResult:
     """Select one supported community using static semantics and shared users.
 
     Cohort selection precedes splitting and uses all eligible interactions, but
     never their ratings or timestamp values. Retention is relative to histories
     after the initial activity filter. No interaction edges are added to the KG.
     """
-    metadata = selection_metadata(
-        max_users,
-        seed,
-        max_interactions,
-        max_items=max_items,
-        community_fields=community_fields,
-        min_interactions=min_interactions,
-        min_history_retention=min_history_retention,
-    )
+    if min_interactions < 1:
+        raise ValueError("min_interactions must be at least 1.")
+    community = community or CommunityConfig()
+    metadata = community.metadata(min_interactions)
     user_col, item_col = settings.USER_COL, settings.ITEM_COL
     events = _prune_community(
         raw.interactions, raw.interactions.groupby(user_col).size(), min_interactions, 0
@@ -264,26 +223,31 @@ def select_dataset(
         )
     links = _item_links(raw, events, fields)
 
+    @cache
     def priority(value):
         key = _stable_id(value)
-        return hashlib.sha256(f"{seed}:{key}".encode()).hexdigest(), key
+        return hashlib.sha256(f"{community.seed}:{key}".encode()).hexdigest(), key
 
     support = events.groupby(item_col)[user_col].nunique()
-    catalog = _grow_community(links, support, max_items, priority)
+    members = _link_members(links, support.index)
+    catalog = _grow_community(links, members, support, community.max_items, priority)
     selected = _prune_community(
         events.loc[events[item_col].isin(catalog)],
         original_sizes,
         min_interactions,
-        min_history_retention,
+        community.min_history_retention,
     )
-    if max_users is not None or max_interactions is not None:
+    if community.max_users is not None or community.max_interactions is not None:
         users, total = [], 0
         sizes = selected.groupby(user_col).size()
         for user in sorted(sizes.index, key=priority):
-            if max_users is not None and len(users) >= max_users:
+            if community.max_users is not None and len(users) >= community.max_users:
                 break
             size = int(sizes[user])
-            if max_interactions is None or total + size <= max_interactions:
+            if (
+                community.max_interactions is None
+                or total + size <= community.max_interactions
+            ):
                 users.append(user)
                 total += size
         selected = selected.loc[selected[user_col].isin(users)]
@@ -293,14 +257,18 @@ def select_dataset(
     # surviving cohort, retain its main community and recheck all constraints.
     while not selected.empty:
         selected = _prune_community(
-            selected, original_sizes, min_interactions, min_history_retention
+            selected,
+            original_sizes,
+            min_interactions,
+            community.min_history_retention,
         )
         if selected.empty:
             break
         final_links = _item_links(raw, selected, fields)
         support = selected.groupby(item_col)[user_col].nunique()
+        members = _link_members(final_links, support.index)
         start = min(support.index, key=lambda item: (-support[item], priority(item)))
-        component = _connected_items(set(support.index), final_links, start)
+        component = _connected_items(final_links, members, start)
         if len(component) == len(support):
             break
         selected = selected.loc[selected[item_col].isin(component)]
@@ -333,9 +301,8 @@ def select_dataset(
         "shared_semantic_entities": sum(
             count > 1 for count in semantic_support.values()
         ),
-        "source_report": raw.selection_report,
     }
-    return raw._replace(
+    selected_raw = raw._replace(
         interactions=selected,
         user_features=raw.user_features.loc[
             raw.user_features[user_col].isin(users)
@@ -343,5 +310,5 @@ def select_dataset(
         item_features=raw.item_features.loc[
             raw.item_features[item_col].isin(items)
         ].reset_index(drop=True),
-        selection_report=report,
     )
+    return SelectionResult(selected_raw, report)

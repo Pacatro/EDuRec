@@ -1,4 +1,4 @@
-import io
+import tempfile
 import zipfile
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -40,20 +40,8 @@ def stream_to_file(url: str, destination: Path, desc: str = "") -> None:
 
 def extract_zip(url: str, extract_to: Path, desc: str = "") -> None:
     extract_to.mkdir(parents=True, exist_ok=True)
-    with requests.get(url, stream=True) as response:
-        response.raise_for_status()
-        total = int(response.headers.get("Content-Length", 0))
-        buf = io.BytesIO()
-        with tqdm(
-            desc=desc,
-            total=total,
-            unit="B",
-            unit_scale=True,
-            unit_divisor=1024,
-        ) as pbar:
-            for chunk in response.iter_content(chunk_size=8192):
-                buf.write(chunk)
-                pbar.update(len(chunk))
-        buf.seek(0)
-        with zipfile.ZipFile(buf) as z:
+    with tempfile.TemporaryDirectory() as folder:
+        archive = Path(folder) / "download.zip"
+        stream_to_file(url, archive, desc=desc)
+        with zipfile.ZipFile(archive) as z:
             z.extractall(extract_to)

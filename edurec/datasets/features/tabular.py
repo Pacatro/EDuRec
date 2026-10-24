@@ -41,6 +41,28 @@ class FeatureMetadata:
     text_embedding_cols: list[str] = field(default_factory=list)
 
 
+@dataclass
+class FeatureCounts:
+    dense: int  # numeric columns plus text embeddings
+    categorical: int
+    text: int  # subset of ``dense``
+
+    @property
+    def total(self) -> int:
+        # Text embeddings are part of the dense block; do not count them twice.
+        return self.dense + self.categorical
+
+
+@dataclass
+class FeaturePipeline:
+    groups: dict[str, list[str]]
+    preprocessor: ColumnTransformer | None
+    metadata: FeatureMetadata
+    columns: list[str]
+    text_columns: list[str]
+    list_binarizers: dict[str, MultiLabelBinarizer]
+
+
 class DataProcessor:
     """
     Preprocesses users, items and interactions.
@@ -70,12 +92,7 @@ class DataProcessor:
 
         self.user_id_map: dict[object, int] = {}
         self.item_id_map: dict[object, int] = {}
-        self.preprocessors: dict[str, ColumnTransformer | None] = {}
-        self.list_binarizers: dict[str, dict[str, MultiLabelBinarizer]] = {}
-        self.column_groups: dict[str, dict[str, list[str]]] = {}
-        self.feature_metadata: dict[str, FeatureMetadata] = {}
-        self.feature_columns: dict[str, list[str]] = {}
-        self.text_embedding_columns: dict[str, list[str]] = {}
+        self.pipelines: dict[str, FeaturePipeline] = {}
         # Indexed by original entity ID; persisted with the processor in joblib.
         self.graph_node_features: dict[str, pd.DataFrame] = {}
         self.is_fitted_ = False
@@ -101,22 +118,36 @@ class DataProcessor:
             "items": items_train,
             "inter": interactions_train,
         }.items():
-            self._fit_prefix(prefix, df)
+            self.pipelines[prefix] = self._fit_prefix(prefix, df)
 
         self.is_fitted_ = True
         return self
 
-    def _fit_prefix(self, prefix: str, df: pd.DataFrame) -> None:
+    def pipeline(self, prefix: str) -> FeaturePipeline:
+        return self.pipelines[prefix]
+
+    def counts(self, prefix: str) -> FeatureCounts:
+        metadata = self.pipeline(prefix).metadata
+        return FeatureCounts(
+            dense=len(metadata.numeric_cols) + len(metadata.text_embedding_cols),
+            categorical=len(metadata.categorical_cols),
+            text=len(metadata.text_embedding_cols),
+        )
+
+    def categorical_cardinalities(self, prefix: str) -> list[int]:
+        metadata = self.pipeline(prefix).metadata
+        return [
+            metadata.categorical_cardinalities[col] for col in metadata.categorical_cols
+        ]
+
+    def _fit_prefix(self, prefix: str, df: pd.DataFrame) -> FeaturePipeline:
         groups = self._resolve_columns(prefix, df.columns)
-        self.column_groups[prefix] = groups
-        self.list_binarizers[prefix] = {}
 
         preprocessor, preprocessor_cols, dense_cols, categorical_cols = (
             self._fit_preprocessor(groups, df)
         )
-        self.preprocessors[prefix] = preprocessor
 
-        list_cols = self._fit_list_binarizers(prefix, groups, df)
+        list_binarizers, list_cols = self._fit_list_binarizers(groups, df)
 
         text_cols = (
             [f"text__embedding_{idx:03d}" for idx in range(self.text_embedding_dim)]
@@ -124,19 +155,27 @@ class DataProcessor:
             else []
         )
 
-        self.feature_columns[prefix] = [
+        columns = [
             *groups["passthrough"],
             *preprocessor_cols,
             *list_cols,
         ]
-        self.text_embedding_columns[prefix] = text_cols
 
-        self.feature_metadata[prefix] = self._build_metadata(
+        metadata = self._build_metadata(
             groups,
             preprocessor,
             dense_cols,
             categorical_cols,
             text_cols,
+        )
+
+        return FeaturePipeline(
+            groups=groups,
+            preprocessor=preprocessor,
+            metadata=metadata,
+            columns=columns,
+            text_columns=text_cols,
+            list_binarizers=list_binarizers,
         )
 
     def _fit_preprocessor(
@@ -153,7 +192,9 @@ class DataProcessor:
                         [
                             (
                                 "imputer",
-                                SimpleImputer(strategy="mean", keep_empty_features=True),
+                                SimpleImputer(
+                                    strategy="mean", keep_empty_features=True
+                                ),
                             ),
                             ("scaler", MinMaxScaler()),
                         ]
@@ -210,16 +251,16 @@ class DataProcessor:
 
     def _fit_list_binarizers(
         self,
-        prefix: str,
         groups: dict[str, list[str]],
         df: pd.DataFrame,
-    ) -> list[str]:
+    ) -> tuple[dict[str, MultiLabelBinarizer], list[str]]:
+        binarizers: dict[str, MultiLabelBinarizer] = {}
         list_cols: list[str] = []
         for col in groups["list"]:
             binarizer = MultiLabelBinarizer().fit(df[col].map(coerce_list_tokens))
-            self.list_binarizers[prefix][col] = binarizer
+            binarizers[col] = binarizer
             list_cols.extend(f"list__{col}__{value}" for value in binarizer.classes_)
-        return list_cols
+        return binarizers, list_cols
 
     def _build_metadata(
         self,
@@ -348,7 +389,8 @@ class DataProcessor:
         if df is None:
             return None
 
-        groups = self.column_groups[prefix]
+        pipeline = self.pipeline(prefix)
+        groups = pipeline.groups
         parts: list[pd.DataFrame] = []
 
         for col in groups["passthrough"]:
@@ -371,7 +413,7 @@ class DataProcessor:
                 pd.DataFrame({col: values.to_numpy(dtype=dtype)}, index=df.index)
             )
 
-        preprocessor = self.preprocessors[prefix]
+        preprocessor = pipeline.preprocessor
         if preprocessor is not None:
             parts.append(
                 pd.DataFrame(
@@ -384,7 +426,7 @@ class DataProcessor:
                 )
             )
 
-        for col, binarizer in self.list_binarizers[prefix].items():
+        for col, binarizer in pipeline.list_binarizers.items():
             tokens = (
                 df[col].map(coerce_list_tokens)
                 if col in df
@@ -405,7 +447,7 @@ class DataProcessor:
         if not parts:
             return pd.DataFrame(index=df.index)
 
-        return pd.concat(parts, axis=1)[self.feature_columns[prefix]]
+        return pd.concat(parts, axis=1)[pipeline.columns]
 
     def _text_embeddings(
         self,
@@ -415,8 +457,9 @@ class DataProcessor:
         if df is None:
             return None
 
-        text_cols = self.column_groups[prefix]["text"]
-        embedding_cols = self.text_embedding_columns[prefix]
+        pipeline = self.pipeline(prefix)
+        text_cols = pipeline.groups["text"]
+        embedding_cols = pipeline.text_columns
         if not text_cols:
             return pd.DataFrame(
                 index=df.index, columns=embedding_cols, dtype=np.float32

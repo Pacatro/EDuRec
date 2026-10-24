@@ -738,7 +738,7 @@ def _train_interactions(dm: ElearningDataModule) -> torch.Tensor:
     The adapter returns the bimodal TRAIN-only ``edge_index``; IDRMI applies its
     own normalisation and factor tables, which stay baseline-specific.
     """
-    edge_index = dm.adapter.get_bipartite_graph()
+    edge_index = dm.adapter.bipartite_graph
 
     return edge_index.t().contiguous().long()
 
@@ -765,16 +765,16 @@ def eval_idrmi(
     resolved_train = train_cfg or TrainConfig()
     dm.setup("fit")
 
-    knowledge_graph = dm.adapter.get_knowledge_graph()
+    knowledge_graph = dm.adapter.knowledge_graph
     module = IDRMIModule(
-        num_users=dm.num_users,
-        num_items=dm.num_items,
-        i_static_feats=dm.i_static_feats,
+        num_users=dm.data.num_users,
+        num_items=dm.data.num_items,
+        i_static_feats=dm.data.i_static_feats,
         edge_index={
             edge_type: knowledge_graph[edge_type].edge_index
             for edge_type in knowledge_graph.edge_types
         },
-        node_counts=dm.kg_node_counts,
+        node_counts=dm.adapter.kg_node_counts,
         train_interactions=_train_interactions(dm),
         cfg=resolved_cfg,
         train_cfg=resolved_train,

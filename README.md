@@ -105,19 +105,19 @@ uv run scripts/train.py --dataset coco --max-items 100 \
 ```
 
 The same options apply to train, eval, hpo, ablation and dataset. Python callers
-pass `max_items`, `community_fields` and `min_history_retention` directly to
+build a `DataConfig` with a `CommunityConfig` and pass it to
 `ElearningDataModule` or `select_dataset`. The selection report in
 `report.json` records the resolved semantic fields, retained counts, final
 support, connectivity and history retention.
 
 Processed data is written to `data/processed/<dataset>/` after every build and
 replaces the previous folder. A `manifest.json` records the dataset, the
-processing version, a SHA-256 fingerprint of every data-affecting option and
-the split seed. `--use-processed` reuses that folder only when the fingerprint
-matches the current options; otherwise the loader raises an actionable error,
-so rebuild without the flag after changing any selection, split or
-preprocessing option. A temporal split does not depend on the seed, so the same
-cache can be reused across training seeds; random splits must match the seed
+processing version, the full data configuration and the split seed.
+`--use-processed` reuses that folder only when the configuration matches the
+current options; otherwise the loader raises an actionable error, so rebuild
+without the flag after changing any selection, split or preprocessing option.
+A temporal split does not depend on the seed, so the same cache can be reused
+across training seeds; random splits must match the seed
 they were built with. Folders written by an older version of the code may not
 be readable; delete the folder and rebuild when the loader reports an
 incompatible cache. Caches without a manifest are still loaded, with a warning
@@ -531,10 +531,10 @@ features. Every consumer reads it through `edurec.datasets.DataAdapter`, which
 builds each view on demand and memoises it:
 
 ```python
-adapter = DataAdapter(dm.artifacts)
-train_queries = adapter.get_queries("train")      # history, context, negatives
-kg = adapter.get_knowledge_graph()                # static item metadata only
-edges = adapter.get_bipartite_graph()             # TRAIN user-item pairs
+adapter = dm.adapter
+train_queries = adapter.get_queries("train")  # history, context, negatives
+kg = adapter.knowledge_graph  # static item metadata only
+edges = adapter.bipartite_graph  # TRAIN user-item pairs
 files = adapter.export_recbole(staging, mode="sequential")
 ```
 

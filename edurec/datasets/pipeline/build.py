@@ -1,13 +1,15 @@
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 import torch
 
 from edurec import settings
-from edurec.datasets.cache import BuildManifest, ProcessedData, config_fingerprint
+from edurec.datasets.cache import ProcessedData
+from edurec.datasets.config import DataConfig, SplitStrategy
 from edurec.datasets.features.tabular import DataProcessor
 from edurec.datasets.pipeline.prepare import (
+    SelectionResult,
     clean_cols,
     deduplicate_interactions,
     filter_sparse,
@@ -22,71 +24,31 @@ from edurec.datasets.registry import RawData
 
 
 @dataclass(frozen=True)
-class BuildConfig:
-    """Eligibility, split and selection parameters for building processed data."""
+class BuildResult:
+    """Processed artifacts plus the selected source tables used to build them."""
 
-    test_ratio: float
-    val_ratio: float
-    min_interactions: int
-    remove_sparse: bool
-    deduplicate: bool
-    random_state: int | None
-    max_users: int | None
-    selection_seed: int
-    max_interactions: int | None = None
-    max_items: int | None = None
-    community_fields: list[str] | None = None
-    min_history_retention: float = 0.7
+    data: ProcessedData
+    raw: RawData
 
 
-def split_strategy_for(interactions: pd.DataFrame) -> str:
+def split_strategy_for(interactions: pd.DataFrame) -> SplitStrategy:
     """Split strategy implied by the available interaction columns."""
     return "temporal" if settings.TIME_COL in interactions.columns else "random"
 
 
-def expected_manifest(
-    dataset_name: str,
-    config: BuildConfig,
-    *,
-    strategy: str,
-    num_users: int = 0,
-    num_items: int = 0,
-) -> BuildManifest:
-    """Fingerprint a build from its data-affecting options.
-
-    The seed is tracked as ``split_seed`` because only random splits consume it.
-    ``num_users``/``num_items`` default to ``0`` because they are only known
-    after a cache is loaded; they are metadata, not part of the compatibility
-    check.
-    """
-    options = asdict(config)
-    options.pop("random_state", None)
-
-    return BuildManifest(
-        dataset=dataset_name,
-        config_hash=config_fingerprint(options),
-        split_seed=config.random_state,
-        split_strategy=strategy,
-        num_users=num_users,
-        num_items=num_items,
-    )
-
-
-def build_processed(
-    raw: RawData, config: BuildConfig, *, dataset_name: str = ""
-) -> ProcessedData:
+def build_processed(raw: RawData, config: DataConfig) -> BuildResult:
     """Turn raw source tables into split, encoded and selected processed data.
 
-    Order: column cleaning, sparsity filtering and deduplication, community selection,
-    temporal or random split, relevance labelling, and preprocessing fitted on
-    the training split only.
-
-    ``dataset_name`` is only recorded in the cache manifest, which lets
-    ``--use-processed`` reject folders built for another configuration.
+    Order: column cleaning, one normalization/deduplication step, sparsity
+    filtering, community selection, temporal or random split, relevance
+    labelling, and preprocessing fitted on the training split only.
     """
     interactions = clean_cols(raw.interactions)
     users = clean_cols(raw.user_features)
     items = clean_cols(raw.item_features)
+
+    if config.deduplicate or settings.TIME_COL not in interactions:
+        interactions = deduplicate_interactions(interactions)
 
     if config.remove_sparse:
         users, items, interactions = filter_sparse(
@@ -94,56 +56,50 @@ def build_processed(
             items,
             interactions,
             min_interactions=config.min_interactions,
-            deduplicate=config.deduplicate,
         )
 
-    # Deduplication belongs to eligibility, so selection preserves the exact
-    # histories that will subsequently be split.
-    if config.deduplicate or settings.TIME_COL not in interactions:
-        interactions = deduplicate_interactions(interactions)
-    eligible_report = {
-        "loaded_interactions": len(raw.interactions),
-        "eligible_interactions": len(interactions),
-        "source_cleaning": raw.selection_report,
-    }
     selected = select_dataset(
         raw._replace(
             interactions=interactions,
             user_features=users,
             item_features=items,
-            selection_report=eligible_report,
         ),
-        max_users=config.max_users,
-        max_interactions=config.max_interactions,
-        seed=config.selection_seed,
-        max_items=config.max_items,
-        community_fields=config.community_fields,
+        community=config.community,
         min_interactions=config.min_interactions,
-        min_history_retention=config.min_history_retention,
     )
+    selected_raw = selected.data
 
-    train, val, test = _split_with_relevance(selected.interactions, config)
+    train, val, test = _split_with_relevance(selected_raw.interactions, config)
     artifacts = preprocess(
         processor=DataProcessor(schema=raw.schema),
-        users=selected.user_features,
-        items=selected.item_features,
+        users=selected_raw.user_features,
+        items=selected_raw.item_features,
         train=train,
         val=val,
         test=test,
         graph_entities=raw.graph_entities,
     )
 
-    train_items = artifacts.splits()["train"][settings.ITEM_COL]
-    artifacts.selected_raw = selected
-    artifacts.manifest = expected_manifest(
-        dataset_name,
-        config,
-        strategy=split_strategy_for(selected.interactions),
-        num_users=len(selected.user_features),
-        num_items=len(selected.item_features),
+    artifacts.manifest = config.manifest(
+        strategy=split_strategy_for(selected_raw.interactions),
+        num_users=len(selected_raw.user_features),
+        num_items=len(selected_raw.item_features),
     )
-    artifacts.reports = {
-        "selection_report": selected.selection_report,
+    artifacts.reports = _reports(raw, selected, artifacts, train)
+    return BuildResult(data=artifacts, raw=selected_raw)
+
+
+def _reports(
+    raw: RawData,
+    selected: SelectionResult,
+    artifacts: ProcessedData,
+    train: pd.DataFrame,
+) -> dict:
+    train_items = train[settings.ITEM_COL]
+
+    return {
+        "source_report": raw.source_report,
+        "selection_report": selected.report,
         "split_report": {
             name: {
                 "interactions": len(frame),
@@ -156,12 +112,11 @@ def build_processed(
             for name, frame in artifacts.splits().items()
         },
     }
-    return artifacts
 
 
 def _split_with_relevance(
     interactions: pd.DataFrame,
-    config: BuildConfig,
+    config: DataConfig,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     train, val, test = split_data(
         interactions,
@@ -169,7 +124,6 @@ def _split_with_relevance(
         val_ratio=config.val_ratio,
         min_interactions=config.min_interactions,
         random_state=config.random_state,
-        deduplicate=config.deduplicate,
     )
 
     thresholds = get_relevance_threshold(train)
@@ -227,7 +181,7 @@ def preprocess(
         ("users", user_frame, "users", settings.USER_COL),
         ("items", item_frame, "items", settings.ITEM_COL),
     ):
-        metadata = processor.feature_metadata[prefix]
+        metadata = processor.pipeline(prefix).metadata
         cols = metadata.numeric_cols + metadata.text_embedding_cols
         static_feats[name] = torch.as_tensor(
             df.sort_values(id_col)[cols].to_numpy(dtype=np.float32),
@@ -236,7 +190,7 @@ def preprocess(
 
     u_cat_feats = _categorical_codes(
         user_frame,
-        processor.feature_metadata["users"].categorical_cols,
+        processor.pipeline("users").metadata.categorical_cols,
         id_col=settings.USER_COL,
     )
 

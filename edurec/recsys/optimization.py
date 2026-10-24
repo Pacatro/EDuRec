@@ -198,13 +198,13 @@ def objective(
     trial.set_user_attr("val_topk", val_topk)
     trial.set_user_attr("random_state", settings.state["random_state"])
 
-    with _trial_logger(trial, datamodule.dataset_name.value, log_mlflow) as logger:
+    with _trial_logger(trial, datamodule.config.dataset.value, log_mlflow) as logger:
         model = RecSys(
             cfg=config,
             knowledge_graph=knowledge_graph,
-            i_static_feats=datamodule.i_static_feats,
-            u_static_feats=datamodule.u_static_feats,
-            u_cat_feats=datamodule.u_cat_feats,
+            i_static_feats=datamodule.data.i_static_feats,
+            u_static_feats=datamodule.data.u_static_feats,
+            u_cat_feats=datamodule.data.u_cat_feats,
             train_cfg=train_config,
             val_topk=val_topk,
         )
@@ -277,7 +277,7 @@ def optimize_model(
         batch_size=dm.batch_size,
     )
 
-    knowledge_graph = dm.adapter.get_knowledge_graph()
+    knowledge_graph = dm.adapter.knowledge_graph
     storage = None
     callbacks = None
 
@@ -286,20 +286,22 @@ def optimize_model(
         storage = f"sqlite:///{results_path / 'study.db'}"
         callbacks = [_save_trials_callback(results_path / "trials.csv")]
 
+    data_config = dm.config
+    community = data_config.community
     digest = _optim_digest(
         base_config,
         base_train_config,
         {
             "dataset": dm.data_variant,
-            "min_interactions": dm.min_interactions,
-            "test_ratio": dm.test_ratio,
-            "val_ratio": dm.val_ratio,
-            "max_users": dm.max_users,
-            "max_items": dm.max_items,
-            "max_interactions": dm.max_interactions,
-            "community_fields": dm.community_fields,
-            "selection_seed": dm.selection_seed,
-            "min_history_retention": dm.min_history_retention,
+            "min_interactions": data_config.min_interactions,
+            "test_ratio": data_config.test_ratio,
+            "val_ratio": data_config.val_ratio,
+            "max_users": community.max_users,
+            "max_items": community.max_items,
+            "max_interactions": community.max_interactions,
+            "community_fields": community.fields,
+            "selection_seed": community.seed,
+            "min_history_retention": community.min_history_retention,
         },
         val_topk=val_topk,
         compile=compile,
@@ -307,7 +309,7 @@ def optimize_model(
 
     study = optuna.create_study(
         direction="maximize",
-        study_name=f"edurec-{dm.dataset_name.value}-{digest}",
+        study_name=f"edurec-{dm.config.dataset.value}-{digest}",
         storage=storage,
         load_if_exists=True,
         sampler=optuna.samplers.TPESampler(

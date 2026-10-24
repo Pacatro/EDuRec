@@ -4,7 +4,13 @@ from pathlib import Path
 from typing import Any
 
 from edurec import settings
-from edurec.datasets import DatasetName, ElearningDataModule, dataset_loaders
+from edurec.datasets import (
+    DATASETS,
+    CommunityConfig,
+    DataConfig,
+    DatasetName,
+    ElearningDataModule,
+)
 from edurec.recsys import ModelArch, ModelConfig
 
 
@@ -115,7 +121,36 @@ def setup_runtime(args: argparse.Namespace, random_state: int | None = None) -> 
 def datasets_to_run(dataset: DatasetName | None) -> list[DatasetName]:
     if dataset is not None:
         return [dataset]
-    return [ds for ds in dataset_loaders if ds.value not in settings.DISABLED_DATASETS]
+    return [ds for ds in DATASETS if ds.value not in settings.DISABLED_DATASETS]
+
+
+def data_config(
+    args: argparse.Namespace,
+    dataset: DatasetName,
+    *,
+    random_state: int | None = None,
+    deduplicate: bool = settings.DEDUPLICATE_INTERACTIONS,
+) -> DataConfig:
+    """Build the data configuration from the shared CLI arguments."""
+    community = CommunityConfig(
+        max_users=args.max_users,
+        max_interactions=args.max_interactions,
+        max_items=args.max_items,
+        seed=args.selection_seed,
+        fields=args.community_fields,
+        min_history_retention=args.min_history_retention,
+    )
+
+    return DataConfig(
+        dataset=dataset,
+        test_ratio=args.test_size,
+        val_ratio=args.val_size,
+        min_interactions=args.min_interactions,
+        remove_sparse=args.remove_sparse,
+        deduplicate=deduplicate,
+        random_state=random_state,
+        community=community,
+    )
 
 
 def parse_seeds(seeds: str) -> list[int]:
@@ -130,24 +165,30 @@ def build_config(
     base: ModelConfig | None = None,
     **overrides: Any,
 ) -> ModelConfig:
+    data = dm.data
+    counts_users = data.data_processor.counts("users")
+    counts_items = data.data_processor.counts("items")
+    interaction_features = dm.adapter.interaction_features
     dataset_config = {
-        "num_users": dm.num_users,
-        "num_items": dm.num_items,
-        "num_item_dense_feats": dm.num_item_dense_feats,
-        "num_item_text_feats": dm.num_item_text_feats,
-        "num_user_dense_feats": dm.num_user_dense_feats,
-        "num_interaction_dense_feats": dm.num_interaction_dense_feats,
-        "user_cat_cardinalities": dm.user_cat_cardinalities,
-        "interaction_cat_cardinalities": dm.interaction_cat_cardinalities,
-        "kg_node_counts": dm.kg_node_counts,
-        "kg_edge_types": [list(edge) for edge in dm.kg_edge_types],
+        "num_users": data.num_users,
+        "num_items": data.num_items,
+        "num_item_dense_feats": counts_items.dense,
+        "num_item_text_feats": counts_items.text,
+        "num_user_dense_feats": counts_users.dense,
+        "num_interaction_dense_feats": len(interaction_features.dense_cols),
+        "user_cat_cardinalities": data.data_processor.categorical_cardinalities(
+            "users"
+        ),
+        "interaction_cat_cardinalities": interaction_features.cat_cardinalities,
+        "kg_node_counts": dm.adapter.kg_node_counts,
+        "kg_edge_types": [list(edge) for edge in dm.adapter.kg_edge_types],
         "has_history": dm.has_history,
     }
     overrides = {key: value for key, value in overrides.items() if value is not None}
     effective = {**dataset_config, **overrides}
-    if dm.dataset_name == DatasetName.DORIS:
+    if dm.config.dataset == DatasetName.DORIS:
         effective["use_time_features"] = False
-    if dm.dataset_name == DatasetName.ITM:
+    if dm.config.dataset == DatasetName.ITM:
         effective.update(has_history=False, use_time_features=False)
     if base is not None:
         return replace(base, **effective)
@@ -156,33 +197,31 @@ def build_config(
 
 
 def print_data_summary(prefix: str, dm: ElearningDataModule) -> None:
-    split_sizes = {
-        split: len(data)
-        for split in ("train", "val", "test")
-        if (data := getattr(dm.artifacts, split)) is not None
-    }
+    data = dm.data
+    split_sizes = {split: len(frame) for split, frame in data.splits().items()}
     print(
-        f"[{prefix}] Data ready: users={dm.num_users:,}, items={dm.num_items:,}, "
-        f"interactions={dm.num_interactions:,}, sparsity={dm.sparsity:.4f}, "
-        f"feedback={dm.feedback_type}, split={dm.split_strategy}"
+        f"[{prefix}] Data ready: users={data.num_users:,}, items={data.num_items:,}, "
+        f"interactions={data.num_interactions:,}, sparsity={data.sparsity:.4f}, "
+        f"feedback={data.feedback_type}, split={data.split_strategy}"
     )
     print(
         f"[{prefix}] Splits: "
         + ", ".join(f"{split}={size:,}" for split, size in split_sizes.items())
     )
+    community = dm.config.community
     print(
-        f"[{prefix}] Selection: community, seed={dm.selection_seed}, "
-        f"max_items={dm.max_items or 'reachable'}, "
-        f"max_users={dm.max_users or 'all'}, "
-        f"max_interactions={dm.max_interactions or 'all'}"
+        f"[{prefix}] Selection: community, seed={community.seed}, "
+        f"max_items={community.max_items or 'reachable'}, "
+        f"max_users={community.max_users or 'all'}, "
+        f"max_interactions={community.max_interactions or 'all'}"
     )
-    report = dm.artifacts.reports.get("selection_report")
+    report = data.reports.get("selection_report")
     if isinstance(report, dict):
         print(
             f"[{prefix}] Selected {report['selected_users']:,}/{report['eligible_users']:,} users; "
             f"{report['selected_interactions']:,}/{report['eligible_interactions']:,} interactions"
         )
-    if not dm.is_explicit:
+    if not data.is_explicit:
         negatives = dm.train_ds.negative_item_ids
         print(
             f"[{prefix}] Train negatives: "
@@ -191,12 +230,14 @@ def print_data_summary(prefix: str, dm: ElearningDataModule) -> None:
         )
 
     if settings.state["verbose"]:
+        counts_users = data.data_processor.counts("users")
+        counts_items = data.data_processor.counts("items")
         print(
             f"[{prefix}] Features: "
-            f"user_dense={dm.num_user_dense_feats}, "
-            f"item_dense={dm.num_item_dense_feats}, "
-            f"user_text={dm.num_user_text_feats}, "
-            f"item_text={dm.num_item_text_feats}, "
-            f"user_cat={len(dm.user_cat_cardinalities)}, "
-            f"item_cat={len(dm.item_cat_cardinalities)}"
+            f"user_dense={counts_users.dense}, "
+            f"item_dense={counts_items.dense}, "
+            f"user_text={counts_users.text}, "
+            f"item_text={counts_items.text}, "
+            f"user_cat={counts_users.categorical}, "
+            f"item_cat={counts_items.categorical}"
         )

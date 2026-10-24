@@ -95,7 +95,8 @@ def build_bipartite_graph(interactions: pd.DataFrame) -> torch.Tensor:
 
 def _field_kinds(processor: DataProcessor, prefix: str = "items") -> dict[str, bool]:
     """Map each entity feature field to whether it is list-valued."""
-    groups = processor.column_groups.get(prefix, {})
+    pipeline = processor.pipelines.get(prefix)
+    groups = {} if pipeline is None else pipeline.groups
     kinds: dict[str, bool] = {col: False for col in groups.get("categorical", [])}
     for col in groups.get("list", []):
         kinds[col] = True

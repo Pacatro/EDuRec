@@ -14,6 +14,7 @@ from common import (
     add_runtime_args,
     add_selection_args,
     build_config,
+    data_config,
     datasets_to_run,
     print_data_summary,
     setup_runtime,
@@ -108,25 +109,18 @@ def main() -> None:
             )
 
         dm = ElearningDataModule(
-            dataset=dataset_name,
+            config=data_config(
+                args,
+                dataset_name,
+                random_state=args.random_state,
+            ),
             batch_size=args.batch_size,
-            test_ratio=args.test_size,
-            val_ratio=args.val_size,
             use_processed_data=args.use_processed,
-            random_state=args.random_state,
-            min_interactions=args.min_interactions,
-            remove_sparse=args.remove_sparse,
             # Trials are short and often pruned; reusing workers would keep
             # paused worker processes alive across trials, which makes the
             # known "can only test a child process" DataLoader fork warning
             # (pytorch/pytorch#149837) far more likely.
             persistent_workers=False,
-            max_users=args.max_users,
-            max_interactions=args.max_interactions,
-            selection_seed=args.selection_seed,
-            max_items=args.max_items,
-            community_fields=args.community_fields,
-            min_history_retention=args.min_history_retention,
         )
 
         dm.prepare_data()

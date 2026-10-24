@@ -6,41 +6,52 @@ import pytest
 import torch
 
 from edurec import settings
-from edurec.datasets import DataAdapter
+from edurec.datasets import CommunityConfig, DataAdapter, DataConfig, DatasetName
 from edurec.datasets.adapters import graphs, queries
 from edurec.datasets.adapters.queries import QueryConfig
 from edurec.datasets.cache import ProcessedData
-from edurec.datasets.pipeline.build import (
-    BuildConfig,
-    build_processed,
-    expected_manifest,
-)
+from edurec.datasets.pipeline.build import build_processed
 from edurec.datasets.registry import RawData
 from edurec.evaluation.baselines.idrmi import IDRMIConfig, IDRMIModule
 from edurec.recsys.configs import TrainConfig
 
+DATA_DEFAULTS = {
+    "test_ratio": 0.2,
+    "val_ratio": 0.2,
+    "min_interactions": 3,
+    "remove_sparse": True,
+    "deduplicate": False,
+    "random_state": 42,
+}
 
-def make_config(**overrides) -> BuildConfig:
-    params = {
-        "test_ratio": 0.2,
-        "val_ratio": 0.2,
-        "min_interactions": 3,
-        "remove_sparse": True,
-        "deduplicate": False,
-        "random_state": 42,
-        "max_users": None,
-        "selection_seed": 42,
-        "max_interactions": None,
-        "max_items": None,
-        "community_fields": None,
-        "min_history_retention": 0.7,
-    }
-    return BuildConfig(**{**params, **overrides})
+COMMUNITY_KEY_MAP = {
+    "max_users": "max_users",
+    "selection_seed": "seed",
+    "max_interactions": "max_interactions",
+    "max_items": "max_items",
+    "community_fields": "fields",
+    "min_history_retention": "min_history_retention",
+}
+
+
+def make_config(**overrides) -> DataConfig:
+    community = CommunityConfig(
+        **{
+            field: overrides.pop(key)
+            for key, field in COMMUNITY_KEY_MAP.items()
+            if key in overrides
+        }
+    )
+    return DataConfig(
+        dataset=DatasetName.COCO,
+        community=community,
+        **{**DATA_DEFAULTS, **overrides},
+    )
 
 
 @pytest.fixture
 def processed(raw_communities):
-    return build_processed(raw_communities, make_config(), dataset_name="coco")
+    return build_processed(raw_communities, make_config()).data
 
 
 @pytest.fixture
@@ -70,17 +81,17 @@ def implicit_adapter():
         ),
         schema={"items": {"graph_list": ["concept"], "community_fields": ["concept"]}},
     )
-    return DataAdapter(build_processed(raw, make_config(), dataset_name="coco"))
+    return DataAdapter(build_processed(raw, make_config()).data)
 
 
-def test_adapter_rejects_unprepared_data():
-    with pytest.raises(ValueError, match="not ready"):
-        DataAdapter(ProcessedData())
+def test_processed_data_requires_every_data_field():
+    with pytest.raises(TypeError):
+        ProcessedData()
 
 
 def test_bipartite_graph_uses_train_pairs_only(adapter):
-    edge_index = adapter.get_bipartite_graph()
-    train = adapter.relevant_splits()["train"]
+    edge_index = adapter.bipartite_graph
+    train = adapter.relevant_splits["train"]
 
     expected = train[[settings.USER_COL, settings.ITEM_COL]].to_numpy(dtype=np.int64).T
     observed = set(map(tuple, edge_index.t().tolist()))
@@ -105,7 +116,7 @@ def test_bipartite_graph_keeps_repeated_events():
 
 def test_query_histories_never_include_target_or_future(adapter):
     config = QueryConfig(max_history=10, random_state=42)
-    positives = adapter.relevant_splits()
+    positives = adapter.relevant_splits
     global_items = [
         int(item)
         for split in ("train", "val", "test")
@@ -130,10 +141,10 @@ def test_query_histories_never_include_target_or_future(adapter):
 def test_negative_policy_is_unchanged(implicit_adapter):
     config = QueryConfig(max_history=3, negatives_per_positive=2, random_state=42)
     dataset = implicit_adapter.get_queries("train", config=config)
-    positives = implicit_adapter.relevant_splits()
+    positives = implicit_adapter.relevant_splits
     expected = queries.generate_negative_samples(
         interactions=positives["train"],
-        item_ids=list(range(implicit_adapter.num_items)),
+        item_ids=list(range(implicit_adapter.data.num_items)),
         num_negatives=2,
         random_state=42,
         observed_interactions=pd.concat(positives.values(), ignore_index=True),
@@ -161,8 +172,8 @@ def test_explicit_feedback_has_no_negatives(adapter):
 
 def test_views_are_memoised_by_content(adapter):
     assert adapter.get_queries("train") is adapter.get_queries("train")
-    assert adapter.get_knowledge_graph() is adapter.get_knowledge_graph()
-    assert adapter.get_bipartite_graph() is adapter.get_bipartite_graph()
+    assert adapter.knowledge_graph is adapter.knowledge_graph
+    assert adapter.bipartite_graph is adapter.bipartite_graph
     assert adapter.get_queries(
         "train", config=QueryConfig(max_history=2)
     ) is not adapter.get_queries("train")
@@ -181,34 +192,32 @@ def test_manifest_roundtrip_and_fingerprint(processed, tmp_path):
     assert loaded.manifest == processed.manifest
     payload = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
     assert payload["dataset"] == "coco"
-    assert payload["config_hash"] == processed.manifest.config_hash
+    assert payload["config"] == processed.manifest.config
     assert payload["split_strategy"] == "temporal"
 
 
 def test_manifest_rejects_other_data_options(processed):
-    expected = expected_manifest("coco", make_config(max_items=3), strategy="temporal")
+    expected = make_config(max_items=3).manifest("temporal")
 
     assert processed.manifest.incompatibility(expected) is not None
 
 
 def test_manifest_ignores_training_seed_for_temporal_splits(processed):
-    expected = expected_manifest(
-        "coco", make_config(random_state=7), strategy="temporal"
-    )
+    expected = make_config(random_state=7).manifest("temporal")
 
     assert processed.manifest.incompatibility(expected) is None
 
 
 def test_manifest_checks_seed_for_random_splits():
-    first = expected_manifest("coco", make_config(random_state=1), strategy="random")
-    second = expected_manifest("coco", make_config(random_state=2), strategy="random")
+    first = make_config(random_state=1).manifest("random")
+    second = make_config(random_state=2).manifest("random")
 
     assert first.incompatibility(second) is not None
 
 
 def test_recbole_general_export_matches_processed_splits(adapter, tmp_path):
     paths = adapter.export_recbole(tmp_path, dataset_name="coco", mode="general")
-    train = adapter.relevant_splits()["train"]
+    train = adapter.relevant_splits["train"]
     rows = pd.read_csv(paths["train.inter"], sep="\t")
 
     assert paths["inter"].exists()
@@ -257,23 +266,19 @@ def test_sequential_export_requires_temporal_history(implicit_adapter, tmp_path)
 
 
 def test_idrmi_scores_through_adapter_views(adapter):
-    graph = adapter.get_knowledge_graph()
+    graph = adapter.knowledge_graph
     module = IDRMIModule(
-        num_users=adapter.num_users,
-        num_items=adapter.num_items,
+        num_users=adapter.data.num_users,
+        num_items=adapter.data.num_items,
         i_static_feats=adapter.data.i_static_feats,
         edge_index={edge: graph[edge].edge_index for edge in graph.edge_types},
-        node_counts={
-            node: graph[node].num_nodes
-            for node in graph.node_types
-            if node not in {"user", "item"}
-        },
-        train_interactions=adapter.get_bipartite_graph().t().contiguous(),
+        node_counts=adapter.kg_node_counts,
+        train_interactions=adapter.bipartite_graph.t().contiguous(),
         cfg=IDRMIConfig(emb_dim=8, ngcf_layers=1, kgcn_layers=1),
         train_cfg=TrainConfig(epochs=1, patience=1),
     )
 
-    scores = module.score(torch.tensor([0, 1]), torch.arange(adapter.num_items))
+    scores = module.score(torch.tensor([0, 1]), torch.arange(adapter.data.num_items))
 
-    assert scores.shape == (2, adapter.num_items)
+    assert scores.shape == (2, adapter.data.num_items)
     assert torch.isfinite(scores).all()

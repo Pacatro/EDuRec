@@ -18,6 +18,7 @@ from common import (
     add_selection_args,
     add_training_args,
     build_config,
+    data_config,
     datasets_to_run,
     parse_seeds,
     print_data_summary,
@@ -310,22 +311,15 @@ def main() -> None:
             )
 
             dm = ElearningDataModule(
-                dataset=dataset_name,
+                config=data_config(
+                    args,
+                    dataset_name,
+                    random_state=seed,
+                    deduplicate=train_cfg.deduplicate_interactions,
+                ),
                 batch_size=train_cfg.batch_size,
-                test_ratio=args.test_size,
-                val_ratio=args.val_size,
-                min_interactions=args.min_interactions,
-                remove_sparse=args.remove_sparse,
                 use_processed_data=args.use_processed,
-                random_state=seed,
                 max_history=train_cfg.max_history,
-                deduplicate_interactions=train_cfg.deduplicate_interactions,
-                max_users=args.max_users,
-                max_interactions=args.max_interactions,
-                selection_seed=args.selection_seed,
-                max_items=args.max_items,
-                community_fields=args.community_fields,
-                min_history_retention=args.min_history_retention,
             )
 
             dm.prepare_data()

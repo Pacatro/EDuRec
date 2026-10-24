@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 
 from edurec import settings
-from edurec.datasets.pipeline.prepare import deduplicate_interactions
 
 SPLIT_ORDER = ("train", "val", "test")
 
@@ -21,14 +20,9 @@ def split_data(
     val_ratio: float,
     min_interactions: int,
     random_state: int | None,
-    deduplicate: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    # Preserve real, temporally distinct repeated interactions when a timestamp
-    # is available. Without timestamps repeated pairs cannot be ordered, so they
-    # are collapsed to avoid leakage across a random split.
-    has_time = settings.TIME_COL in df.columns
-    if deduplicate or not has_time:
-        df = deduplicate_interactions(df)
+    # Callers must normalize repeated pairs; build_processed deduplicates once
+    # before filtering, selection and this split.
     if not 0 < test_ratio < 1 or not 0 < val_ratio < 1 or test_ratio + val_ratio >= 1:
         raise ValueError(
             "Validation/test ratios must be positive and sum to less than 1."
@@ -37,6 +31,7 @@ def split_data(
         raise ValueError(
             "min_interactions must be at least 3 to create train/val/test splits."
         )
+    has_time = settings.TIME_COL in df.columns
     rng = np.random.default_rng(random_state)
     splits = {"train": [], "val": [], "test": []}
 
@@ -68,7 +63,7 @@ def split_data(
         (
             pd.concat(splits[name], axis=0) if splits[name] else df.iloc[:0].copy()
         ).reset_index(drop=True)
-        for name in ("train", "val", "test")
+        for name in SPLIT_ORDER
     ]
     return frames[0], frames[1], frames[2]
 

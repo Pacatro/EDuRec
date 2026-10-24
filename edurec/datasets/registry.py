@@ -25,7 +25,7 @@ class RawData(NamedTuple):
     user_features: pd.DataFrame
     schema: Schema
     graph_entities: dict[str, pd.DataFrame] | None = None
-    selection_report: dict[str, Any] | None = None
+    source_report: dict[str, Any] | None = None
 
 
 type ExportFn = Callable[[], RawData]
@@ -42,17 +42,15 @@ class DatasetSpec:
     load: ExportFn
 
 
-dataset_loaders: dict[DatasetName, ExportFn] = {}
-_specs: dict[DatasetName, DatasetSpec] = {}
+DATASETS: dict[DatasetName, DatasetSpec] = {}
 
 
 def register_spec(spec: DatasetSpec) -> None:
-    _specs[spec.name] = spec
-    dataset_loaders[spec.name] = spec.load
+    DATASETS[spec.name] = spec
 
 
 def get_spec(dataset_name: DatasetName) -> DatasetSpec:
-    spec = _specs.get(dataset_name)
+    spec = DATASETS.get(dataset_name)
     if spec is None:
         raise ValueError(f"Dataset {dataset_name} not supported.")
     return spec

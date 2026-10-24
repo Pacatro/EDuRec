@@ -15,6 +15,7 @@ from common import (
     add_selection_args,
     add_training_args,
     build_config,
+    data_config,
     datasets_to_run,
     print_data_summary,
     setup_runtime,
@@ -131,22 +132,15 @@ def main() -> None:
             )
 
         dm = ElearningDataModule(
-            dataset=dataset_name,
+            config=data_config(
+                args,
+                dataset_name,
+                random_state=args.random_state,
+                deduplicate=train_cfg.deduplicate_interactions,
+            ),
             batch_size=train_cfg.batch_size,
-            test_ratio=args.test_size,
-            val_ratio=args.val_size,
             use_processed_data=args.use_processed,
-            random_state=args.random_state,
-            min_interactions=args.min_interactions,
-            remove_sparse=args.remove_sparse,
             max_history=train_cfg.max_history,
-            deduplicate_interactions=train_cfg.deduplicate_interactions,
-            max_users=args.max_users,
-            max_interactions=args.max_interactions,
-            selection_seed=args.selection_seed,
-            max_items=args.max_items,
-            community_fields=args.community_fields,
-            min_history_retention=args.min_history_retention,
         )
 
         dm.prepare_data()
@@ -179,10 +173,10 @@ def main() -> None:
 
         recsys = RecSys(
             cfg=cfg,
-            knowledge_graph=dm.adapter.get_knowledge_graph(),
-            i_static_feats=dm.i_static_feats,
-            u_static_feats=dm.u_static_feats,
-            u_cat_feats=dm.u_cat_feats,
+            knowledge_graph=dm.adapter.knowledge_graph,
+            i_static_feats=dm.data.i_static_feats,
+            u_static_feats=dm.data.u_static_feats,
+            u_cat_feats=dm.data.u_cat_feats,
             train_cfg=train_cfg,
             val_topk=val_topk,
         )

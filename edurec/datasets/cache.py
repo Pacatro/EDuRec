@@ -1,7 +1,6 @@
-import hashlib
 import json
 import shutil
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Self
@@ -10,94 +9,12 @@ import pandas as pd
 import torch
 from safetensors.torch import load_file, save_file
 
+from edurec import settings
+from edurec.datasets.config import BuildManifest
 from edurec.datasets.features.tabular import DataProcessor
-from edurec.datasets.registry import RawData
 
 REPORT_FILENAME = "report.json"
 MANIFEST_FILENAME = "manifest.json"
-
-#: Schema version of the persisted processed data. Bump when the layout or the
-#: meaning of any stored artefact changes.
-PROCESSING_VERSION = "v2"
-
-
-def config_fingerprint(options: Mapping[str, Any]) -> str:
-    """Deterministic SHA-256 of every option that affects the stored data."""
-    payload = json.dumps(
-        dict(options), sort_keys=True, separators=(",", ":"), default=str
-    )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-@dataclass(frozen=True)
-class BuildManifest:
-    """Identity of the configuration that produced a processed cache.
-
-    ``config_hash`` covers the data-affecting options (filters, selection,
-    splits, thresholds) but not the training seed. ``split_seed`` is stored
-    separately and only validated when the split actually consumes it, so
-    reusing the same temporal splits across training seeds is allowed.
-    """
-
-    dataset: str
-    config_hash: str
-    split_seed: int | None
-    split_strategy: str
-    num_users: int = 0
-    num_items: int = 0
-    processing_version: str = PROCESSING_VERSION
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "dataset": self.dataset,
-            "processing_version": self.processing_version,
-            "config_hash": self.config_hash,
-            "split_seed": self.split_seed,
-            "split_strategy": self.split_strategy,
-            "num_users": self.num_users,
-            "num_items": self.num_items,
-        }
-
-    @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> Self:
-        split_seed = payload.get("split_seed")
-
-        return cls(
-            dataset=str(payload.get("dataset", "")),
-            config_hash=str(payload.get("config_hash", "")),
-            split_seed=None if split_seed is None else int(split_seed),
-            split_strategy=str(payload.get("split_strategy", "random")),
-            num_users=int(payload.get("num_users", 0) or 0),
-            num_items=int(payload.get("num_items", 0) or 0),
-            processing_version=str(payload.get("processing_version", "")),
-        )
-
-    def incompatibility(self, expected: "BuildManifest") -> str | None:
-        """Human-readable reason this cache cannot satisfy ``expected``."""
-        if self.dataset != expected.dataset:
-            return (
-                f"cache belongs to dataset {self.dataset!r}, "
-                f"expected {expected.dataset!r}"
-            )
-        if self.processing_version != expected.processing_version:
-            return (
-                f"cache uses processing version {self.processing_version!r}, "
-                f"expected {expected.processing_version!r}"
-            )
-        if self.split_strategy != expected.split_strategy:
-            return (
-                f"cache was split with strategy {self.split_strategy!r}, "
-                f"expected {expected.split_strategy!r}"
-            )
-        if self.config_hash != expected.config_hash:
-            return "cache was built with different data options"
-        if self.split_strategy == "random" and self.split_seed != expected.split_seed:
-            return (
-                f"cache was split with seed {self.split_seed!r}, "
-                f"expected {expected.split_seed!r}"
-            )
-
-        return None
 
 
 def replace_folder[T](folder: Path, write: Callable[[Path], T]) -> T:
@@ -130,46 +47,87 @@ def _to_builtin(value: Any) -> Any:
 
 @dataclass
 class ProcessedData:
-    train: pd.DataFrame | None = None
-    val: pd.DataFrame | None = None
-    test: pd.DataFrame | None = None
-    u_static_feats: torch.Tensor | None = None
-    u_cat_feats: torch.Tensor | None = None
-    i_static_feats: torch.Tensor | None = None
-    user_features: pd.DataFrame | None = None
-    item_features: pd.DataFrame | None = None
-    data_processor: DataProcessor | None = None
-    # Build-time only; not persisted with the cache.
-    selected_raw: RawData | None = None
+    """Canonical, fully-built data consumed by models and exported views."""
+
+    train: pd.DataFrame
+    val: pd.DataFrame
+    test: pd.DataFrame
+    u_static_feats: torch.Tensor
+    u_cat_feats: torch.Tensor
+    i_static_feats: torch.Tensor
+    user_features: pd.DataFrame
+    item_features: pd.DataFrame
+    data_processor: DataProcessor
     reports: dict[str, Any] = field(default_factory=dict)
     manifest: BuildManifest | None = None
 
     @property
-    def is_ready(self) -> bool:
-        return all(
-            value is not None
-            for value in (
-                self.train,
-                self.val,
-                self.test,
-                self.u_static_feats,
-                self.u_cat_feats,
-                self.i_static_feats,
-                self.user_features,
-                self.item_features,
-                self.data_processor,
-            )
-        )
+    def dataset_name(self) -> str:
+        return "" if self.manifest is None else self.manifest.dataset
+
+    @property
+    def num_users(self) -> int:
+        return self.u_static_feats.shape[0]
+
+    @property
+    def num_items(self) -> int:
+        return self.i_static_feats.shape[0]
+
+    @property
+    def num_interactions(self) -> int:
+        return sum(len(frame) for frame in self.splits().values())
+
+    @property
+    def sparsity(self) -> float:
+        if self.num_users == 0 or self.num_items == 0:
+            return 0.0
+
+        return 1 - (self.num_interactions / (self.num_users * self.num_items))
+
+    @property
+    def is_explicit(self) -> bool:
+        return settings.RATING_COL in self.train.columns
+
+    @property
+    def has_temporal_order(self) -> bool:
+        return settings.TIME_COL in self.train.columns
+
+    @property
+    def feedback_type(self) -> str:
+        return "explicit" if self.is_explicit else "implicit"
+
+    @property
+    def split_strategy(self) -> str:
+        return "temporal" if self.has_temporal_order else "random"
 
     def splits(self) -> dict[str, pd.DataFrame]:
-        if self.train is None or self.val is None or self.test is None:
-            raise RuntimeError("Processed splits are not available.")
+        return {"train": self.train, "val": self.val, "test": self.test}
 
-        return {
-            "train": self.train,
-            "val": self.val,
-            "test": self.test,
-        }
+    def positive_splits(self) -> dict[str, pd.DataFrame]:
+        """Validated positive interactions per split."""
+        name = self.dataset_name or "processed data"
+        relevant: dict[str, pd.DataFrame] = {}
+
+        for split, frame in self.splits().items():
+            positive = frame.loc[frame[settings.RELEVANT_COL] > 0].reset_index(
+                drop=True
+            )
+            if positive.empty:
+                raise ValueError(
+                    f"{name}: {split} split has no positive interactions. "
+                    "Check filtering, relevance thresholds and split ratios."
+                )
+            for column, size in (
+                (settings.USER_COL, self.num_users),
+                (settings.ITEM_COL, self.num_items),
+            ):
+                if not positive[column].between(0, size - 1).all():
+                    raise ValueError(
+                        f"{name}: {split} contains invalid {column} values."
+                    )
+            relevant[split] = positive
+
+        return relevant
 
     def save(self, folder: Path) -> None:
         replace_folder(folder, self._write)
@@ -180,18 +138,8 @@ class ProcessedData:
         for split, df in self.splits().items():
             df.to_feather(folder / f"{split}.feather")
 
-        if self.user_features is None or self.item_features is None:
-            raise RuntimeError("User/item features are not available.")
-
         self.user_features.reset_index(drop=True).to_feather(folder / "users.feather")
         self.item_features.reset_index(drop=True).to_feather(folder / "items.feather")
-
-        if (
-            self.u_static_feats is None
-            or self.u_cat_feats is None
-            or self.i_static_feats is None
-        ):
-            raise RuntimeError("Static features are not available.")
 
         save_file(
             {
@@ -201,9 +149,6 @@ class ProcessedData:
             },
             folder / "static_feats.safetensors",
         )
-
-        if self.data_processor is None:
-            raise RuntimeError("Data processor is not available.")
 
         self.data_processor.save(folder / "processor.joblib")
 

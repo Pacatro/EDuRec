@@ -42,42 +42,27 @@ def export_atomic_files(
     :func:`edurec.evaluation.baselines.recbole._build_config_dict`), so user/item
     side features are intentionally omitted.
     """
-    if not data.is_ready:
-        raise RuntimeError("Data must be processed before saving atomic files.")
-    if data.data_processor is None:
-        raise RuntimeError("Data processor is not available.")
-
     processor = data.data_processor
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    positives = data.positive_splits()
     split_frames = {
-        "train": data.train,
-        "valid": data.val,
-        "test": data.test,
+        "train": positives["train"],
+        "valid": positives["val"],
+        "test": positives["test"],
     }
-    if any(df is None for df in split_frames.values()):
-        raise RuntimeError("Processed interaction splits are not available.")
 
     atomic_files: dict[str, Path] = {}
 
-    combined = pd.concat(
-        [_positive_interactions(df) for df in split_frames.values() if df is not None],
-        axis=0,
-        ignore_index=True,
-    )
+    combined = pd.concat(split_frames.values(), axis=0, ignore_index=True)
 
     atomic_files["inter"] = output_dir / f"{dataset_name}.inter"
     _inter_id_frame(combined).to_csv(atomic_files["inter"], sep="\t", index=False)
 
     for split_name, split_df in split_frames.items():
-        if split_df is None:
-            continue
-
         path = output_dir / f"{dataset_name}.{split_name}.inter"
         atomic_files[f"{split_name}.inter"] = path
-        _inter_id_frame(_positive_interactions(split_df)).to_csv(
-            path, sep="\t", index=False
-        )
+        _inter_id_frame(split_df).to_csv(path, sep="\t", index=False)
 
     atomic_files["user"] = output_dir / f"{dataset_name}.user"
     _id_frame(
@@ -153,13 +138,6 @@ def build_sequential_frame(split_name: str, view: RecSysDataset) -> pd.DataFrame
             f"{settings.ITEM_COL}_list:token_seq": histories,
         }
     )
-
-
-def _positive_interactions(df: pd.DataFrame) -> pd.DataFrame:
-    if settings.RELEVANT_COL not in df.columns:
-        return df.reset_index(drop=True)
-
-    return df.loc[df[settings.RELEVANT_COL] > 0].reset_index(drop=True)
 
 
 def _inter_id_frame(df: pd.DataFrame) -> pd.DataFrame:

@@ -221,7 +221,7 @@ def load_mooccubex() -> RawData:
         user_features=users,
         schema=schema,
         graph_entities={"concept": concepts} if concepts is not None else None,
-        selection_report=report,
+        source_report=report,
     )
 
 

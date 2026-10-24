@@ -3,9 +3,24 @@ import pytest
 import torch
 
 from edurec import settings
-from edurec.datasets import DatasetName, ElearningDataModule, datamodule
+from edurec.datasets import (
+    CommunityConfig,
+    DataConfig,
+    DatasetName,
+    ElearningDataModule,
+    datamodule,
+)
 from edurec.datasets import cache as cache_module
 from edurec.datasets.cache import ProcessedData
+
+COMMUNITY_KEYS = (
+    "max_users",
+    "max_interactions",
+    "max_items",
+    "seed",
+    "community_fields",
+    "min_history_retention",
+)
 
 
 def _unexpected_call(*args, **kwargs):
@@ -27,14 +42,25 @@ def make_datamodule(raw_communities, monkeypatch, cache_dirs):
         monkeypatch.setattr(
             datamodule, "load_raw_data", lambda dataset: raw_communities
         )
+        use_processed_data = overrides.pop("use_processed_data", False)
+        community = CommunityConfig(
+            **{key: overrides.pop(key) for key in COMMUNITY_KEYS if key in overrides}
+        )
         params = {
-            "dataset": DatasetName.COCO,
-            "batch_size": 8,
             "test_ratio": 0.2,
             "val_ratio": 0.2,
             "random_state": 42,
         }
-        return ElearningDataModule(**{**params, **overrides})
+        config = DataConfig(
+            dataset=DatasetName.COCO,
+            community=community,
+            **{**params, **overrides},
+        )
+        return ElearningDataModule(
+            config=config,
+            batch_size=8,
+            use_processed_data=use_processed_data,
+        )
 
     return build
 
@@ -55,13 +81,13 @@ def test_loaded_cache_matches_built_artifacts(make_datamodule, cache_dirs):
     built.setup()
     loaded = ProcessedData.load(processed)
 
-    for split, frame in built.artifacts.splits().items():
+    for split, frame in built.data.splits().items():
         pd.testing.assert_frame_equal(loaded.splits()[split], frame)
-    pd.testing.assert_frame_equal(loaded.user_features, built.artifacts.user_features)
-    pd.testing.assert_frame_equal(loaded.item_features, built.artifacts.item_features)
+    pd.testing.assert_frame_equal(loaded.user_features, built.data.user_features)
+    pd.testing.assert_frame_equal(loaded.item_features, built.data.item_features)
     for name in ("u_static_feats", "u_cat_feats", "i_static_feats"):
-        assert torch.equal(getattr(loaded, name), getattr(built.artifacts, name))
-    assert loaded.reports == built.artifacts.reports
+        assert torch.equal(getattr(loaded, name), getattr(built.data, name))
+    assert loaded.reports == built.data.reports
 
 
 def test_use_processed_loads_cache_without_reading_raw_data(
@@ -74,9 +100,9 @@ def test_use_processed_loads_cache_without_reading_raw_data(
     cached = make_datamodule(use_processed_data=True)
     cached.setup()
 
-    assert cached.num_interactions == built.num_interactions
-    assert cached.num_items == built.num_items
-    assert cached.artifacts.reports == built.artifacts.reports
+    assert cached.data.num_interactions == built.data.num_interactions
+    assert cached.data.num_items == built.data.num_items
+    assert cached.data.reports == built.data.reports
 
 
 def test_load_accepts_legacy_cache_without_report(make_datamodule, cache_dirs):
@@ -88,7 +114,7 @@ def test_load_accepts_legacy_cache_without_report(make_datamodule, cache_dirs):
     loaded = ProcessedData.load(processed)
 
     assert loaded.reports == {}
-    pd.testing.assert_frame_equal(loaded.train, built.artifacts.train)
+    pd.testing.assert_frame_equal(loaded.train, built.data.train)
 
 
 def test_use_processed_accepts_legacy_cache_without_report(
@@ -103,8 +129,8 @@ def test_use_processed_accepts_legacy_cache_without_report(
     dm = make_datamodule(use_processed_data=True)
     dm.setup()
 
-    assert dm.num_interactions == built.num_interactions
-    assert dm.artifacts.reports == {}
+    assert dm.data.num_interactions == built.data.num_interactions
+    assert dm.data.reports == {}
 
 
 def test_incompatible_cache_raises_actionable_error(
@@ -125,7 +151,7 @@ def test_use_processed_builds_when_cache_is_missing(make_datamodule, cache_dirs)
     dm = make_datamodule(use_processed_data=True)
     dm.setup()
 
-    assert dm.num_interactions > 0
+    assert dm.data.num_interactions > 0
     assert (processed / "train.feather").exists()
 
 
@@ -160,7 +186,7 @@ def test_save_replaces_folder_without_leftovers(make_datamodule, tmp_path):
     folder.mkdir()
     (folder / "stale.feather").write_text("old")
 
-    dm.artifacts.save(folder)
+    dm.data.save(folder)
 
     assert not (folder / "stale.feather").exists()
     assert not (tmp_path / "saved.tmp").exists()
@@ -174,7 +200,7 @@ def test_save_removes_leftover_temporary_folder(make_datamodule, tmp_path):
     leftover.mkdir()
     (leftover / "junk").write_text("x")
 
-    dm.artifacts.save(tmp_path / "saved")
+    dm.data.save(tmp_path / "saved")
 
     assert not leftover.exists()
 
@@ -183,7 +209,7 @@ def test_interrupted_save_keeps_previous_cache(make_datamodule, tmp_path, monkey
     full = make_datamodule()
     full.setup()
     folder = tmp_path / "saved"
-    full.artifacts.save(folder)
+    full.data.save(folder)
     previous = (folder / "train.feather").read_bytes()
 
     subset = make_datamodule(max_items=3)
@@ -194,10 +220,10 @@ def test_interrupted_save_keeps_previous_cache(make_datamodule, tmp_path, monkey
 
     monkeypatch.setattr(cache_module, "save_file", fail)
     with pytest.raises(OSError):
-        subset.artifacts.save(folder)
+        subset.data.save(folder)
 
     assert (folder / "train.feather").read_bytes() == previous
-    assert ProcessedData.load(folder).i_static_feats.shape[0] == full.num_items
+    assert ProcessedData.load(folder).i_static_feats.shape[0] == full.data.num_items
     assert not (tmp_path / "saved.tmp").exists()
 
 
@@ -239,7 +265,7 @@ def test_use_processed_warns_on_cache_without_manifest(
     with pytest.warns(UserWarning, match="manifest"):
         dm.setup()
 
-    assert dm.num_interactions == built.num_interactions
+    assert dm.data.num_interactions == built.data.num_interactions
 
 
 def test_setup_test_only_creates_test_queries(make_datamodule):
@@ -270,4 +296,4 @@ def test_dataloader_batches_preserve_query_contract(make_datamodule, monkeypatch
     assert batch.history_items.shape == batch.history_valid_mask.shape
     assert batch.history_items.shape[0] == batch.target_item_id.numel()
     assert batch.history_dense_features.shape[:2] == batch.history_items.shape
-    assert batch.target_item_id.max().item() < dm.num_items
+    assert batch.target_item_id.max().item() < dm.data.num_items

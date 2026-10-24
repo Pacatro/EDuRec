@@ -59,7 +59,8 @@ def graph_node_features(
         return node_features
 
     entities = entities or {}
-    groups = processor.column_groups.get("items", {})
+    pipeline = processor.pipelines.get("items")
+    groups = {} if pipeline is None else pipeline.groups
     item_schema = processor.schema.get("items", {})
     list_fields = set(groups.get("list", [])) | set(item_schema.get("graph_list", []))
     enabled_fields = list_fields | set(groups.get("categorical", []))

@@ -72,7 +72,7 @@ def eval_recbole_baselines(
     atomic_dataset_dir = dm.atomic_folder
     dm.setup(stage="test")
 
-    needs_sequential = dm.has_temporal_order and any(
+    needs_sequential = dm.data.has_temporal_order and any(
         _is_sequential_model(model) for model in models
     )
     dm.export_recbole(mode="sequential" if needs_sequential else "general")
@@ -90,7 +90,7 @@ def eval_recbole_baselines(
     results: list[dict[str, Any]] = []
 
     for model in models:
-        if not dm.has_temporal_order and _is_sequential_model(model):
+        if not dm.data.has_temporal_order and _is_sequential_model(model):
             print(
                 f"[EVAL] Skipping {model}: it is a sequential model and "
                 f"{dataset_name} has no temporal order."
@@ -259,13 +259,13 @@ def _evaluate_common_queries(
     user_lookup = _token_lookup(
         dataset,
         field=settings.USER_COL,
-        size=dm.num_users,
+        size=dm.data.num_users,
         device=device,
     )
     item_lookup = _token_lookup(
         dataset,
         field=settings.ITEM_COL,
-        size=dm.num_items,
+        size=dm.data.num_items,
         device=device,
     )
     is_sequential = cast(ModelType, config["MODEL_TYPE"]) == ModelType.SEQUENTIAL
