@@ -37,7 +37,17 @@ class ElearningDataModule(L.LightningDataModule):
         persistent_workers: bool = True,
     ):
         super().__init__()
-        self.save_hyperparameters()
+        # Lightning rejects frozen dataclasses when it serialises hparams for
+        # logging, so store a plain mapping instead of the config instance.
+        self.save_hyperparameters(
+            {
+                "config": config.to_dict(),
+                "batch_size": batch_size,
+                "use_processed_data": use_processed_data,
+                "max_history": max_history,
+                "persistent_workers": persistent_workers,
+            }
+        )
         self.config = config
         self.batch_size = batch_size
         self.use_processed_data = use_processed_data

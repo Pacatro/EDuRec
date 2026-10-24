@@ -76,6 +76,12 @@ class DataConfig:
                 "min_interactions must be at least 3 to create train/val/test splits."
             )
 
+    def to_dict(self) -> dict[str, Any]:
+        """Plain, logger-friendly representation of the configuration."""
+        payload = asdict(self)
+        payload["dataset"] = self.dataset.value
+        return payload
+
     def manifest(
         self,
         strategy: SplitStrategy,
