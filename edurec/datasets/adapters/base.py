@@ -47,9 +47,6 @@ class DataAdapter:
     def dataset_name(self) -> str:
         return self.data.dataset_name
 
-    # ------------------------------------------------------------------
-    # Interaction views
-    # ------------------------------------------------------------------
     @cached_property
     def relevant_splits(self) -> dict[str, pd.DataFrame]:
         """Positive interactions per split, validated and cached."""
@@ -62,9 +59,6 @@ class DataAdapter:
             self.relevant_splits, self.data.transforms["inter"]
         )
 
-    # ------------------------------------------------------------------
-    # Graph views
-    # ------------------------------------------------------------------
     @cached_property
     def knowledge_graph(self) -> HeteroData:
         """Static item knowledge graph (``HeteroData``), never user-item edges."""
@@ -98,9 +92,6 @@ class DataAdapter:
     def kg_edge_types(self) -> list[tuple[str, str, str]]:
         return list(self.knowledge_graph.edge_types)
 
-    # ------------------------------------------------------------------
-    # Query views
-    # ------------------------------------------------------------------
     def get_queries(
         self,
         split: str = "train",
@@ -115,9 +106,6 @@ class DataAdapter:
 
         return self._queries[key]
 
-    # ------------------------------------------------------------------
-    # RecBole export
-    # ------------------------------------------------------------------
     def export_recbole(
         self,
         output_dir: Path,
@@ -158,9 +146,6 @@ class DataAdapter:
 
         return atomic_files
 
-    # ------------------------------------------------------------------
-    # Internals
-    # ------------------------------------------------------------------
     def _build_queries(self, split: str, config: QueryConfig) -> RecSysDataset:
         history_items, history_mask, history_context = self._histories(config)[split]
         negatives = self._train_negatives(config) if split == "train" else None

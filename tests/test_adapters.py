@@ -12,8 +12,6 @@ from edurec.datasets.adapters.queries import QueryConfig
 from edurec.datasets.cache import ProcessedData
 from edurec.datasets.pipeline.build import build_processed
 from edurec.datasets.registry import RawData
-from edurec.evaluation.baselines.idrmi import IDRMIConfig, IDRMIModule
-from edurec.recsys.configs import TrainConfig
 
 DATA_DEFAULTS = {
     "test_ratio": 0.2,
@@ -249,22 +247,3 @@ def test_sequential_export_requires_temporal_history(implicit_adapter, tmp_path)
         DataAdapter(raw).export_recbole(
             tmp_path, dataset_name="coco", mode="sequential"
         )
-
-
-def test_idrmi_scores_through_adapter_views(adapter):
-    graph = adapter.knowledge_graph
-    module = IDRMIModule(
-        num_users=adapter.data.num_users,
-        num_items=adapter.data.num_items,
-        i_static_feats=adapter.data.i_static_feats,
-        edge_index={edge: graph[edge].edge_index for edge in graph.edge_types},
-        node_counts=adapter.kg_node_counts,
-        train_interactions=adapter.bipartite_graph.t().contiguous(),
-        cfg=IDRMIConfig(emb_dim=8, ngcf_layers=1, kgcn_layers=1),
-        train_cfg=TrainConfig(epochs=1, patience=1),
-    )
-
-    scores = module.score(torch.tensor([0, 1]), torch.arange(adapter.data.num_items))
-
-    assert scores.shape == (2, adapter.data.num_items)
-    assert torch.isfinite(scores).all()

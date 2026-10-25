@@ -189,7 +189,7 @@ def parse_args() -> argparse.Namespace:
         action="append",
         dest="baseline_model",
         help="Baseline model to evaluate. Use a RecBole model name or a native "
-        "baseline label such as IDRMI. Repeat for multiple models, or use `all`.",
+        "baseline label. Repeat for multiple models, or use `all`.",
     )
     only = parser.add_mutually_exclusive_group()
     only.add_argument(
