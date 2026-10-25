@@ -169,7 +169,18 @@ def _proposed_adapter(
     return ProposedAdapter(data, config)
 
 
-_FACTORIES: dict[str, AdapterFactory] = {"proposed": _proposed_adapter}
+def _kgan_adapter(
+    data: ProcessedData, config: QueryConfig
+) -> ModelDataAdapter[Any, Any]:
+    from edurec.evaluation.baselines.kgan import KGANAdapter
+
+    return KGANAdapter(data, config)
+
+
+_FACTORIES: dict[str, AdapterFactory] = {
+    "proposed": _proposed_adapter,
+    "kgan": _kgan_adapter,
+}
 
 
 def register_adapter(name: str, factory: AdapterFactory) -> None:

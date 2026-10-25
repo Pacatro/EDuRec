@@ -170,9 +170,9 @@ TOP_KS: list[int] = [5, 10, 20]
 
 # Baseline models evaluated with the shared retrieval protocol. Native
 # baselines under ``edurec/evaluation/baselines/`` take precedence; any other
-# name is passed to RecBole. Native baselines are opt-in unless selected through
-# ``eval --baseline-model`` or ``--baseline-model all``.
+# name is passed to RecBole. All are evaluated and reported as baselines.
 BASELINES: list[str] = [
+    "KGAN",
     # Classic baselines
     "ItemKNN",
     # Collaborative filtering / neural CF

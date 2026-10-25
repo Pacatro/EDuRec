@@ -110,7 +110,25 @@ class ElearningDataModule(L.LightningDataModule):
             use_histories=self.data.has_temporal_order,
         )
 
+    def with_adapter(
+        self, name: str, batch_size: int | None = None
+    ) -> "ElearningDataModule":
+        """An independent model view sharing the prepared, read-only data."""
+        view = ElearningDataModule(
+            config=self.config,
+            batch_size=self.batch_size if batch_size is None else batch_size,
+            use_processed_data=self.use_processed_data,
+            max_history=self.max_history,
+            persistent_workers=self.persistent_workers,
+            adapter_name=name,
+        )
+        view._data = self.data
+        view._build_result = self.build
+        return view
+
     def prepare_data(self) -> None:
+        if self._data is not None:
+            return
         if self.use_processed_data and self.processed_folder.exists():
             return
 

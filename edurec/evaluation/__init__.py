@@ -1,6 +1,7 @@
 from edurec.evaluation.baselines import (
     BaselineRunner,
     baseline_labels,
+    baseline_train_defaults,
     discover_baselines,
     get_baseline,
     native_baseline_runners,
@@ -21,6 +22,7 @@ __all__ = [
     "NATIVE_BASELINE_RUNNERS",
     "BaselineRunner",
     "baseline_labels",
+    "baseline_train_defaults",
     "discover_baselines",
     "eval_model",
     "eval_recbole_baselines",

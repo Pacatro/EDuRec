@@ -29,6 +29,7 @@ from edurec import settings
 from edurec.datasets import ElearningDataModule
 from edurec.evaluation import (
     baseline_labels,
+    baseline_train_defaults,
     eval_model,
     eval_recbole_baselines,
     get_baseline,
@@ -178,18 +179,12 @@ def parse_args() -> argparse.Namespace:
         help="Top-k values to evaluate. Repeat this option for multiple values.",
     )
     parser.add_argument(
-        "--cfg-path",
-        "-c",
-        type=Path,
-        help="Optional extra RecBole config file applied to RecBole baselines.",
-    )
-    parser.add_argument(
         "--baseline-model",
         "-m",
         action="append",
         dest="baseline_model",
-        help="Baseline model to evaluate. Use a RecBole model name or a native "
-        "baseline label. Repeat for multiple models, or use `all`.",
+        help="Baseline model to evaluate (for example KGAN, LightGCN or SASRec). "
+        "Repeat for multiple models, or use `all`.",
     )
     only = parser.add_mutually_exclusive_group()
     only.add_argument(
@@ -286,8 +281,6 @@ def main() -> None:
             print(f"[EVAL] Using saved training config: {run_config_path}")
 
         if args.verbose:
-            if args.cfg_path is not None:
-                print(f"[EVAL] Extra RecBole config: {args.cfg_path}")
             print(
                 "[EVAL] Config: "
                 f"epochs={train_cfg.epochs}, lr={train_cfg.lr}, "
@@ -352,59 +345,53 @@ def main() -> None:
             pending_baselines = [
                 model for model in selected_baselines if model in pending_models
             ]
-            native_baselines = [
-                model for model in pending_baselines if get_baseline(model) is not None
-            ]
-            recbole_baselines = [
-                model for model in pending_baselines if get_baseline(model) is None
-            ]
-
-            if native_baselines:
-                print(
-                    f"[EVAL] Running native baselines | seed={seed}: "
-                    f"{', '.join(native_baselines)}"
-                )
-                for baseline in native_baselines:
-                    runner = get_baseline(baseline)
-                    if runner is None:
-                        continue
-                    settings.seed_everything(seed)
+            for baseline in pending_baselines:
+                settings.seed_everything(seed)
+                print(f"[EVAL] Running baseline {baseline} | seed={seed}")
+                runner = get_baseline(baseline)
+                if runner is not None:
+                    baseline_train_cfg = resolve_train_config(
+                        cli={
+                            "epochs": args.epochs,
+                            "lr": args.lr,
+                            "batch_size": args.batch_size,
+                            "patience": args.patience,
+                            # Query construction and ranking stay common to
+                            # all models in this evaluation run.
+                            "topks": train_cfg.topks,
+                            "adaptive_k": train_cfg.adaptive_k,
+                            "max_history": train_cfg.max_history,
+                            "deduplicate_interactions": train_cfg.deduplicate_interactions,
+                        },
+                        defaults=baseline_train_defaults(baseline) or train_cfg,
+                    )
                     baseline_run_name = (
                         f"{baseline}-{dataset_label}-seed={seed}"
                         if args.logger
                         else None
                     )
-                    print(f"[EVAL] Running {baseline} | seed={seed}")
                     baseline_results = runner(
                         dm=dm,
-                        train_cfg=train_cfg,
+                        train_cfg=baseline_train_cfg,
                         val_topk=val_topk,
                         compile=args.compile,
                         verbose=args.verbose,
                         run_name=baseline_run_name,
                         experiment_name=MLFLOW_EXPERIMENT_NAME,
                     )
-                    _save_seed_results(baseline_results, dataset_root, seed)
-
-            if recbole_baselines:
-                settings.seed_everything(seed)
-                recbole_label = ", ".join(recbole_baselines)
-                print(
-                    f"[EVAL] Running RecBole baselines | seed={seed}: {recbole_label}"
-                )
-                recbole_results = eval_recbole_baselines(
-                    models=recbole_baselines,
-                    dm=dm,
-                    cfg_path=args.cfg_path,
-                    epochs=train_cfg.epochs,
-                    lr=train_cfg.lr,
-                    batch_size=train_cfg.batch_size,
-                    patience=train_cfg.patience,
-                    topks=train_cfg.topks,
-                    adaptive_k=train_cfg.adaptive_k,
-                    show_progress=args.verbose,
-                )
-                _save_seed_results(recbole_results, dataset_root, seed)
+                else:
+                    baseline_results = eval_recbole_baselines(
+                        models=[baseline],
+                        dm=dm,
+                        epochs=train_cfg.epochs,
+                        lr=train_cfg.lr,
+                        batch_size=train_cfg.batch_size,
+                        patience=train_cfg.patience,
+                        topks=train_cfg.topks,
+                        adaptive_k=train_cfg.adaptive_k,
+                        show_progress=args.verbose,
+                    )
+                _save_seed_results(baseline_results, dataset_root, seed)
 
         rows = _collect_seed_results(dataset_root, models, parsed_seeds)
         results = pd.DataFrame(rows)

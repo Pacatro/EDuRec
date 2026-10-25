@@ -251,6 +251,7 @@ uv run scripts/eval.py --dataset itm --use-processed --top-k 5 --top-k 10 --top-
 
 Default baseline models:
 
+- `KGAN`
 - `ItemKNN`
 - `NeuMF`
 - `LightGCN`
@@ -271,8 +272,7 @@ Useful options:
 --remove-sparse / --no-remove-sparse
 -i, --max-interactions INTEGER  Optional whole-user interaction budget
 -P, --use-processed / --no-use-processed  Reuse data/processed/<dataset> when its manifest matches
--c, --cfg-path PATH             Extra RecBole config
--m, --baseline-model TEXT       Baseline to evaluate (RecBole or native; repeat, or `all`)
+-m, --baseline-model TEXT       Baseline to evaluate (repeat, or `all`)
 -s, --seeds TEXT                Comma-separated seeds (default: 13,42,77)
 -o, --output-dir PATH           Root folder for evaluation results
 -C, --configs-folder PATH       Folder with saved configurations
@@ -292,7 +292,53 @@ numbers are directly comparable.
 uv run scripts/eval.py --dataset doris --use-processed --only-baselines --baseline-model all
 ```
 
-#### Adding a new native baseline
+KGAN is a standalone LightningModule with its own `kgan` data adapter. It
+uses relation-grouped propagation memories, candidate-conditioned attention,
+and the same query targets, catalog, history mask and metrics as other baselines.
+Baseline parameters live in code; only the proposed model uses saved YAML
+configurations. The defaults
+come from paper sections 5.3/5.5.4, figure 3, and the
+[official code](https://github.com/StZHY/KGAN/blob/041f80099ad5232fbb1b04fa0fcad47de4edc407/KGAN-master/src/main.py).
+
+| Parameter | EDuRec default | Evidence |
+| --- | --- | --- |
+| Embedding dimension | 16 | Figure 3 peaks at 16; public code defaults to 32 |
+| Propagation hops | 2 | Paper 5.3/5.5.4 and code |
+| Memories per relation per hop | 32 | Paper 5.5.4 and code |
+| KG loss weight | 0.01 | Code; paper gives a search range |
+| L2 loss weight | 1e-6 | Code; paper gives a search range |
+| Learning rate | 0.001 | Code; paper gives a search range |
+| Batch size | 1024 | Paper 5.3 and code |
+| Epoch budget | 20 | Code; not specified in the paper |
+| Aggregate all hops | true | Equation 12 and code |
+| Negatives per positive | 1 | Paper 5.1/4.3 |
+| Optimizer / initialization | Adam / Xavier uniform | Paper 5.3 and code |
+
+The paper searches learning rate and KG weight over
+`[0.1, 0.05, 0.01, 0.005, 0.001]`, L2 weight over
+`[1e-5, 5e-6, 1e-6, 5e-7, 1e-7]`, and dimension and memory size over
+`[8, 16, 32, 64]`. It does not publish the final learning rate or loss weights
+for each dataset, so the public code's defaults are used for those values.
+
+Explicit CLI training options override the registered baseline defaults. KGAN does not inherit the proposed model's epochs,
+learning rate or batch size. Ranking cutoffs, history policy and evaluation
+seeds remain shared. The reference code seeds NumPy with 2020; EDuRec keeps
+the requested experiment seeds. The number of relation groups is inferred
+from the graph (the paper uses 7 in MOOCCube and 25 in BookCrossing).
+
+Patience/checkpoint selection follows EDuRec's validation protocol; it is not
+specified by the original training script. `candidate_chunk_size=64` is an
+EDuRec memory-control setting. The reference attention code includes dropout
+0.5, whereas equation 10 does not; the implemented equation-based attention
+uses no dropout. All-hop aggregation is configurable through `using_all_hops`.
+Entity/relation embeddings and attention linear layers use Xavier uniform
+initialization, with zero attention biases.
+
+```bash
+uv run scripts/eval.py --dataset doris --only-baselines --baseline-model KGAN --baseline-model LightGCN
+```
+
+#### Adding a new baseline
 
 Baselines are auto-discovered from `edurec/evaluation/baselines/`. To add one,
 create a module in that folder and register a runner with the standard

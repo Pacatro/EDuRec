@@ -55,7 +55,6 @@ def _recbole_checkpoints() -> Generator[None]:
 def eval_recbole_baselines(
     models: list[str],
     dm: ElearningDataModule,
-    cfg_path: Path | None = None,
     epochs: int = settings.EPOCHS,
     lr: float = settings.LR,
     batch_size: int = settings.BATCH_SIZE,
@@ -100,7 +99,6 @@ def eval_recbole_baselines(
         metrics, training_time, inference_time = _run_model(
             model=model,
             dataset_name=dataset_name,
-            cfg_path=cfg_path,
             config_dict=adapter.configure(model, base_config),
             dm=dm,
             adapter=adapter,
@@ -123,7 +121,6 @@ def eval_recbole_baselines(
 def _run_model(
     model: str,
     dataset_name: str,
-    cfg_path: Path | None,
     config_dict: dict[str, object],
     dm: ElearningDataModule,
     adapter: RecBoleAdapter,
@@ -134,7 +131,6 @@ def _run_model(
     Args:
         model: Name of the RecBole model.
         dataset_name: Name of the atomic dataset.
-        cfg_path: Optional path to an additional RecBole configuration file.
         config_dict: Programmatic RecBole configuration.
 
     Returns:
@@ -147,7 +143,6 @@ def _run_model(
         return _fit_and_evaluate_model(
             model,
             dataset_name,
-            cfg_path,
             run_config,
             dm,
             adapter,
@@ -158,7 +153,6 @@ def _run_model(
 def _fit_and_evaluate_model(
     model: str,
     dataset_name: str,
-    cfg_path: Path | None,
     config_dict: dict[str, object],
     dm: ElearningDataModule,
     adapter: RecBoleAdapter,
@@ -167,7 +161,6 @@ def _fit_and_evaluate_model(
     config = Config(
         model=model,
         dataset=dataset_name,
-        config_file_list=[str(cfg_path)] if cfg_path is not None else None,
         config_dict=config_dict,
     )
 

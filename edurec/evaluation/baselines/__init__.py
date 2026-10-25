@@ -61,20 +61,31 @@ class BaselineRunner(Protocol):
 
 
 _REGISTRY: dict[str, BaselineRunner] = {}
+_TRAIN_DEFAULTS: dict[str, Callable[[], TrainConfig]] = {}
 
 
-def register_baseline(
+def register_baseline[Runner: BaselineRunner](
     label: str,
-) -> Callable[[BaselineRunner], BaselineRunner]:
+    *,
+    train_defaults: Callable[[], TrainConfig] | None = None,
+) -> Callable[[Runner], Runner]:
     """Register a baseline runner under ``label`` (used in the result files)."""
 
-    def decorator(runner: BaselineRunner) -> BaselineRunner:
+    def decorator(runner: Runner) -> Runner:
         if label in _REGISTRY:
             raise ValueError(f"Baseline {label!r} is already registered.")
         _REGISTRY[label] = runner
+        if train_defaults is not None:
+            _TRAIN_DEFAULTS[label] = train_defaults
         return runner
 
     return decorator
+
+
+def baseline_train_defaults(label: str) -> TrainConfig | None:
+    """Fresh training defaults from a baseline's reference implementation."""
+    factory = _TRAIN_DEFAULTS.get(label)
+    return factory() if factory is not None else None
 
 
 def baseline_labels() -> list[str]:
@@ -111,6 +122,7 @@ def discover_baselines() -> None:
 __all__ = [
     "BaselineRunner",
     "baseline_labels",
+    "baseline_train_defaults",
     "discover_baselines",
     "get_baseline",
     "native_baseline_runners",
