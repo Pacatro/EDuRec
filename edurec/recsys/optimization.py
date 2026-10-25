@@ -1,7 +1,7 @@
 import hashlib
 import json
 import math
-from collections.abc import Iterator, Mapping
+from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -132,7 +132,7 @@ def _suggest_configs(
 @contextmanager
 def _trial_logger(
     trial: optuna.Trial, dataset_name: str, enabled: bool
-) -> Iterator[MLFlowLogger | None]:
+) -> Generator[MLFlowLogger | None]:
     """Give each trial its own run, including pruned and failed trials."""
     if not enabled:
         yield None
