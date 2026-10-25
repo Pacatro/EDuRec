@@ -36,3 +36,27 @@ def test_build_can_keep_sparse_items(make_raw):
     pd.testing.assert_frame_equal(result.raw.interactions, raw.interactions)
     assert result.data.num_items == 7
     assert result.data.num_interactions == 16
+
+
+def test_interaction_budget_prunes_the_user_catalog(make_raw):
+    raw = make_raw(
+        {user: [0, 1, 2, 3, 4] for user in range(10)},
+        {item: [] for item in range(5)},
+    )
+    result = build_processed(
+        raw,
+        DataConfig(
+            dataset=DatasetName.MOOCCUBEX,
+            max_interactions=25,
+            remove_sparse=False,
+            random_state=42,
+        ),
+    )
+
+    selected = set(result.raw.interactions[settings.USER_COL])
+    assert result.data.num_users == 5
+    assert result.data.num_interactions == 25
+    assert len(result.data.id_maps["users"]) == 5
+    assert len(result.raw.user_features) == 5
+    assert set(result.raw.user_features[settings.USER_COL]) == selected
+    assert result.data.reports["interaction_budget"]["users"] == 5

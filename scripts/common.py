@@ -34,7 +34,14 @@ def add_dataset_args(
 
 def add_preprocessing_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "--min-interactions", "-i", type=int, default=settings.MIN_INTERACTIONS
+        "--max-interactions",
+        "-i",
+        type=int,
+        default=settings.MAX_INTERACTIONS,
+        help="Maximum interactions after filtering; whole user histories are "
+        "selected. Defaults to no limit. Minimum interactions per user/item are "
+        "read from settings.MIN_INTERACTIONS (or MOOCCUBEX_MIN_CONNECTIONS for "
+        "MOOCCubeX).",
     )
     parser.add_argument(
         "--remove-sparse",
@@ -117,7 +124,7 @@ def data_config(
         dataset=dataset,
         test_ratio=args.test_size,
         val_ratio=args.val_size,
-        min_interactions=args.min_interactions,
+        max_interactions=args.max_interactions,
         remove_sparse=args.remove_sparse,
         deduplicate=deduplicate,
         random_state=random_state,

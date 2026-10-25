@@ -1,7 +1,7 @@
 import edurec.datasets.sources  # noqa: F401  registers every dataset spec
 from edurec.datasets.adapters import DataAdapter
 from edurec.datasets.adapters.queries import QueryConfig
-from edurec.datasets.config import DataConfig
+from edurec.datasets.config import DataConfig, default_min_interactions
 from edurec.datasets.datamodule import ElearningDataModule
 from edurec.datasets.registry import (
     DATASETS,
@@ -21,5 +21,6 @@ __all__ = [
     "RawData",
     "RecSysDataset",
     "RecSysQuery",
+    "default_min_interactions",
     "load_raw_data",
 ]

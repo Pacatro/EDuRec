@@ -29,13 +29,20 @@ def main() -> None:
         help="Number of rows to display per table.",
     )
     parser.add_argument(
-        "--min-interactions", "-i", type=int, default=settings.MIN_INTERACTIONS
+        "--max-interactions",
+        "-i",
+        type=int,
+        default=settings.MAX_INTERACTIONS,
+        help="Maximum interactions after filtering; whole user histories are "
+        "selected. Defaults to no limit. Minimum interactions per user/item are "
+        "read from settings.MIN_INTERACTIONS (or MOOCCUBEX_MIN_CONNECTIONS for "
+        "MOOCCubeX).",
     )
     args = parser.parse_args()
 
     config = DataConfig(
         dataset=args.dataset,
-        min_interactions=args.min_interactions,
+        max_interactions=args.max_interactions,
     )
 
     dm = ElearningDataModule(config=config, batch_size=settings.BATCH_SIZE)

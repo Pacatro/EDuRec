@@ -1,9 +1,13 @@
 import pandas as pd
+import pytest
 import torch
 
 from edurec import settings
 from edurec.datasets.adapters.queries import build_histories
-from edurec.datasets.pipeline.prepare import deduplicate_interactions
+from edurec.datasets.pipeline.prepare import (
+    deduplicate_interactions,
+    filter_sparse,
+)
 from edurec.datasets.pipeline.splits import split_data
 from edurec.datasets.torch_data import RecSysDataset
 
@@ -80,3 +84,16 @@ def test_dataset_gathers_context_and_preserves_second_precision_in_gaps():
     assert query.history_cat_features.tolist() == [[1], [2], [0]]
     assert query.history_delta_times.tolist() == [0.0, 3.0, 0.0]
     assert query.negative_item_ids.tolist() == [0, 1]
+
+
+def test_filter_sparse_reports_a_threshold_that_removes_every_interaction():
+    users = pd.DataFrame({settings.USER_COL: [0, 1]})
+    items = pd.DataFrame({settings.ITEM_COL: [0, 1]})
+    interactions = pd.DataFrame(
+        {settings.USER_COL: [0, 0, 1], settings.ITEM_COL: [0, 1, 1]}
+    )
+
+    with pytest.raises(
+        ValueError, match=r"min_interactions=3 but the densest user has 2"
+    ):
+        filter_sparse(users, items, interactions, min_interactions=3)

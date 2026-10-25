@@ -1,0 +1,35 @@
+# Lightweight MOOCCubeX configuration for quick runs on small GPUs.
+#
+# The parameter count is dominated by the graph attribute embeddings
+# (215k concepts x emb_dim), not by the users or interactions. Lowering
+# emb_dim from 256 to 64 cuts that table by 4x (~62.7M -> ~15M params) and
+# also shrinks the HGT activations that cause out-of-memory errors.
+arch: kg_rnn
+model:
+  # Overwritten from the processed data by scripts/common.build_config.
+  num_users: 1
+  num_items: 1
+  num_item_dense_feats: 1
+  num_item_text_feats: 1
+  emb_dim: 64
+  gnn_layers: 2
+  gnn_heads: 2
+  gnn_dropout: 0.1
+  dropout: 0.1
+  rnn_type: lstm
+  rnn_hidden_dim: 128
+  rnn_layers: 1
+  rnn_dropout: 0.1
+  hidden_dims: [128]
+  use_gcl: false
+  gcl_weight: 0.0
+  max_history_len: 50
+train:
+  epochs: 40
+  lr: 0.001
+  batch_size: 32
+  patience: 5
+  topks: [5, 10, 20]
+  adaptive_k: false
+  max_history: 50
+  deduplicate_interactions: false

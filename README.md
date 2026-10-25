@@ -62,8 +62,12 @@ encoder. Only concepts linked to retained courses are encoded, once per concept.
 ### Data preprocessing and cache
 
 Datasets retain all users and items after source cleaning and optional sparsity
-filtering (`--remove-sparse`). Data is then split into train, validation and test
-sets, with preprocessing fitted on training data.
+filtering (`--remove-sparse`). Minimum interactions per user and item are read
+from `edurec/settings.py`. An optional whole-user interaction budget
+(`-i`/`--max-interactions`) selects users in a stable hash order until the requested
+number of interactions is reached and drops the users left out of the static
+catalog, so histories, temporal splits and `num_users` stay consistent. Data is then split into train, validation and test sets, with
+preprocessing fitted on training data.
 
 Processed data is written to `data/processed/<dataset>/` after every build and
 replaces the previous folder. A `manifest.json` records the dataset, the
@@ -80,8 +84,14 @@ that compatibility cannot be verified.
 
 The lightweight MOOCCubeX model configuration can be used with
 `--configs-folder configs/small`.
-MOOCCubeX keeps its existing source cleaning and earliest-enrollment handling;
-concept text can be disabled through `settings.MOOCCUBEX_ENCODE_CONCEPT_TEXT`.
+MOOCCubeX applies source filters before enrollment histories are assembled:
+courses must expose a video or exercise resource, placeholder/test courses are
+removed by name, users without valid enrollments are dropped, and users with
+more than `settings.MOOCCUBEX_MAX_USER_ENROLLMENTS` distinct courses are
+excluded. The pipeline then keeps users and courses with at least
+`settings.MOOCCUBEX_MIN_CONNECTIONS` connections (5 by default for this
+dataset). Concept text can be disabled through
+`settings.MOOCCUBEX_ENCODE_CONCEPT_TEXT`.
 
 Missing metadata falls back to the name in the concept ID and emits a warning.
 Embeddings and original IDs are saved with the processor; the KG exposes the
@@ -152,6 +162,7 @@ Options:
 ```text
 -d, --dataset [explicit_mars|implicit_mars|itm|doris|mooccubex|coco]  Dataset to use
 -m, --max-rows INTEGER          Number of rows to show
+-i, --max-interactions INTEGER  Optional whole-user interaction budget
 ```
 
 ### Train EDuRec
@@ -161,6 +172,12 @@ iterates through all registered datasets.
 
 ```bash
 uv run scripts/train.py --dataset explicit_mars --use-processed --save-model
+```
+
+For a smaller MOOCCubeX run on a modest machine, cap the whole-user budget:
+
+```bash
+uv run scripts/train.py -d mooccubex --max-interactions 500000 --device cpu
 ```
 
 Common options:
@@ -175,7 +192,7 @@ Common options:
 --test-size FLOAT               Default: 0.2
 -k, --top-k INTEGER             Default: 20
 --remove-sparse / --no-remove-sparse  Remove sparse users/items (default: on)
--i, --min-interactions INTEGER  Default: 3
+-i, --max-interactions INTEGER  Optional whole-user interaction budget
 -a, --adaptive-k               Use adaptive-k metrics where supported
 -r, --random-state INTEGER      Seed for training and data splits
 -D, --debug                     Fast debug run
@@ -252,7 +269,7 @@ Useful options:
 -p, --patience INTEGER          Default: from saved train config
 -k, --top-k INTEGER             Repeat for multiple cutoffs
 --remove-sparse / --no-remove-sparse
--i, --min-interactions INTEGER  Default: 3
+-i, --max-interactions INTEGER  Optional whole-user interaction budget
 -P, --use-processed / --no-use-processed  Reuse data/processed/<dataset> when its manifest matches
 -c, --cfg-path PATH             Extra RecBole config
 -m, --baseline-model TEXT       Baseline to evaluate (RecBole or native; repeat, or `all`)

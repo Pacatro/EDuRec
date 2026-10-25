@@ -1,4 +1,5 @@
 import json
+import re
 import warnings
 from collections import Counter
 from datetime import UTC, datetime
@@ -12,6 +13,31 @@ from edurec.datasets.registry import DatasetName, DatasetSpec, RawData
 from edurec.datasets.sources.common import ensure_files, stream_to_file
 
 FOLDER = DatasetName.MOOCCUBEX.value
+
+_EXPERIMENTAL_COURSE = re.compile(
+    settings.MOOCCUBEX_EXPERIMENTAL_COURSE_PATTERN,
+    flags=re.IGNORECASE,
+)
+
+
+def _has_educational_resource(resource: object) -> bool:
+    """Whether a course exposes at least one video or exercise resource."""
+    if not isinstance(resource, list):
+        return False
+    prefixes = settings.MOOCCUBEX_EDUCATIONAL_RESOURCE_PREFIXES
+    return any(
+        isinstance(item, dict) and str(item.get("resource_id", "")).startswith(prefixes)
+        for item in resource
+    )
+
+
+def _is_experimental_course(name: object) -> bool:
+    """Detect placeholder course names without dropping real testing courses."""
+    if not isinstance(name, str):
+        return False
+    if settings.MOOCCUBEX_EXCLUDE_DEPRECATED_COURSES and "废弃" in name:
+        return True
+    return bool(_EXPERIMENTAL_COURSE.search(name))
 
 
 def _fetch_mooccubex(dest: Path) -> None:
@@ -107,6 +133,7 @@ def _load_mooccubex_enrollments(
             seen.add(user)
             history = _mooccubex_enrollments(record, catalog, counts)
             if not history:
+                counts["users_without_valid_enrollments"] += 1
                 continue
             rows.extend((user, course, stamp) for course, stamp in history)
             profiles.append(
@@ -130,35 +157,71 @@ def _load_mooccubex_enrollments(
 
 
 def load_mooccubex() -> RawData:
-    """Load all valid enrollment histories and static course links."""
+    """Load valid enrollments after course and user source-level filtering."""
     entities_folder = settings.RAW_DATA_FOLDER / FOLDER / "entities"
     items = pd.read_json(entities_folder / "course.json", lines=True)
     items.rename(columns={"id": settings.ITEM_COL}, inplace=True)
     items = items.drop_duplicates(settings.ITEM_COL).copy()
-    # Load static memberships for the full source catalog.
-    # The processor encodes only entities linked to selected courses.
+
+    filters: dict[str, object] = {"courses_total": len(items)}
+    educational = items["resource"].map(_has_educational_resource)
+    filters["courses_without_educational_resources"] = int((~educational).sum())
+    items = items.loc[educational].copy()
+    experimental = items["name"].map(_is_experimental_course)
+    filters["courses_experimental"] = int(experimental.sum())
+    filters["removed_experimental_courses"] = items.loc[
+        experimental, [settings.ITEM_COL, "name"]
+    ].to_dict("records")
+    items = items.loc[~experimental].copy()
+    if items.empty:
+        raise ValueError(
+            "MOOCCubeX has no courses with educational resources after filtering."
+        )
+
     relations_folder = entities_folder.parent / "relations"
-    items["concept"] = _load_course_relations(
-        relations_folder / "concept-course.txt",
-        items[settings.ITEM_COL],
-        course_column=1,
-    )
     interactions, users, report = _load_mooccubex_enrollments(
         entities_folder / "user.json", set(items[settings.ITEM_COL].astype(str))
     )
+    filters["users_before_enrollment_cap"] = len(users)
+    filters["interactions_before_enrollment_cap"] = len(interactions)
+
+    max_user_enrollments = settings.MOOCCUBEX_MAX_USER_ENROLLMENTS
+    if max_user_enrollments < 1:
+        raise ValueError("MOOCCUBEX_MAX_USER_ENROLLMENTS must be positive.")
+    user_counts = interactions[settings.USER_COL].value_counts(sort=False)
+    over_cap = user_counts[user_counts > max_user_enrollments].index
+    interactions = interactions.loc[
+        ~interactions[settings.USER_COL].isin(over_cap)
+    ].reset_index(drop=True)
+    users = users.loc[~users[settings.USER_COL].isin(over_cap)].reset_index(drop=True)
+    filters["max_user_enrollments"] = max_user_enrollments
+    filters["users_over_enrollment_cap"] = len(over_cap)
+    filters["users_retained"] = len(users)
+    filters["interactions_after_enrollment_cap"] = len(interactions)
+
     items = items.loc[
         items[settings.ITEM_COL].isin(interactions[settings.ITEM_COL])
     ].copy()
+    if items.empty or interactions.empty:
+        raise ValueError(
+            "MOOCCubeX has no interactions after source filtering; relax the "
+            "enrollment cap or the course filters."
+        )
+    filters["courses_with_enrollments"] = len(items)
+    report["filters"] = filters
+
     items["resource_count"] = items["resource"].map(len)
     items = items.drop(columns=["resource"])
-    for field, filename in (
-        ("teacher", "course-teacher.txt"),
-        ("school", "course-school.txt"),
+    # Load static memberships only for the final retained catalog.
+    for field, filename, course_column in (
+        ("concept", "concept-course.txt", 1),
+        ("teacher", "course-teacher.txt", 0),
+        ("school", "course-school.txt", 0),
     ):
         items[field] = _load_course_relations(
             relations_folder / filename,
             items[settings.ITEM_COL],
-            course_column=0,
+            course_column=course_column,
         )
     concept_ids = {concept for concepts in items["concept"] for concept in concepts}
     concepts = (

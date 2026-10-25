@@ -291,7 +291,8 @@ def optimize_model(
         base_train_config,
         {
             "dataset": dm.data_variant,
-            "min_interactions": data_config.min_interactions,
+            "min_interactions": data_config.effective_min_interactions,
+            "max_interactions": data_config.max_interactions,
             "test_ratio": data_config.test_ratio,
             "val_ratio": data_config.val_ratio,
         },

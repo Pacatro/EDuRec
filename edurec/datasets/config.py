@@ -8,9 +8,34 @@ from edurec.datasets.registry import DatasetName
 
 #: Schema version of the persisted processed data. Bump when the layout or the
 #: meaning of any stored artefact changes.
-PROCESSING_VERSION = "v5"
+PROCESSING_VERSION = "v7"
 
 type SplitStrategy = Literal["temporal", "random"]
+
+
+def default_min_interactions(dataset: DatasetName) -> int:
+    """Minimum support used when the caller does not provide one explicitly."""
+    if dataset is DatasetName.MOOCCUBEX:
+        return settings.MOOCCUBEX_MIN_CONNECTIONS
+    return settings.MIN_INTERACTIONS
+
+
+def source_filter_options(dataset: DatasetName) -> dict[str, Any]:
+    """Source-definition knobs that must invalidate a processed cache."""
+    if dataset is not DatasetName.MOOCCUBEX:
+        return {}
+    return {
+        "mooccubex_max_user_enrollments": settings.MOOCCUBEX_MAX_USER_ENROLLMENTS,
+        "mooccubex_exclude_deprecated_courses": (
+            settings.MOOCCUBEX_EXCLUDE_DEPRECATED_COURSES
+        ),
+        "mooccubex_experimental_course_pattern": (
+            settings.MOOCCUBEX_EXPERIMENTAL_COURSE_PATTERN
+        ),
+        "mooccubex_educational_resource_prefixes": list(
+            settings.MOOCCUBEX_EDUCATIONAL_RESOURCE_PREFIXES
+        ),
+    }
 
 
 @dataclass(frozen=True)
@@ -20,7 +45,8 @@ class DataConfig:
     dataset: DatasetName
     test_ratio: float = settings.TEST_RATIO
     val_ratio: float = settings.VAL_RATIO
-    min_interactions: int = settings.MIN_INTERACTIONS
+    min_interactions: int | None = None
+    max_interactions: int | None = None
     remove_sparse: bool = settings.REMOVE_SPARSE
     deduplicate: bool = settings.DEDUPLICATE_INTERACTIONS
     random_state: int | None = None
@@ -30,10 +56,34 @@ class DataConfig:
             raise ValueError("Validation/test ratios must be in (0, 1).")
         if self.test_ratio + self.val_ratio >= 1:
             raise ValueError("Validation/test ratios must sum to less than 1.")
-        if self.min_interactions < 3:
+        min_interactions = (
+            default_min_interactions(self.dataset)
+            if self.min_interactions is None
+            else self.min_interactions
+        )
+        object.__setattr__(self, "min_interactions", min_interactions)
+        if min_interactions < 3:
             raise ValueError(
                 "min_interactions must be at least 3 to create train/val/test splits."
             )
+        if self.max_interactions is not None:
+            if (
+                isinstance(self.max_interactions, bool)
+                or not isinstance(self.max_interactions, int)
+                or self.max_interactions < 1
+            ):
+                raise ValueError("max_interactions must be a positive integer or None.")
+            if self.max_interactions < min_interactions:
+                raise ValueError(
+                    "max_interactions must be at least min_interactions."
+                )
+
+    @property
+    def effective_min_interactions(self) -> int:
+        """Resolved minimum support after dataset defaults are applied."""
+        if self.min_interactions is None:
+            raise RuntimeError("min_interactions was not resolved.")
+        return self.min_interactions
 
     def to_dict(self) -> dict[str, Any]:
         """Plain, logger-friendly representation of the configuration."""
@@ -50,6 +100,7 @@ class DataConfig:
         options = asdict(self)
         options.pop("dataset", None)
         options.pop("random_state", None)
+        options.update(source_filter_options(self.dataset))
 
         return BuildManifest(
             dataset=self.dataset.value,

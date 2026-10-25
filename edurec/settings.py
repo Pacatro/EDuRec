@@ -48,6 +48,9 @@ TIME_COL: str = "timestamp"
 RATING_COL: str = "rating"
 RELEVANT_COL: str = "relevant"
 MIN_INTERACTIONS: int = 3
+# Optional cap on the total interactions kept after source cleaning. Whole user
+# histories are selected, so temporal order and evaluation splits stay valid.
+MAX_INTERACTIONS: int | None = None
 TRAIN_NEGATIVES_PER_POSITIVE: int = 4
 RAW_DATA_FOLDER = Path(DATA_FOLDER) / "raw"
 
@@ -80,7 +83,21 @@ MOOCCUBEX_REQUIRED_FILES = (
     "relations/course-teacher.txt",
     "relations/course-school.txt",
 )
-MOOCCUBEX_ENCODE_CONCEPT_TEXT: bool = True
+MOOCCUBEX_ENCODE_CONCEPT_TEXT: bool = False
+# Source filters applied before enrollment histories are assembled. Courses
+# must expose at least one video or exercise resource. Placeholder courses are
+# matched by structural name markers instead of a generic "test" substring so
+# real courses about testing (for example 软件测试) are preserved.
+MOOCCUBEX_EDUCATIONAL_RESOURCE_PREFIXES: tuple[str, ...] = ("V_", "Ex_")
+MOOCCUBEX_EXPERIMENTAL_COURSE_PATTERN: str = (
+    r"测试(?:系列课|训练营|课程|课|单课|用|资源|老师|使用|小程序|测试)"
+    r"|(?:系列课|训练营)测试|内部测试班|^\s*(?:test|demo)\b|样例|示例"
+)
+MOOCCUBEX_EXCLUDE_DEPRECATED_COURSES: bool = True
+# Enrollments in more than this many distinct courses are considered extreme.
+MOOCCUBEX_MAX_USER_ENROLLMENTS: int = 100
+# Minimum distinct courses per user and users per course after filtering.
+MOOCCUBEX_MIN_CONNECTIONS: int = 5
 
 ITM_REQUIRED_FILES = ("ratings.csv", "items.csv", "users.csv")
 KAGGLE_ITM_DATASET = "irecsys/itmrec"
