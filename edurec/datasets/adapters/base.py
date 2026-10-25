@@ -1,4 +1,4 @@
-"""Contract for model-specific data preparation, independent of training."""
+"""Adapter contract, registration and selection for model-specific data preparation."""
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -155,6 +155,51 @@ class ModelDataAdapter[Sample, ModelInput](ABC):
             )
 
         return cast(np.ndarray | None, self._negative_cache[config])
+
+
+AdapterFactory = Callable[[ProcessedData, QueryConfig], ModelDataAdapter[Any, Any]]
+
+
+def _proposed_adapter(
+    data: ProcessedData, config: QueryConfig
+) -> ModelDataAdapter[Any, Any]:
+    """Load the default adapter lazily to avoid an import cycle."""
+    from edurec.datasets.adapters.proposed import ProposedAdapter
+
+    return ProposedAdapter(data, config)
+
+
+_FACTORIES: dict[str, AdapterFactory] = {"proposed": _proposed_adapter}
+
+
+def register_adapter(name: str, factory: AdapterFactory) -> None:
+    """Register a class or factory; reject accidental replacement."""
+    if not name or name in _FACTORIES:
+        raise ValueError(f"Adapter name is empty or already registered: {name!r}.")
+    _FACTORIES[name] = factory
+
+
+def create_adapter(
+    name: str, data: ProcessedData, config: QueryConfig
+) -> ModelDataAdapter[Any, Any]:
+    """Build a registered adapter or a RecBole adapter (``recbole:Model``).
+
+    Register an exact RecBole name to override its default data preparation.
+    RecBole is imported only when a RecBole adapter is requested.
+    """
+    if name in _FACTORIES:
+        return _FACTORIES[name](data, config)
+    if name.startswith("recbole:") and name.removeprefix("recbole:"):
+        from recbole.utils import ModelType, get_model
+
+        from edurec.datasets.adapters.recbole import RecBoleAdapter
+
+        model = name.removeprefix("recbole:")
+        sequential = getattr(get_model(model), "type", None) == ModelType.SEQUENTIAL
+        return RecBoleAdapter(data, config, sequential=sequential)
+    raise ValueError(
+        f"Unknown data adapter {name!r}; register it with register_adapter()."
+    )
 
 
 def _check_split(split: str) -> None:

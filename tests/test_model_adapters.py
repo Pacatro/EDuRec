@@ -18,7 +18,7 @@ from edurec.datasets import (
     create_adapter,
     register_adapter,
 )
-from edurec.datasets.adapters import registry
+from edurec.datasets.adapters import base
 from edurec.datasets.adapters.recbole import RecBoleAdapter
 from edurec.datasets.preprocessing.build import build_processed
 from edurec.datasets.queries import QueryConfig
@@ -72,7 +72,7 @@ def test_proposed_adapter_builds_and_caches_its_structures(processed):
 
 def test_custom_adapter_loaders_do_not_change_evaluation(processed, monkeypatch):
     # Isolate registrations so subsequent tests do not inherit this adapter.
-    monkeypatch.setattr(registry, "_FACTORIES", registry._FACTORIES.copy())
+    monkeypatch.setattr(base, "_FACTORIES", base._FACTORIES.copy())
     register_adapter("pairs", PairAdapter)
     monkeypatch.setattr(settings, "NUM_WORKERS", 0)
     dm = ElearningDataModule(
@@ -106,7 +106,7 @@ def test_custom_adapter_loaders_do_not_change_evaluation(processed, monkeypatch)
 
 
 def test_registry_rejects_unknown_and_duplicate_names(processed, monkeypatch):
-    monkeypatch.setattr(registry, "_FACTORIES", registry._FACTORIES.copy())
+    monkeypatch.setattr(base, "_FACTORIES", base._FACTORIES.copy())
     with pytest.raises(ValueError, match="Unknown"):
         create_adapter("missing", processed, QueryConfig())
     with pytest.raises(ValueError, match="already registered"):
@@ -200,7 +200,7 @@ def test_recbole_runner_uses_registered_model_adapter(processed, monkeypatch):
         def configure(self, model, base):
             return {**super().configure(model, base), "embedding_size": 4}
 
-    monkeypatch.setattr(registry, "_FACTORIES", registry._FACTORIES.copy())
+    monkeypatch.setattr(base, "_FACTORIES", base._FACTORIES.copy())
     register_adapter("recbole:BPR", CustomBPRAdapter)
     monkeypatch.setitem(settings.state, "device", "cpu")
     monkeypatch.setattr(settings, "NUM_WORKERS", 0)

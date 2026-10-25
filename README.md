@@ -503,8 +503,7 @@ edurec/datasets/
 │   ├── tabular.py           # numeric and categorical encoding
 │   └── text.py              # document and graph text embeddings
 └── adapters/
-    ├── base.py              # adapter contract and common query preparation
-    ├── registry.py          # model adapter selection
+    ├── base.py              # adapter contract, registration and selection
     ├── proposed.py          # proposed model structures and caching
     └── recbole.py           # RecBole inputs, atomic writers and ID conversion
 ```
