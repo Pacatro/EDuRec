@@ -1,20 +1,19 @@
-"""Export views to RecBole atomic files.
-
-The exporter only serialises rows that already exist in the processed splits:
-it never rebuilds splits nor changes positives/negatives. RecBole may remap
-tokens internally, so callers must verify its IDs after loading (see
-:mod:`edurec.evaluation.baselines.recbole`).
-"""
+"""RecBole data export and query conversion; training stays in evaluation."""
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pandas as pd
+import torch
+from recbole.data.interaction import Interaction
+from recbole.utils import InputType, get_model
 
 from edurec import settings
-from edurec.datasets.cache import ProcessedData
-from edurec.datasets.torch_data import RecSysDataset
+from edurec.datasets.adapters.base import ModelDataAdapter
+from edurec.datasets.cache import ProcessedData, replace_folder
+from edurec.datasets.queries import QueryConfig
+from edurec.datasets.torch_data import RecSysDataset, RecSysQuery
 
 #: Benchmark split names read by RecBole for the general interaction protocol.
 BENCHMARK_SPLITS = ("train", "valid", "test")
@@ -30,7 +29,173 @@ SEQUENTIAL_SPLIT_SOURCES = {
 }
 
 
-def export_atomic_files(
+class RecBoleAdapter(ModelDataAdapter[RecSysQuery, Interaction]):
+    """Default general/sequential inputs; subclass for baseline-specific fields.
+
+    ``bind_catalog`` must be called after RecBole prepares its internal IDs.
+    A separate adapter instance is used for each evaluated model.
+    """
+
+    def __init__(
+        self,
+        data: ProcessedData,
+        config: QueryConfig | None = None,
+        *,
+        sequential: bool = False,
+    ):
+        self.requires_temporal_order = sequential
+        super().__init__(data, config)
+        self.sequential = sequential
+        self.dataset_name = self.data.dataset_name
+        self._catalog: tuple[Any, torch.Tensor, torch.Tensor, torch.device] | None = (
+            None
+        )
+
+    def dataset(self, split: str) -> RecSysDataset:
+        return self.evaluation_queries(split)
+
+    def export(
+        self, folder: Path, *, dataset_name: str | None = None
+    ) -> dict[str, Path]:
+        self.dataset_name = dataset_name or self.data.dataset_name
+        paths = replace_folder(
+            folder,
+            self.export_files,
+        )
+        return {name: folder / path.name for name, path in paths.items()}
+
+    def export_files(
+        self, output_dir: Path, *, dataset_name: str | None = None
+    ) -> dict[str, Path]:
+        """Build the model's atomic files; override to add baseline-specific files."""
+        name = dataset_name or self.dataset_name
+        if not name:
+            raise ValueError(
+                "dataset_name is required when the processed data has no manifest."
+            )
+        files = _export_atomic_files(self.data, name, output_dir)
+        if self.sequential:
+            queries = {
+                export_name: self.get_queries(split)
+                for export_name, split in SEQUENTIAL_SPLIT_SOURCES.items()
+            }
+            files.update(_export_sequential_benchmark(queries, name, output_dir))
+        return files
+
+    def configure(self, model: str, base: dict[str, object]) -> dict[str, object]:
+        """Override in a model adapter to load extra fields or atomic files."""
+        return _config_for_model(model, base, self.config.max_history, self.sequential)
+
+    def bind_catalog(self, dataset: Any, device: torch.device) -> None:
+        user_lookup = _token_lookup(
+            dataset, settings.USER_COL, self.data.num_users, device
+        )
+        item_lookup = _token_lookup(
+            dataset, settings.ITEM_COL, self.data.num_items, device
+        )
+        self._catalog = dataset, user_lookup, item_lookup, device
+
+    def evaluation_input(self, query: RecSysQuery) -> Interaction:
+        if self._catalog is None:
+            raise RuntimeError("Call bind_catalog() before converting RecBole queries.")
+        dataset, users, items, device = self._catalog
+        return _query_interaction(query, dataset, users, items, self.sequential, device)
+
+    def canonical_scores(self, scores: torch.Tensor) -> torch.Tensor:
+        """Drop RecBole padding and restore canonical item-ID column order."""
+        if self._catalog is None:
+            raise RuntimeError("Call bind_catalog() before converting RecBole scores.")
+        return scores.index_select(1, self._catalog[2])
+
+
+def _token_lookup(
+    dataset: Any,
+    field: str,
+    size: int,
+    device: torch.device,
+) -> torch.Tensor:
+    """Map KGSeq's contiguous IDs to RecBole's internal token IDs."""
+    tokens = [str(idx) for idx in range(size)]
+    try:
+        internal_ids = dataset.token2id(field, tokens)
+    except ValueError as error:
+        raise RuntimeError(
+            f"RecBole dataset does not contain the full {field} catalog."
+        ) from error
+    return torch.as_tensor(internal_ids, dtype=torch.long, device=device)
+
+
+def _query_interaction(
+    batch: RecSysQuery,
+    dataset: Any,
+    user_lookup: torch.Tensor,
+    item_lookup: torch.Tensor,
+    is_sequential: bool,
+    device: torch.device,
+) -> Interaction:
+    user_ids = user_lookup[batch.user_id.to(device).long()]
+    values: dict[str, torch.Tensor] = {settings.USER_COL: user_ids}
+
+    if is_sequential:
+        history_mask = batch.history_valid_mask.to(device).bool()
+        external_history = batch.history_items.to(device).long() - 1
+        internal_history = torch.zeros_like(external_history)
+        internal_history[history_mask] = item_lookup[external_history[history_mask]]
+        values[f"{settings.ITEM_COL}_list"] = internal_history
+        values["item_length"] = history_mask.sum(dim=1).long()
+
+    return dataset.join(Interaction(values))
+
+
+def _config_for_model(
+    model: str,
+    base_config: dict[str, object],
+    max_history: int,
+    sequential: bool,
+) -> dict[str, object]:
+    """Adapt the base configuration to a specific RecBole model."""
+    config = dict(base_config)
+
+    model_class = get_model(model)
+    input_type = getattr(model_class, "input_type", None)
+
+    if sequential:
+        item_list_field = f"{settings.ITEM_COL}_list"
+        config.update(
+            {
+                "benchmark_filename": list(SEQUENTIAL_BENCHMARK_SPLITS),
+                "load_col": {
+                    "inter": [settings.USER_COL, settings.ITEM_COL, item_list_field],
+                    "user": [settings.USER_COL],
+                    "item": [settings.ITEM_COL],
+                },
+                "ITEM_LIST_LENGTH_FIELD": "item_length",
+                "LIST_SUFFIX": "_list",
+                "MAX_ITEM_LIST_LENGTH": max_history,
+                "alias_of_item_id": [item_list_field],
+                "train_neg_sample_args": None,
+            }
+        )
+
+        return config
+
+    config["train_neg_sample_args"] = _negative_sampling_config(input_type)
+    return config
+
+
+def _negative_sampling_config(input_type: InputType | None) -> dict[str, object] | None:
+    if input_type not in {InputType.PAIRWISE, InputType.POINTWISE}:
+        return None
+    return {
+        "distribution": "uniform",
+        "sample_num": 1,
+        "alpha": 1.0,
+        "dynamic": False,
+        "candidate_num": 0,
+    }
+
+
+def _export_atomic_files(
     data: ProcessedData,
     dataset_name: str,
     output_dir: Path,
@@ -78,7 +243,7 @@ def export_atomic_files(
     return atomic_files
 
 
-def export_sequential_benchmark(
+def _export_sequential_benchmark(
     views: Mapping[str, RecSysDataset],
     dataset_name: str,
     output_dir: Path,
@@ -96,13 +261,13 @@ def export_sequential_benchmark(
         if view is None:
             raise RuntimeError(f"Sequential benchmark split {split_name!r} is missing.")
         path = output_dir / f"{dataset_name}.{split_name}.inter"
-        build_sequential_frame(split_name, view).to_csv(path, sep="\t", index=False)
+        _build_sequential_frame(split_name, view).to_csv(path, sep="\t", index=False)
         atomic_files[split_name] = path
 
     return atomic_files
 
 
-def build_sequential_frame(split_name: str, view: RecSysDataset) -> pd.DataFrame:
+def _build_sequential_frame(split_name: str, view: RecSysDataset) -> pd.DataFrame:
     """RecBole rows with the split's target item and its strictly-past items."""
     history_mask = view.history_valid_mask.bool()
     user_ids = view.user_ids

@@ -18,15 +18,18 @@ import torch
 from sklearn.compose import ColumnTransformer
 
 from edurec import settings
-from edurec.datasets.features.tabular import categorical_cardinalities, feature_columns
-from edurec.datasets.pipeline.splits import SPLIT_ORDER
+from edurec.datasets.preprocessing.splits import SPLIT_ORDER
+from edurec.datasets.preprocessing.tabular import (
+    categorical_cardinalities,
+    feature_columns,
+)
 
 
 @dataclass(frozen=True)
 class QueryConfig:
     """Parameters that change the content of a query view.
 
-    Instances are hashable so :class:`~edurec.datasets.adapters.base.DataAdapter`
+    Instances are hashable so :class:`~edurec.datasets.adapters.base.ModelDataAdapter`
     can memoise views by content. ``random_state`` only affects negative
     sampling; it never changes splits or labels. ``use_histories=None`` derives
     the setting from the data: histories are only meaningful when a chronology

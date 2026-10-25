@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 
 from edurec import settings
-from edurec.datasets.registry import RawData
+from edurec.datasets.sources.registry import RawData
 from edurec.recsys.configs import ModelConfig
 
 

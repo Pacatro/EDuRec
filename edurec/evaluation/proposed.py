@@ -3,7 +3,7 @@ from pathlib import Path
 import pandas as pd
 
 from edurec import settings
-from edurec.datasets import ElearningDataModule
+from edurec.datasets import ElearningDataModule, ProposedAdapter
 from edurec.recsys import ModelConfig, RecSys, arch_label, train_model
 from edurec.recsys.configs import TrainConfig
 
@@ -22,7 +22,7 @@ def eval_model(
     label = arch_label(cfg)
     recsys = RecSys(
         cfg=cfg,
-        knowledge_graph=dm.adapter.knowledge_graph,
+        knowledge_graph=dm.require_adapter(ProposedAdapter).knowledge_graph,
         i_static_feats=dm.data.i_static_feats,
         u_static_feats=dm.data.u_static_feats,
         u_cat_feats=dm.data.u_cat_feats,

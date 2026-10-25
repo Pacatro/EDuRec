@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 from edurec import settings
-from edurec.datasets.registry import DatasetName
+from edurec.datasets.sources.registry import DatasetName
 
 #: Schema version of the persisted processed data. Bump when the layout or the
 #: meaning of any stored artefact changes.

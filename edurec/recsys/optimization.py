@@ -15,7 +15,7 @@ from lightning.pytorch.loggers import MLFlowLogger
 from torch_geometric.data import HeteroData
 
 from edurec import settings
-from edurec.datasets import ElearningDataModule
+from edurec.datasets import ElearningDataModule, ProposedAdapter
 from edurec.recsys.configs import ModelArch, ModelConfig, TrainConfig
 from edurec.recsys.recsys import RecSys
 from edurec.recsys.training import train_model
@@ -276,7 +276,7 @@ def optimize_model(
         batch_size=dm.batch_size,
     )
 
-    knowledge_graph = dm.adapter.knowledge_graph
+    knowledge_graph = dm.require_adapter(ProposedAdapter).knowledge_graph
     storage = None
     callbacks = None
 

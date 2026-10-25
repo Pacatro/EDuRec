@@ -9,8 +9,12 @@ from edurec.datasets import (
     DataConfig,
     DatasetName,
     ElearningDataModule,
+    ProposedAdapter,
 )
-from edurec.datasets.features.tabular import categorical_cardinalities, feature_columns
+from edurec.datasets.preprocessing.tabular import (
+    categorical_cardinalities,
+    feature_columns,
+)
 from edurec.recsys import ModelArch, ModelConfig
 
 
@@ -144,7 +148,8 @@ def build_config(
     **overrides: Any,
 ) -> ModelConfig:
     data = dm.data
-    interaction_features = dm.adapter.interaction_features
+    adapter = dm.require_adapter(ProposedAdapter)
+    interaction_features = adapter.interaction_features
     dataset_config = {
         "num_users": data.num_users,
         "num_items": data.num_items,
@@ -155,8 +160,12 @@ def build_config(
         "num_interaction_dense_feats": len(interaction_features.dense_cols),
         "user_cat_cardinalities": categorical_cardinalities(data.transforms["users"]),
         "interaction_cat_cardinalities": interaction_features.cat_cardinalities,
-        "kg_node_counts": dm.adapter.kg_node_counts,
-        "kg_edge_types": [list(edge) for edge in dm.adapter.kg_edge_types],
+        "kg_node_counts": {
+            node: adapter.knowledge_graph[node].num_nodes
+            for node in adapter.knowledge_graph.node_types
+            if node not in {"user", "item"}
+        },
+        "kg_edge_types": [list(edge) for edge in adapter.knowledge_graph.edge_types],
         "has_history": dm.has_history,
     }
     overrides = {key: value for key, value in overrides.items() if value is not None}
@@ -183,8 +192,8 @@ def print_data_summary(prefix: str, dm: ElearningDataModule) -> None:
         f"[{prefix}] Splits: "
         + ", ".join(f"{split}={size:,}" for split, size in split_sizes.items())
     )
-    if not data.is_explicit:
-        negatives = dm.train_ds.negative_item_ids
+    if not data.is_explicit and isinstance(dm.adapter, ProposedAdapter):
+        negatives = dm.adapter.dataset("train").negative_item_ids
         print(
             f"[{prefix}] Train negatives: "
             f"{settings.TRAIN_NEGATIVES_PER_POSITIVE} per positive "

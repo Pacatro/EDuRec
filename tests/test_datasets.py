@@ -3,12 +3,12 @@ import pytest
 import torch
 
 from edurec import settings
-from edurec.datasets.adapters.queries import build_histories
-from edurec.datasets.pipeline.prepare import (
+from edurec.datasets.preprocessing.prepare import (
     deduplicate_interactions,
     filter_sparse,
 )
-from edurec.datasets.pipeline.splits import split_data
+from edurec.datasets.preprocessing.splits import split_data
+from edurec.datasets.queries import build_histories
 from edurec.datasets.torch_data import RecSysDataset
 
 

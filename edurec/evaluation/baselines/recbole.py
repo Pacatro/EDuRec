@@ -16,7 +16,6 @@ from recbole.data import create_dataset, data_preparation
 from recbole.data.interaction import Interaction
 from recbole.model.abstract_recommender import AbstractRecommender
 from recbole.utils import (
-    InputType,
     ModelType,
     get_model,
     get_trainer,
@@ -26,11 +25,9 @@ from recbole.utils import (
 from torch import nn
 
 from edurec import settings
-from edurec.datasets import ElearningDataModule, RecSysQuery
-from edurec.datasets.adapters.recbole import (
-    BENCHMARK_SPLITS,
-    SEQUENTIAL_BENCHMARK_SPLITS,
-)
+from edurec.datasets import ElearningDataModule
+from edurec.datasets.adapters import create_adapter
+from edurec.datasets.adapters.recbole import BENCHMARK_SPLITS, RecBoleAdapter
 from edurec.recsys.ranking import build_ranking_metrics, update_ranking_metrics
 
 
@@ -72,11 +69,6 @@ def eval_recbole_baselines(
     atomic_dataset_dir = dm.atomic_folder
     dm.setup(stage="test")
 
-    needs_sequential = dm.data.has_temporal_order and any(
-        _is_sequential_model(model) for model in models
-    )
-    dm.export_recbole(mode="sequential" if needs_sequential else "general")
-
     base_config = _build_config_dict(
         data_root=atomic_dataset_dir.parent,
         epochs=epochs,
@@ -97,14 +89,21 @@ def eval_recbole_baselines(
             )
             continue
 
+        adapter = create_adapter(f"recbole:{model}", dm.data, dm.query_config)
+        if not isinstance(adapter, RecBoleAdapter):
+            raise TypeError("RecBole model adapters must extend RecBoleAdapter.")
+        adapter.prepare("fit")
+        adapter.export(atomic_dataset_dir, dataset_name=dataset_name)
+
         print(f"[EVAL] Evaluating {model}...")
 
         metrics, training_time, inference_time = _run_model(
             model=model,
             dataset_name=dataset_name,
             cfg_path=cfg_path,
-            config_dict=_config_for_model(model, base_config, dm.max_history),
+            config_dict=adapter.configure(model, base_config),
             dm=dm,
+            adapter=adapter,
             adaptive_k=adaptive_k,
         )
 
@@ -127,6 +126,7 @@ def _run_model(
     cfg_path: Path | None,
     config_dict: dict[str, object],
     dm: ElearningDataModule,
+    adapter: RecBoleAdapter,
     adaptive_k: bool,
 ) -> tuple[dict[str, Any], float, float]:
     """Run RecBole's training and evaluation stages.
@@ -150,6 +150,7 @@ def _run_model(
             cfg_path,
             run_config,
             dm,
+            adapter,
             adaptive_k,
         )
 
@@ -160,6 +161,7 @@ def _fit_and_evaluate_model(
     cfg_path: Path | None,
     config_dict: dict[str, object],
     dm: ElearningDataModule,
+    adapter: RecBoleAdapter,
     adaptive_k: bool,
 ) -> tuple[dict[str, Any], float, float]:
     config = Config(
@@ -218,6 +220,7 @@ def _fit_and_evaluate_model(
             trainer=trainer,
             dataset=train_data._dataset,
             dm=dm,
+            adapter=adapter,
             config=config,
             adaptive_k=adaptive_k,
         )
@@ -248,6 +251,7 @@ def _evaluate_common_queries(
     trainer: Any,
     dataset: Any,
     dm: ElearningDataModule,
+    adapter: RecBoleAdapter,
     config: Config,
     adaptive_k: bool,
 ) -> dict[str, float]:
@@ -256,29 +260,11 @@ def _evaluate_common_queries(
     topks = list(cast(list[int], config["topk"]))
     metrics = build_ranking_metrics(topks, adaptive_k=adaptive_k).to(device)
 
-    user_lookup = _token_lookup(
-        dataset,
-        field=settings.USER_COL,
-        size=dm.data.num_users,
-        device=device,
-    )
-    item_lookup = _token_lookup(
-        dataset,
-        field=settings.ITEM_COL,
-        size=dm.data.num_items,
-        device=device,
-    )
-    is_sequential = cast(ModelType, config["MODEL_TYPE"]) == ModelType.SEQUENTIAL
+    adapter.prepare("test")
+    adapter.bind_catalog(dataset, device)
 
-    for batch in dm.test_dataloader():
-        interaction = _query_interaction(
-            batch=batch,
-            dataset=dataset,
-            user_lookup=user_lookup,
-            item_lookup=item_lookup,
-            is_sequential=is_sequential,
-            device=device,
-        )
+    for batch in dm.evaluation_dataloader():
+        interaction = adapter.evaluation_input(batch)
         recbole_scores = _full_sort_scores(
             model=model,  # type: ignore
             trainer=trainer,
@@ -286,7 +272,7 @@ def _evaluate_common_queries(
             interaction=interaction,
             device=device,
         )
-        scores = recbole_scores.index_select(1, item_lookup)
+        scores = adapter.canonical_scores(recbole_scores)
 
         update_ranking_metrics(
             metrics=metrics,
@@ -302,45 +288,6 @@ def _evaluate_common_queries(
         name: float(value.detach().cpu().item())
         for name, value in metrics.compute().items()
     }
-
-
-def _token_lookup(
-    dataset: Any,
-    field: str,
-    size: int,
-    device: torch.device,
-) -> torch.Tensor:
-    """Map KGSeq's contiguous IDs to RecBole's internal token IDs."""
-    tokens = [str(idx) for idx in range(size)]
-    try:
-        internal_ids = dataset.token2id(field, tokens)
-    except ValueError as error:
-        raise RuntimeError(
-            f"RecBole dataset does not contain the full {field} catalog."
-        ) from error
-    return torch.as_tensor(internal_ids, dtype=torch.long, device=device)
-
-
-def _query_interaction(
-    batch: RecSysQuery,
-    dataset: Any,
-    user_lookup: torch.Tensor,
-    item_lookup: torch.Tensor,
-    is_sequential: bool,
-    device: torch.device,
-) -> Interaction:
-    user_ids = user_lookup[batch.user_id.to(device).long()]
-    values: dict[str, torch.Tensor] = {settings.USER_COL: user_ids}
-
-    if is_sequential:
-        history_mask = batch.history_valid_mask.to(device).bool()
-        external_history = batch.history_items.to(device).long() - 1
-        internal_history = torch.zeros_like(external_history)
-        internal_history[history_mask] = item_lookup[external_history[history_mask]]
-        values[f"{settings.ITEM_COL}_list"] = internal_history
-        values["item_length"] = history_mask.sum(dim=1).long()
-
-    return dataset.join(Interaction(values))
 
 
 def _full_sort_scores(
@@ -381,54 +328,6 @@ def _is_sequential_model(model: str) -> bool:
     """Whether the RecBole model requires a time-ordered interaction list."""
     model_class = get_model(model)
     return getattr(model_class, "type", None) == ModelType.SEQUENTIAL
-
-
-def _config_for_model(
-    model: str,
-    base_config: dict[str, object],
-    max_history: int,
-) -> dict[str, object]:
-    """Adapt the base configuration to a specific RecBole model."""
-    config = dict(base_config)
-
-    model_class = get_model(model)
-    model_type = getattr(model_class, "type", None)
-    input_type = getattr(model_class, "input_type", None)
-
-    if model_type == ModelType.SEQUENTIAL:
-        item_list_field = f"{settings.ITEM_COL}_list"
-        config.update(
-            {
-                "benchmark_filename": list(SEQUENTIAL_BENCHMARK_SPLITS),
-                "load_col": {
-                    "inter": [settings.USER_COL, settings.ITEM_COL, item_list_field],
-                    "user": [settings.USER_COL],
-                    "item": [settings.ITEM_COL],
-                },
-                "ITEM_LIST_LENGTH_FIELD": "item_length",
-                "LIST_SUFFIX": "_list",
-                "MAX_ITEM_LIST_LENGTH": max_history,
-                "alias_of_item_id": [item_list_field],
-                "train_neg_sample_args": None,
-            }
-        )
-
-        return config
-
-    config["train_neg_sample_args"] = _negative_sampling_config(input_type)
-    return config
-
-
-def _negative_sampling_config(input_type: InputType | None) -> dict[str, object] | None:
-    if input_type not in {InputType.PAIRWISE, InputType.POINTWISE}:
-        return None
-    return {
-        "distribution": "uniform",
-        "sample_num": 1,
-        "alpha": 1.0,
-        "dynamic": False,
-        "candidate_num": 0,
-    }
 
 
 def _recbole_gpu_id() -> str:

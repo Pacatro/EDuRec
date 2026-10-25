@@ -5,8 +5,8 @@ import numpy as np
 import pandas as pd
 
 from edurec import settings
-from edurec.datasets.registry import DatasetName, DatasetSpec, RawData
 from edurec.datasets.sources.common import ensure_files
+from edurec.datasets.sources.registry import DatasetName, DatasetSpec, RawData
 
 FOLDER = DatasetName.COCO.value
 

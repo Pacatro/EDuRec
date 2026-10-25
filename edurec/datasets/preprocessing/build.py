@@ -5,28 +5,28 @@ import pandas as pd
 from edurec import settings
 from edurec.datasets.cache import ProcessedData
 from edurec.datasets.config import DataConfig, SplitStrategy
-from edurec.datasets.features.ids import encode_ids
-from edurec.datasets.features.lists import normalize_lists
-from edurec.datasets.features.tabular import (
+from edurec.datasets.preprocessing.ids import encode_ids
+from edurec.datasets.preprocessing.lists import normalize_lists
+from edurec.datasets.preprocessing.prepare import (
+    clean_cols,
+    deduplicate_interactions,
+    filter_sparse,
+    limit_interactions,
+)
+from edurec.datasets.preprocessing.splits import (
+    add_relevance,
+    get_relevance_threshold,
+    split_data,
+)
+from edurec.datasets.preprocessing.tabular import (
     categorical_tensor,
     dense_tensor,
     fit_tabular,
     resolve_schema,
     transform_features,
 )
-from edurec.datasets.features.text import encode_graph_text
-from edurec.datasets.pipeline.prepare import (
-    clean_cols,
-    deduplicate_interactions,
-    filter_sparse,
-    limit_interactions,
-)
-from edurec.datasets.pipeline.splits import (
-    add_relevance,
-    get_relevance_threshold,
-    split_data,
-)
-from edurec.datasets.registry import RawData, Schema
+from edurec.datasets.preprocessing.text import encode_graph_text
+from edurec.datasets.sources.registry import RawData, Schema
 
 
 @dataclass(frozen=True)

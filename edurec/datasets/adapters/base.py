@@ -1,42 +1,50 @@
-"""The single facade every consumer uses to read processed data.
+"""Contract for model-specific data preparation, independent of training."""
 
-:class:`DataAdapter` exposes lazy, cached views over one canonical
-:class:`~edurec.datasets.cache.ProcessedData`. It transforms existing data; it
-never changes interactions, labels or splits, and every collaborative view is
-built from the TRAIN split only.
-
-Memoised views are shared read-only objects: do not mutate returned frames,
-tensors or graphs in place. Views are keyed by their content (view name, split
-and the :class:`~edurec.datasets.adapters.queries.QueryConfig` fields), so a
-different history length or negative policy never reuses another view.
-"""
-
+from abc import ABC, abstractmethod
+from collections.abc import Callable
+from dataclasses import dataclass
 from functools import cached_property
-from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
 import torch
-from torch_geometric.data import HeteroData
+from torch.utils.data import Dataset
 
-from edurec.datasets.adapters import graphs, queries, recbole
-from edurec.datasets.adapters.queries import InteractionFeatureTables, QueryConfig
+from edurec.datasets import queries
 from edurec.datasets.cache import ProcessedData
-from edurec.datasets.pipeline.splits import SPLIT_ORDER
-from edurec.datasets.torch_data import RecSysDataset
+from edurec.datasets.preprocessing.splits import SPLIT_ORDER
+from edurec.datasets.queries import (
+    InteractionFeatureTables,
+    QueryConfig,
+)
+from edurec.datasets.torch_data import RecSysDataset, RecSysQuery
 
 
-class DataAdapter:
-    """Read-only views over ``data``.
+@dataclass(frozen=True)
+class AdapterMetadata:
+    num_users: int
+    num_items: int
+    has_temporal_order: bool
 
-    Construction is cheap: graphs, histories and atomic files are built on
-    first request and then memoised. ``data`` must already be prepared; use
-    :class:`~edurec.datasets.ElearningDataModule` to build or load it.
+
+class ModelDataAdapter[Sample, ModelInput](ABC):
+    """Model-specific structures over canonical data and a fixed evaluation protocol.
+
+    Subclasses may return any map-style dataset and build arbitrary structures.
+    Collaborative structures must use train only; query inputs must never use
+    the target or future events. Cached structures must not be mutated in place.
+    Training, checkpoints and score computation belong to the model integration.
     """
 
-    def __init__(self, data: ProcessedData):
+    requires_temporal_order = False
+    collate_fn: Callable[[list[Sample]], Any] | None = None
+
+    def __init__(self, data: ProcessedData, config: QueryConfig | None = None):
         self.data = data
+        self.config = config or QueryConfig()
+        if self.requires_temporal_order and not data.has_temporal_order:
+            raise ValueError(f"{type(self).__name__} requires chronological histories.")
         self._queries: dict[tuple[str, QueryConfig], RecSysDataset] = {}
         self._histories_cache: dict[
             QueryConfig, dict[str, tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
@@ -44,8 +52,33 @@ class DataAdapter:
         self._negative_cache: dict[QueryConfig, np.ndarray | None] = {}
 
     @property
-    def dataset_name(self) -> str:
-        return self.data.dataset_name
+    def metadata(self) -> AdapterMetadata:
+        return AdapterMetadata(
+            self.data.num_users, self.data.num_items, self.data.has_temporal_order
+        )
+
+    def prepare(self, stage: str | None = None) -> None:
+        """Optionally build model structures for fit, validate, test or predict.
+
+        Implementations must support repeated calls without changing splits.
+        Structures can also be built lazily in ``dataset`` or ``evaluation_input``.
+        """
+
+    @abstractmethod
+    def dataset(self, split: str) -> Dataset[Sample]:
+        """Return model-specific samples for an existing canonical split."""
+
+    def evaluation_queries(self, split: str = "test") -> RecSysDataset:
+        """Common targets and histories; independent of training batch format."""
+        return self.get_queries(split)
+
+    @abstractmethod
+    def evaluation_input(self, query: RecSysQuery) -> ModelInput:
+        """Convert a common query batch to inputs, preserving its row order.
+
+        The integration must return scores of shape [batch, num_items] in
+        canonical item-ID order before passing them to the shared metrics.
+        """
 
     @cached_property
     def relevant_splits(self) -> dict[str, pd.DataFrame]:
@@ -59,39 +92,6 @@ class DataAdapter:
             self.relevant_splits, self.data.transforms["inter"]
         )
 
-    @cached_property
-    def knowledge_graph(self) -> HeteroData:
-        """Static item knowledge graph (``HeteroData``), never user-item edges."""
-        return graphs.build_knowledge_graph(
-            self.data.item_features,
-            self.data.i_static_feats,
-            self.data.schema["items"],
-            self.data.graph_node_features,
-        )
-
-    @cached_property
-    def bipartite_graph(self) -> torch.Tensor:
-        """``(user, item)`` ``edge_index`` of shape ``[2, edges]`` from TRAIN only.
-
-        Repeated events are preserved so models that weigh repetition keep the
-        exact processed input.
-        """
-        return graphs.build_bipartite_graph(self.relevant_splits["train"])
-
-    @cached_property
-    def kg_node_counts(self) -> dict[str, int]:
-        graph = self.knowledge_graph
-
-        return {
-            node: graph[node].num_nodes
-            for node in graph.node_types
-            if node not in {"user", "item"}
-        }
-
-    @cached_property
-    def kg_edge_types(self) -> list[tuple[str, str, str]]:
-        return list(self.knowledge_graph.edge_types)
-
     def get_queries(
         self,
         split: str = "train",
@@ -99,52 +99,12 @@ class DataAdapter:
     ) -> RecSysDataset:
         """``RecSysDataset`` with strictly-past history and optional train negatives."""
         _check_split(split)
-        query_config = config or QueryConfig()
+        query_config = config or self.config
         key = (split, query_config)
         if key not in self._queries:
             self._queries[key] = self._build_queries(split, query_config)
 
         return self._queries[key]
-
-    def export_recbole(
-        self,
-        output_dir: Path,
-        mode: str = "general",
-        dataset_name: str | None = None,
-        config: QueryConfig | None = None,
-    ) -> dict[str, Path]:
-        """Write RecBole atomic files for the processed splits.
-
-        ``mode="general"`` writes the interaction, user and item files.
-        ``mode="sequential"`` also writes the prebuilt ``*_seq`` benchmark
-        splits, which require chronological histories. The exporter never
-        rebuilds splits, positives or negatives.
-        """
-        if mode not in {"general", "sequential"}:
-            raise ValueError("mode must be 'general' or 'sequential'.")
-        if mode == "sequential" and not self.data.has_temporal_order:
-            raise ValueError("Sequential atomic files require chronological histories.")
-        if dataset_name is None:
-            dataset_name = self.dataset_name
-        if not dataset_name:
-            raise ValueError(
-                "dataset_name is required when the processed data has no manifest."
-            )
-
-        atomic_files = recbole.export_atomic_files(self.data, dataset_name, output_dir)
-        if mode == "general":
-            return atomic_files
-
-        query_config = config or QueryConfig()
-        views = {
-            export_name: self.get_queries(split, config=query_config)
-            for export_name, split in recbole.SEQUENTIAL_SPLIT_SOURCES.items()
-        }
-        atomic_files.update(
-            recbole.export_sequential_benchmark(views, dataset_name, output_dir)
-        )
-
-        return atomic_files
 
     def _build_queries(self, split: str, config: QueryConfig) -> RecSysDataset:
         history_items, history_mask, history_context = self._histories(config)[split]

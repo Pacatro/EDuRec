@@ -15,7 +15,7 @@ from edurec.datasets import (
     DatasetName,
     ElearningDataModule,
 )
-from edurec.datasets.features.tabular import categorical_cardinalities
+from edurec.datasets.preprocessing.tabular import categorical_cardinalities
 
 
 def main() -> None:

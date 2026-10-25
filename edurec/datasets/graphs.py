@@ -38,8 +38,8 @@ from torch_geometric.data import HeteroData
 from torch_geometric.utils import coalesce, remove_self_loops
 
 from edurec import settings
-from edurec.datasets.features.lists import graph_field_kinds
-from edurec.datasets.features.parsing import (
+from edurec.datasets.preprocessing.lists import graph_field_kinds
+from edurec.datasets.preprocessing.parsing import (
     coerce_list_tokens,
     normalize_label,
     single_token,

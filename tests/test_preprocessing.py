@@ -7,11 +7,12 @@ import torch
 from torch.utils.data import DataLoader
 
 from edurec import settings
-from edurec.datasets import DataAdapter, DataConfig, DatasetName
-from edurec.datasets.adapters.queries import QueryConfig
+from edurec.datasets import DataConfig, DatasetName, ProposedAdapter
+from edurec.datasets.adapters.recbole import RecBoleAdapter
 from edurec.datasets.cache import ProcessedData
-from edurec.datasets.features import text
-from edurec.datasets.pipeline.build import build_processed
+from edurec.datasets.preprocessing import text
+from edurec.datasets.preprocessing.build import build_processed
+from edurec.datasets.queries import QueryConfig
 from edurec.recsys import RecSys
 from edurec.recsys.configs import ModelArch, TrainConfig
 from scripts.common import build_config
@@ -111,7 +112,7 @@ def test_raw_features_reach_graph_torch_queries_and_models(
         "scaler"
     ].data_max_.tolist() == [10.0]
 
-    adapter = DataAdapter(loaded)
+    adapter = ProposedAdapter(loaded)
     graph = adapter.knowledge_graph
     assert graph["attr::concept"].node_ids == ["python"]
     assert graph["attr::concept"].x.shape == (1, settings.TEXT_EMBEDDING_DIM)
@@ -152,8 +153,8 @@ def test_raw_features_reach_graph_torch_queries_and_models(
     scores.square().mean().backward()
     assert module.model.item_embeddings().requires_grad
 
-    paths = adapter.export_recbole(
-        tmp_path / "recbole", dataset_name="fixture", mode="sequential"
+    paths = RecBoleAdapter(loaded, sequential=True).export_files(
+        tmp_path / "recbole", dataset_name="fixture"
     )
     exported = pd.read_csv(paths["item"], sep="\t")
     assert exported[f"{settings.ITEM_COL}:token"].tolist() == list(range(4))

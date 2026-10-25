@@ -6,8 +6,8 @@ import pytest
 
 from edurec import settings
 from edurec.datasets import DataConfig, DatasetName
-from edurec.datasets.pipeline.build import build_processed
-from edurec.datasets.pipeline.prepare import limit_interactions
+from edurec.datasets.preprocessing.build import build_processed
+from edurec.datasets.preprocessing.prepare import limit_interactions
 from edurec.datasets.sources import mooccubex
 
 

@@ -11,9 +11,9 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import MinMaxScaler, OrdinalEncoder
 
 from edurec import settings
-from edurec.datasets.features import text
-from edurec.datasets.features.parsing import is_missing
-from edurec.datasets.registry import Schema
+from edurec.datasets.preprocessing import text
+from edurec.datasets.preprocessing.parsing import is_missing
+from edurec.datasets.sources.registry import Schema
 
 FEATURE_TYPES = {"num": "numeric", "cat": "categorical", "list": "list", "text": "text"}
 RESERVED_COLUMNS = {

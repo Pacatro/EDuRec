@@ -2,7 +2,7 @@ import pandas as pd
 
 from edurec import settings
 from edurec.datasets import DataConfig, DatasetName
-from edurec.datasets.pipeline.build import build_processed
+from edurec.datasets.preprocessing.build import build_processed
 
 
 def test_build_preserves_disconnected_groups(raw_communities):

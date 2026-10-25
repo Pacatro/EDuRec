@@ -6,12 +6,12 @@ import pytest
 import torch
 
 from edurec import settings
-from edurec.datasets import DataAdapter, DataConfig, DatasetName
-from edurec.datasets.adapters import graphs, queries
-from edurec.datasets.adapters.queries import QueryConfig
+from edurec.datasets import DataConfig, DatasetName, ProposedAdapter, graphs, queries
+from edurec.datasets.adapters.recbole import RecBoleAdapter
 from edurec.datasets.cache import ProcessedData
-from edurec.datasets.pipeline.build import build_processed
-from edurec.datasets.registry import RawData
+from edurec.datasets.preprocessing.build import build_processed
+from edurec.datasets.queries import QueryConfig
+from edurec.datasets.sources.registry import RawData
 
 DATA_DEFAULTS = {
     "test_ratio": 0.2,
@@ -37,7 +37,7 @@ def processed(raw_communities):
 
 @pytest.fixture
 def adapter(processed):
-    return DataAdapter(processed)
+    return ProposedAdapter(processed)
 
 
 @pytest.fixture
@@ -62,7 +62,7 @@ def implicit_adapter():
         ),
         schema={"items": {"graph_list": ["concept"]}},
     )
-    return DataAdapter(build_processed(raw, make_config()).data)
+    return ProposedAdapter(build_processed(raw, make_config()).data)
 
 
 def test_processed_data_requires_every_data_field():
@@ -71,7 +71,7 @@ def test_processed_data_requires_every_data_field():
 
 
 def test_bipartite_graph_uses_train_pairs_only(adapter):
-    edge_index = adapter.bipartite_graph
+    edge_index = graphs.build_bipartite_graph(adapter.relevant_splits["train"])
     train = adapter.relevant_splits["train"]
 
     expected = train[[settings.USER_COL, settings.ITEM_COL]].to_numpy(dtype=np.int64).T
@@ -151,10 +151,9 @@ def test_explicit_feedback_has_no_negatives(adapter):
     assert dataset.negative_item_ids.numel() == 0
 
 
-def test_views_are_memoised_by_content(adapter):
+def test_adapter_structures_are_memoised_by_content(adapter):
     assert adapter.get_queries("train") is adapter.get_queries("train")
     assert adapter.knowledge_graph is adapter.knowledge_graph
-    assert adapter.bipartite_graph is adapter.bipartite_graph
     assert adapter.get_queries(
         "train", config=QueryConfig(max_history=2)
     ) is not adapter.get_queries("train")
@@ -197,7 +196,7 @@ def test_manifest_checks_seed_for_random_splits():
 
 
 def test_recbole_general_export_matches_processed_splits(adapter, tmp_path):
-    paths = adapter.export_recbole(tmp_path, dataset_name="coco", mode="general")
+    paths = RecBoleAdapter(adapter.data).export_files(tmp_path, dataset_name="coco")
     train = adapter.relevant_splits["train"]
     rows = pd.read_csv(paths["train.inter"], sep="\t")
 
@@ -213,8 +212,8 @@ def test_recbole_general_export_matches_processed_splits(adapter, tmp_path):
 
 def test_recbole_sequential_export_matches_query_histories(adapter, tmp_path):
     config = QueryConfig(max_history=3, random_state=42)
-    paths = adapter.export_recbole(
-        tmp_path, dataset_name="coco", mode="sequential", config=config
+    paths = RecBoleAdapter(adapter.data, config, sequential=True).export_files(
+        tmp_path, dataset_name="coco"
     )
     frame = pd.read_csv(paths["test_seq"], sep="\t", keep_default_na=False)
     dataset = adapter.get_queries("test", config=config)
@@ -244,6 +243,4 @@ def test_sequential_export_requires_temporal_history(implicit_adapter, tmp_path)
     )
 
     with pytest.raises(ValueError, match="chronological"):
-        DataAdapter(raw).export_recbole(
-            tmp_path, dataset_name="coco", mode="sequential"
-        )
+        RecBoleAdapter(raw, sequential=True)

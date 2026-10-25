@@ -1,30 +1,30 @@
 """Lightning data module: assemble queries and data loaders.
 
-All data views (interaction context, histories, negatives, knowledge graph and
-RecBole exports) come from :class:`~edurec.datasets.adapters.DataAdapter`. This
-module only builds/loads the canonical ``ProcessedData``, validates the cache
-manifest and serves ``DataLoader`` instances.
+Build/load canonical data and delegate input preparation to a model adapter. The
+selected adapter supplies model-specific datasets; evaluation queries retain a
+common protocol regardless of the training sample format.
 """
 
 import warnings
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import lightning as L
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 from edurec import settings
-from edurec.datasets.adapters import DataAdapter
-from edurec.datasets.adapters.queries import QueryConfig
-from edurec.datasets.cache import ProcessedData, replace_folder
+from edurec.datasets.adapters import ModelDataAdapter, create_adapter
+from edurec.datasets.cache import ProcessedData
 from edurec.datasets.config import DataConfig
-from edurec.datasets.pipeline.build import (
+from edurec.datasets.preprocessing.build import (
     BuildResult,
     build_processed,
     split_strategy_for,
 )
-from edurec.datasets.registry import download_raw_data, load_raw_data
-from edurec.datasets.torch_data import RecSysDataset
+from edurec.datasets.queries import QueryConfig
+from edurec.datasets.sources.registry import download_raw_data, load_raw_data
 
 
 class ElearningDataModule(L.LightningDataModule):
@@ -35,6 +35,7 @@ class ElearningDataModule(L.LightningDataModule):
         use_processed_data: bool = False,
         max_history: int = settings.MAX_HISTORY_LEN,
         persistent_workers: bool = True,
+        adapter_name: str = "proposed",
     ):
         super().__init__()
         # Lightning rejects frozen dataclasses when it serialises hparams for
@@ -46,6 +47,7 @@ class ElearningDataModule(L.LightningDataModule):
                 "use_processed_data": use_processed_data,
                 "max_history": max_history,
                 "persistent_workers": persistent_workers,
+                "adapter_name": adapter_name,
             }
         )
         self.config = config
@@ -54,13 +56,14 @@ class ElearningDataModule(L.LightningDataModule):
         self.max_history = max_history
         self.persistent_workers = persistent_workers
         self.data_variant = config.dataset.value
+        self.adapter_name = adapter_name
 
         self.processed_folder = Path(settings.PROCESSED_FOLDER) / self.data_variant
         self.atomic_folder = Path(settings.ATOMICFILES_FOLDER) / self.data_variant
 
         self._data: ProcessedData | None = None
         self._build_result: BuildResult | None = None
-        self._adapter: DataAdapter | None = None
+        self._adapter: ModelDataAdapter[Any, Any] | None = None
 
     @property
     def data(self) -> ProcessedData:
@@ -77,11 +80,25 @@ class ElearningDataModule(L.LightningDataModule):
         return self._build_result
 
     @property
-    def adapter(self) -> DataAdapter:
-        """Lazy facade over the processed artifacts."""
+    def adapter(self) -> ModelDataAdapter[Any, Any]:
+        """Adapter selected by name, instantiated once after data preparation."""
         if self._adapter is None:
-            self._adapter = DataAdapter(self.data)
+            self._adapter = create_adapter(
+                self.adapter_name, self.data, self.query_config
+            )
         return self._adapter
+
+    def require_adapter[T: ModelDataAdapter[Any, Any]](
+        self, adapter_type: type[T]
+    ) -> T:
+        """Get model-specific structures, rejecting an incompatible integration."""
+        adapter = self.adapter
+        if not isinstance(adapter, adapter_type):
+            raise TypeError(
+                f"This integration requires {adapter_type.__name__}, "
+                f"got {type(adapter).__name__}."
+            )
+        return adapter
 
     @property
     def query_config(self) -> QueryConfig:
@@ -102,29 +119,17 @@ class ElearningDataModule(L.LightningDataModule):
     def setup(self, stage: str | None = None):
         self._ensure_data()
 
-        config = self.query_config
+        adapter = self.adapter
+        adapter.prepare(stage)
         if stage in ("fit", None):
-            self.train_ds = self.adapter.get_queries("train", config=config)
-            self.val_ds = self.adapter.get_queries("val", config=config)
+            self.train_ds = adapter.dataset("train")
+            self.val_ds = adapter.dataset("val")
+        if stage == "validate":
+            self.val_ds = adapter.dataset("val")
         if stage in ("test", None):
-            self.test_ds = self.adapter.get_queries("test", config=config)
-
-    def export_recbole(self, mode: str = "general") -> dict[str, Path]:
-        """Write RecBole atomic files for the current processed data.
-
-        ``mode="sequential"`` also writes the prebuilt ``*_seq`` benchmark
-        splits. The folder is replaced atomically, so a failure leaves the
-        previous export untouched.
-        """
-        return replace_folder(
-            self.atomic_folder,
-            lambda staging: self.adapter.export_recbole(
-                staging,
-                mode=mode,
-                dataset_name=self.data_variant,
-                config=self.query_config,
-            ),
-        )
+            self.test_ds = adapter.dataset("test")
+        if stage == "predict":
+            self.predict_ds = adapter.dataset("test")
 
     def validate_topks(self, topks: list[int]) -> None:
         """Reject impossible ranking cutoffs before any model is trained."""
@@ -193,38 +198,53 @@ class ElearningDataModule(L.LightningDataModule):
 
     def _dataloader(
         self,
-        dataset: RecSysDataset,
+        dataset: Dataset[Any],
         shuffle: bool,
+        collate_fn: Callable | None = None,
     ) -> DataLoader:
         return DataLoader(
             dataset,
             batch_size=self.batch_size,
             num_workers=settings.NUM_WORKERS,
             shuffle=shuffle,
+            collate_fn=collate_fn,
             persistent_workers=self.persistent_workers and settings.NUM_WORKERS > 0,
             generator=self._data_generator() if shuffle else None,
         )
 
     def train_dataloader(self) -> DataLoader:
-        return self._dataloader(self.train_ds, shuffle=True)
+        return self._dataloader(
+            self.train_ds, shuffle=True, collate_fn=self.adapter.collate_fn
+        )
 
     def val_dataloader(self) -> DataLoader:
-        return self._dataloader(self.val_ds, shuffle=False)
+        return self._dataloader(
+            self.val_ds, shuffle=False, collate_fn=self.adapter.collate_fn
+        )
 
     def test_dataloader(self) -> DataLoader:
-        return self._dataloader(self.test_ds, shuffle=False)
+        return self._dataloader(
+            self.test_ds, shuffle=False, collate_fn=self.adapter.collate_fn
+        )
 
     @property
     def is_processed(self) -> bool:
         return self._data is not None
 
+    def predict_dataloader(self) -> DataLoader:
+        return self._dataloader(
+            self.predict_ds, shuffle=False, collate_fn=self.adapter.collate_fn
+        )
+
+    def evaluation_dataloader(self, split: str = "test") -> DataLoader:
+        """Canonical queries, even when training uses a different sample type."""
+        return self._dataloader(
+            self.adapter.get_queries(split, self.query_config), shuffle=False
+        )
+
     @property
     def has_history(self) -> bool:
-        train_ds = getattr(self, "train_ds", None)
-
-        return bool(
-            self.data.has_temporal_order
-            and train_ds is not None
-            and train_ds.history_valid_mask.numel() > 0
-            and train_ds.history_valid_mask.any().item()
-        )
+        if not self.data.has_temporal_order or not hasattr(self, "train_ds"):
+            return False
+        queries = self.adapter.get_queries("train", self.query_config)
+        return bool(queries.history_valid_mask.any().item())

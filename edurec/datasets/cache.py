@@ -13,7 +13,7 @@ from sklearn.compose import ColumnTransformer
 
 from edurec import settings
 from edurec.datasets.config import BuildManifest
-from edurec.datasets.registry import Schema
+from edurec.datasets.sources.registry import Schema
 
 REPORT_FILENAME = "report.json"
 MANIFEST_FILENAME = "manifest.json"

@@ -4,7 +4,7 @@ from typing import Any
 
 import pandas as pd
 
-from edurec.datasets.features.parsing import coerce_list_tokens
+from edurec.datasets.preprocessing.parsing import coerce_list_tokens
 
 
 def normalize_lists(frame: pd.DataFrame, schema: dict[str, Any]) -> pd.DataFrame:

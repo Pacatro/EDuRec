@@ -232,7 +232,9 @@ def test_atomic_files_are_replaced_when_written(make_datamodule, cache_dirs):
 
     dm = make_datamodule()
     dm.setup()
-    dm.export_recbole()
+    from edurec.datasets.adapters.recbole import RecBoleAdapter
+
+    RecBoleAdapter(dm.data, dm.query_config).export(dm.atomic_folder)
 
     assert not stale.exists()
     assert (atomic / "coco.inter").exists()

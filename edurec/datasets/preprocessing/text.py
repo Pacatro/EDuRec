@@ -5,8 +5,8 @@ import numpy as np
 import pandas as pd
 
 from edurec import settings
-from edurec.datasets.features.lists import graph_field_kinds
-from edurec.datasets.features.parsing import (
+from edurec.datasets.preprocessing.lists import graph_field_kinds
+from edurec.datasets.preprocessing.parsing import (
     as_float_array,
     clean_text,
     coerce_list_tokens,

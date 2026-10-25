@@ -1,7 +1,7 @@
 """Temporal/random splits and relevance labels.
 
 Histories, interaction context and negative sampling live in
-:mod:`edurec.datasets.adapters.queries`: they are query views, not part of the
+:mod:`edurec.datasets.queries`: they are query views, not part of the
 preprocessing protocol. Splitting and relevance stay here because they define
 the canonical catalog, labels and partitions.
 """

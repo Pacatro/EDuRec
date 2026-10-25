@@ -4,9 +4,9 @@ import pytest
 import torch
 
 from edurec import settings
-from edurec.datasets.features.ids import encode_ids
-from edurec.datasets.features.lists import normalize_lists
-from edurec.datasets.features.tabular import (
+from edurec.datasets.preprocessing.ids import encode_ids
+from edurec.datasets.preprocessing.lists import normalize_lists
+from edurec.datasets.preprocessing.tabular import (
     categorical_cardinalities,
     categorical_tensor,
     dense_tensor,

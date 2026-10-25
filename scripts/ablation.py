@@ -27,7 +27,7 @@ from common import (
 )
 
 from edurec import settings
-from edurec.datasets import ElearningDataModule
+from edurec.datasets import ElearningDataModule, ProposedAdapter
 from edurec.evaluation.ablation import (
     ABLATIONS,
     ablation_applicable,
@@ -133,7 +133,7 @@ def main() -> None:
             dm.prepare_data()
             dm.setup()
             print_data_summary("ABLATION", dm)
-            knowledge_graph = dm.adapter.knowledge_graph
+            knowledge_graph = dm.require_adapter(ProposedAdapter).knowledge_graph
 
             if run_config_path.exists():
                 print("[ABLATION] Using existing model config file:", run_config_path)
