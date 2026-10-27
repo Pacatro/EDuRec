@@ -4,7 +4,7 @@ from typing import Self, cast
 import torch
 from torch import nn
 
-from edurec.recsys.archs.modules.kg_encoder import EdgeType
+from edurec.recsys.archs.modules import EdgeType
 
 
 class BaseRecArch(nn.Module, ABC):

@@ -8,10 +8,10 @@ from edurec.recsys import (
     EdurecDataAdapter,
     ModelConfig,
     RecSys,
+    TrainConfig,
     arch_label,
     train_model,
 )
-from edurec.recsys.configs import TrainConfig
 
 
 def eval_model(

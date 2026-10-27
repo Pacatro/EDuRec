@@ -13,10 +13,10 @@ from edurec.datasets import (
     DataConfig,
     DatasetName,
     ElearningDataModule,
+    QueryConfig,
     RecSysQuery,
 )
 from edurec.datasets.preprocessing.build import build_processed
-from edurec.datasets.queries import QueryConfig
 from edurec.evaluation.baselines.recbole import RecBoleAdapter
 from edurec.recsys import EdurecDataAdapter
 

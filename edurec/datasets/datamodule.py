@@ -15,9 +15,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 from edurec import settings
-from edurec.datasets.adapter import AdapterFactory, DataAdapter
-from edurec.datasets.cache import ProcessedData
-from edurec.datasets.config import DataConfig
+from edurec.datasets import AdapterFactory, DataAdapter, DataConfig, ProcessedData
 from edurec.datasets.preprocessing.build import (
     BuildResult,
     build_processed,
@@ -96,7 +94,7 @@ class ElearningDataModule(L.LightningDataModule):
         if self._adapter is None:
             factory = self.adapter_factory
             if factory is None:
-                from edurec.recsys.recsys import EdurecDataAdapter
+                from edurec.recsys import EdurecDataAdapter
 
                 factory = EdurecDataAdapter
             self._adapter = factory(self.data, self.query_config)

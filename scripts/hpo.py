@@ -22,8 +22,8 @@ from common import (
 
 from edurec import settings
 from edurec.datasets import ElearningDataModule
-from edurec.recsys import ModelArch, ModelConfig, optimize_model
-from edurec.recsys.configs import TrainConfig, save_run_config
+from edurec.recsys import ModelArch, ModelConfig, TrainConfig, optimize_model
+from edurec.recsys.configs import save_run_config
 
 
 def parse_args() -> argparse.Namespace:

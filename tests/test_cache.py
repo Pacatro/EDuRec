@@ -9,10 +9,10 @@ from edurec.datasets import (
     DataConfig,
     DatasetName,
     ElearningDataModule,
+    ProcessedData,
     datamodule,
 )
 from edurec.datasets import cache as cache_module
-from edurec.datasets.cache import ProcessedData
 
 
 def _unexpected_call(*args, **kwargs):

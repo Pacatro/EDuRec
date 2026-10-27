@@ -6,11 +6,16 @@ import pytest
 import torch
 
 from edurec import settings
-from edurec.datasets import DataConfig, DatasetName, graphs, queries
-from edurec.datasets.cache import ProcessedData
+from edurec.datasets import (
+    DataConfig,
+    DatasetName,
+    ProcessedData,
+    QueryConfig,
+    RawData,
+    graphs,
+    queries,
+)
 from edurec.datasets.preprocessing.build import build_processed
-from edurec.datasets.queries import QueryConfig
-from edurec.datasets.sources.registry import RawData
 from edurec.evaluation.baselines.recbole import RecBoleAdapter
 from edurec.recsys import EdurecDataAdapter
 

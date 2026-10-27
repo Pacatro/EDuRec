@@ -21,16 +21,15 @@ from edurec import settings
 from edurec.datasets import (
     DataAdapter,
     ElearningDataModule,
+    ProcessedData,
+    QueryConfig,
     RecSysQuery,
     graphs,
     queries,
 )
-from edurec.datasets.cache import ProcessedData
-from edurec.datasets.queries import QueryConfig
 from edurec.evaluation.baselines import register_baseline
-from edurec.recsys.configs import TrainConfig
+from edurec.recsys import TrainConfig, train_model
 from edurec.recsys.ranking import build_ranking_metrics, update_ranking_metrics
-from edurec.recsys.training import train_model
 
 
 @dataclass

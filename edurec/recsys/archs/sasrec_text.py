@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 from edurec.recsys.archs.base import BaseRecArch
-from edurec.recsys.archs.modules.seq_encoder import TransformerSeqEncoder
+from edurec.recsys.archs.modules import TransformerSeqEncoder
 from edurec.recsys.configs import ModelConfig
 
 

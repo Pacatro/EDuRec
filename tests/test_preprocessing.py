@@ -7,14 +7,11 @@ import torch
 from torch.utils.data import DataLoader
 
 from edurec import settings
-from edurec.datasets import DataConfig, DatasetName
-from edurec.datasets.cache import ProcessedData
+from edurec.datasets import DataConfig, DatasetName, ProcessedData, QueryConfig
 from edurec.datasets.preprocessing import text
 from edurec.datasets.preprocessing.build import build_processed
-from edurec.datasets.queries import QueryConfig
 from edurec.evaluation.baselines.recbole import RecBoleAdapter
-from edurec.recsys import EdurecDataAdapter, RecSys
-from edurec.recsys.configs import ModelArch, TrainConfig
+from edurec.recsys import EdurecDataAdapter, ModelArch, RecSys, TrainConfig
 from scripts.common import build_config
 
 

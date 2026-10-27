@@ -43,7 +43,6 @@ def arch_label(cfg: ModelConfig) -> str:
 
 
 __all__ = [
-    "ARCHS",
     "ARCH_LABELS",
     "BaseRecArch",
     "KGSeq",

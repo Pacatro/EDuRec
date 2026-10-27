@@ -1,7 +1,7 @@
 from dataclasses import replace
 from typing import Any
 
-from edurec.recsys.configs import ModelArch, ModelConfig
+from edurec.recsys import ModelArch, ModelConfig
 
 # The default ("full") architecture: item KG + GRU, user-profile initial state,
 # interaction context and time gaps, last valid hidden state (no attention),

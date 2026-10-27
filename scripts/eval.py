@@ -34,8 +34,7 @@ from edurec.evaluation import (
     eval_recbole_baselines,
     get_baseline,
 )
-from edurec.recsys import ModelArch, ModelConfig
-from edurec.recsys.archs import ARCH_LABELS
+from edurec.recsys import ARCH_LABELS, ModelArch, ModelConfig
 from edurec.recsys.configs import monitor_topk, resolve_train_config
 from edurec.recsys.ranking import EVALUATION_PROTOCOL
 

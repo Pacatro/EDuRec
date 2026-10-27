@@ -10,9 +10,13 @@ import torch
 from torch.utils.data import DataLoader
 
 from edurec import settings
-from edurec.datasets import DataConfig, DatasetName, ElearningDataModule
+from edurec.datasets import (
+    DataConfig,
+    DatasetName,
+    ElearningDataModule,
+    QueryConfig,
+)
 from edurec.datasets.preprocessing.build import build_processed
-from edurec.datasets.queries import QueryConfig
 from edurec.evaluation import baseline_train_defaults, get_baseline
 from edurec.evaluation.baselines.kgan import (
     KGAN,
@@ -21,7 +25,8 @@ from edurec.evaluation.baselines.kgan import (
     KGANInput,
     eval_kgan,
 )
-from edurec.recsys.configs import TrainConfig, resolve_train_config
+from edurec.recsys import TrainConfig
+from edurec.recsys.configs import resolve_train_config
 
 
 @pytest.fixture

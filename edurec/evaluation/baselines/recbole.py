@@ -26,11 +26,15 @@ from recbole.utils import (
 from torch import nn
 
 from edurec import settings
-from edurec.datasets import ElearningDataModule
-from edurec.datasets.adapter import DataAdapter
-from edurec.datasets.cache import ProcessedData, replace_folder
-from edurec.datasets.queries import QueryConfig
-from edurec.datasets.torch_data import RecSysDataset, RecSysQuery
+from edurec.datasets import (
+    DataAdapter,
+    ElearningDataModule,
+    ProcessedData,
+    QueryConfig,
+    RecSysDataset,
+    RecSysQuery,
+)
+from edurec.datasets.cache import replace_folder
 from edurec.recsys.ranking import build_ranking_metrics, update_ranking_metrics
 
 #: Benchmark split names read by RecBole for the general interaction protocol.

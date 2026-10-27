@@ -3,13 +3,8 @@ from dataclasses import replace
 import pytest
 
 from edurec.evaluation.ablation import ablation_applicable, get_ablation_config
-from edurec.recsys.configs import (
-    ModelArch,
-    ModelConfig,
-    TrainConfig,
-    resolve_train_config,
-    save_run_config,
-)
+from edurec.recsys import ModelArch, ModelConfig, TrainConfig
+from edurec.recsys.configs import resolve_train_config, save_run_config
 
 
 def test_run_config_round_trip_and_cli_precedence(tmp_path, model_config):

@@ -3,13 +3,13 @@ import pytest
 import torch
 
 from edurec import settings
+from edurec.datasets import RecSysDataset
 from edurec.datasets.preprocessing.prepare import (
     deduplicate_interactions,
     filter_sparse,
 )
 from edurec.datasets.preprocessing.splits import split_data
 from edurec.datasets.queries import build_histories
-from edurec.datasets.torch_data import RecSysDataset
 
 
 def test_temporal_split_preserves_order_and_all_events():

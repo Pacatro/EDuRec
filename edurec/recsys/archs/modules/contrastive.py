@@ -3,7 +3,7 @@
 import torch
 import torch.nn.functional as F
 
-from edurec.recsys.archs.modules.kg_encoder import EdgeType
+from edurec.recsys.archs.modules import EdgeType
 
 
 def drop_relation_edges(

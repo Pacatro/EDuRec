@@ -7,14 +7,15 @@ from typing import Any, Literal, Self, get_type_hints
 import yaml
 
 from edurec import settings
-from edurec.recsys.archs.modules.interaction_context import ContextConfig
-from edurec.recsys.archs.modules.kg_encoder import EdgeType, GraphEncoderConfig
-from edurec.recsys.archs.modules.scorer import ScorerConfig
-from edurec.recsys.archs.modules.seq_encoder import (
+from edurec.recsys.archs.modules import (
+    ContextConfig,
+    EdgeType,
+    GraphEncoderConfig,
+    ScorerConfig,
     SeqEncoderConfig,
     TransformerSeqEncoderConfig,
+    UserStateConfig,
 )
-from edurec.recsys.archs.modules.user_state import UserStateConfig
 
 
 @dataclass

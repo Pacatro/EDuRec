@@ -2,8 +2,8 @@ import pandas as pd
 import pytest
 
 from edurec import settings
-from edurec.datasets.sources.registry import RawData
-from edurec.recsys.configs import ModelConfig
+from edurec.datasets import RawData
+from edurec.recsys import ModelConfig
 
 
 @pytest.fixture(autouse=True)

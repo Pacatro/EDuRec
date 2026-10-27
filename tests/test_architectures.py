@@ -3,9 +3,7 @@ from dataclasses import replace
 import pytest
 import torch
 
-from edurec.recsys.archs.kgseq import KGSeq
-from edurec.recsys.archs.sasrec_text import SASRecText
-from edurec.recsys.configs import ModelArch
+from edurec.recsys import KGSeq, ModelArch, SASRecText
 
 
 @pytest.mark.parametrize(

@@ -42,7 +42,7 @@ from typing import Protocol
 import pandas as pd
 
 from edurec.datasets import ElearningDataModule
-from edurec.recsys.configs import TrainConfig
+from edurec.recsys import TrainConfig
 
 
 class BaselineRunner(Protocol):
@@ -98,11 +98,6 @@ def get_baseline(label: str) -> BaselineRunner | None:
     return _REGISTRY.get(label)
 
 
-def native_baseline_runners() -> dict[str, BaselineRunner]:
-    """Snapshot of the registry (label -> runner)."""
-    return dict(_REGISTRY)
-
-
 def discover_baselines() -> None:
     """Import every module in this subpackage.
 
@@ -120,11 +115,9 @@ def discover_baselines() -> None:
 
 
 __all__ = [
-    "BaselineRunner",
     "baseline_labels",
     "baseline_train_defaults",
     "discover_baselines",
     "get_baseline",
-    "native_baseline_runners",
     "register_baseline",
 ]

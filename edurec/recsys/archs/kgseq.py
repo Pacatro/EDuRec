@@ -2,15 +2,18 @@ import torch
 from torch import nn
 
 from edurec.recsys.archs.base import BaseRecArch
+from edurec.recsys.archs.modules import (
+    ContextEncoder,
+    GraphEncoder,
+    Scorer,
+    SeqEncoder,
+    UserProfileEncoder,
+    UserStateEncoder,
+)
 from edurec.recsys.archs.modules.contrastive import (
     drop_relation_edges,
     item_contrastive_loss,
 )
-from edurec.recsys.archs.modules.interaction_context import ContextEncoder
-from edurec.recsys.archs.modules.kg_encoder import GraphEncoder
-from edurec.recsys.archs.modules.scorer import Scorer
-from edurec.recsys.archs.modules.seq_encoder import SeqEncoder
-from edurec.recsys.archs.modules.user_state import UserProfileEncoder, UserStateEncoder
 from edurec.recsys.configs import ModelConfig
 
 
