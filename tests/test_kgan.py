@@ -10,7 +10,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from edurec import settings
-from edurec.datasets import DataConfig, DatasetName, ElearningDataModule, create_adapter
+from edurec.datasets import DataConfig, DatasetName, ElearningDataModule
 from edurec.datasets.preprocessing.build import build_processed
 from edurec.datasets.queries import QueryConfig
 from edurec.evaluation import baseline_train_defaults, get_baseline
@@ -58,10 +58,9 @@ def make_model(adapter):
     )
 
 
-def test_registry_and_default_baseline(data):
+def test_default_baseline_is_available():
     assert get_baseline("KGAN") is eval_kgan
     assert "KGAN" in settings.BASELINES
-    assert isinstance(create_adapter("kgan", data, QueryConfig()), KGANAdapter)
     spec = importlib.util.spec_from_file_location("eval_cli", "scripts/eval.py")
     assert spec is not None and spec.loader is not None
     # The argparse script imports its adjacent common module.
@@ -260,7 +259,7 @@ def test_model_view_and_runner_roundtrip(data, monkeypatch, tmp_path):
     )
     dm._data = data
     original = dm.adapter
-    view = dm.with_adapter("kgan", batch_size=2)
+    view = dm.with_adapter(KGANAdapter, batch_size=2)
     assert view.data is data and view.adapter is not original
     assert dm.batch_size == 4 and view.batch_size == 2
     cfg = KGANConfig(emb_dim=4, memory_size=2, candidate_chunk_size=3)

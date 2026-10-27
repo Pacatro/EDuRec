@@ -102,12 +102,12 @@ links remain binary; video-based relevance weights require a separate extension.
 
 Attribute text is also used by other datasets when their static metadata permits:
 
-| Dataset | Graph text and entities |
-| --- | --- |
-| MARS (explicit and implicit) | Existing job, software, theme, resource type and difficulty nodes use their readable labels as text features. |
-| DORIS | Course type and, when present in the course table, college/department nodes use their labels. Course names and prerequisite descriptions also enrich item text. |
-| COCO | Category and instructional-level labels have text features. Course-instructor links retain instructor IDs; available name/profile fields enrich instructor nodes. Missing profiles keep their learned ID embedding with zero text features. |
-| ITM | Item titles/descriptions remain item features; the source has no auxiliary item entities to enrich directly. |
+| Dataset                      | Graph text and entities                                                                                                                                                                                                                     |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MARS (explicit and implicit) | Existing job, software, theme, resource type and difficulty nodes use their readable labels as text features.                                                                                                                               |
+| DORIS                        | Course type and, when present in the course table, college/department nodes use their labels. Course names and prerequisite descriptions also enrich item text.                                                                             |
+| COCO                         | Category and instructional-level labels have text features. Course-instructor links retain instructor IDs; available name/profile fields enrich instructor nodes. Missing profiles keep their learned ID embedding with zero text features. |
+| ITM                          | Item titles/descriptions remain item features; the source has no auxiliary item entities to enrich directly.                                                                                                                                |
 
 The generic `graph_text` schema supports label text (`["name"]`) as well as
 external entity tables. Scalar labels preserve commas; only list-valued fields
@@ -300,19 +300,19 @@ configurations. The defaults
 come from paper sections 5.3/5.5.4, figure 3, and the
 [official code](https://github.com/StZHY/KGAN/blob/041f80099ad5232fbb1b04fa0fcad47de4edc407/KGAN-master/src/main.py).
 
-| Parameter | EDuRec default | Evidence |
-| --- | --- | --- |
-| Embedding dimension | 16 | Figure 3 peaks at 16; public code defaults to 32 |
-| Propagation hops | 2 | Paper 5.3/5.5.4 and code |
-| Memories per relation per hop | 32 | Paper 5.5.4 and code |
-| KG loss weight | 0.01 | Code; paper gives a search range |
-| L2 loss weight | 1e-6 | Code; paper gives a search range |
-| Learning rate | 0.001 | Code; paper gives a search range |
-| Batch size | 1024 | Paper 5.3 and code |
-| Epoch budget | 20 | Code; not specified in the paper |
-| Aggregate all hops | true | Equation 12 and code |
-| Negatives per positive | 1 | Paper 5.1/4.3 |
-| Optimizer / initialization | Adam / Xavier uniform | Paper 5.3 and code |
+| Parameter                     | EDuRec default        | Evidence                                         |
+| ----------------------------- | --------------------- | ------------------------------------------------ |
+| Embedding dimension           | 16                    | Figure 3 peaks at 16; public code defaults to 32 |
+| Propagation hops              | 2                     | Paper 5.3/5.5.4 and code                         |
+| Memories per relation per hop | 32                    | Paper 5.5.4 and code                             |
+| KG loss weight                | 0.01                  | Code; paper gives a search range                 |
+| L2 loss weight                | 1e-6                  | Code; paper gives a search range                 |
+| Learning rate                 | 0.001                 | Code; paper gives a search range                 |
+| Batch size                    | 1024                  | Paper 5.3 and code                               |
+| Epoch budget                  | 20                    | Code; not specified in the paper                 |
+| Aggregate all hops            | true                  | Equation 12 and code                             |
+| Negatives per positive        | 1                     | Paper 5.1/4.3                                    |
+| Optimizer / initialization    | Adam / Xavier uniform | Paper 5.3 and code                               |
 
 The paper searches learning rate and KG weight over
 `[0.1, 0.05, 0.01, 0.005, 0.001]`, L2 weight over
@@ -532,6 +532,7 @@ edurec/datasets/
 ├── config.py                # processing options and cache manifest
 ├── cache.py                 # canonical ProcessedData and persistence
 ├── datamodule.py            # Lightning lifecycle and loaders
+├── adapter.py               # adapter contract and factory signature
 ├── graphs.py                # reusable graph construction functions
 ├── queries.py               # history, context and negative sampling helpers
 ├── torch_data.py            # query samples and PyTorch dataset
@@ -539,27 +540,29 @@ edurec/datasets/
 │   ├── registry.py          # source contracts, names and registration
 │   ├── common.py            # download/file helpers
 │   └── <dataset>.py         # dataset-specific loading and schemas
-├── preprocessing/
-│   ├── build.py             # canonical processing pipeline
-│   ├── prepare.py           # cleaning, deduplication and filtering
-│   ├── splits.py            # temporal/random partitions
-│   ├── ids.py               # canonical user/item identifiers
-│   ├── lists.py             # list-valued feature normalization
-│   ├── parsing.py           # feature value parsing
-│   ├── tabular.py           # numeric and categorical encoding
-│   └── text.py              # document and graph text embeddings
-└── adapters/
-    ├── base.py              # adapter contract, registration and selection
-    ├── proposed.py          # proposed model structures and caching
-    └── recbole.py           # RecBole inputs, atomic writers and ID conversion
+└── preprocessing/
+    ├── build.py             # canonical processing pipeline
+    ├── prepare.py           # cleaning, deduplication and filtering
+    ├── splits.py            # temporal/random partitions
+    ├── ids.py               # canonical user/item identifiers
+    ├── lists.py             # list-valued feature normalization
+    ├── parsing.py           # feature value parsing
+    ├── tabular.py           # numeric and categorical encoding
+    └── text.py              # document and graph text embeddings
 ```
+
+Each model adapter lives beside the model or baseline it serves:
+`EdurecDataAdapter` in `edurec/recsys/recsys.py`, `KGANAdapter` in
+`edurec/evaluation/baselines/kgan.py`, and `RecBoleAdapter` in
+`edurec/evaluation/baselines/recbole.py`. The shared contract is
+`edurec/datasets/adapter.py`.
 
 Source loading feeds canonical preprocessing and caching. Model adapters then
 consume `ProcessedData` and use shared builders or their own format writers
 to assemble their inputs. `ElearningDataModule` connects
-these stages to loaders. Shared imports such as `DataConfig`, `DatasetName`,
-`ProcessedData`, `ProposedAdapter` and `RecSysQuery` are available from
-`edurec.datasets`.
+these stages to loaders. `DataConfig`, `DatasetName`, `ProcessedData`,
+`RecSysQuery`, `AdapterFactory` and `DataAdapter` are available from
+`edurec.datasets`; `EdurecDataAdapter` is exported by `edurec.recsys`.
 
 ### Model data adapters
 
@@ -581,20 +584,21 @@ saved in `preprocessing.joblib`; the v4 cache format replaces the former
 `processor.joblib`. Rebuild older caches without `--use-processed`.
 
 `ProcessedData` remains the canonical source of splits, labels and features.
-Each `ModelDataAdapter` receives it directly and builds its model's structures.
-`ProposedAdapter` builds and caches the item knowledge graph;
-`RecBoleAdapter` builds the atomic files and converts queries to RecBole inputs.
-The base class handles positive splits and the shared query protocol (histories,
-interaction context and training negatives), all computed only when requested.
-Reusable graph and query builders live in `graphs.py` and `queries.py`, with
-PyTorch containers in `torch_data.py`. Adapters own the assembly and caching of
-their model's structures. RecBole-specific file writers are private functions
-in `adapters/recbole.py`, alongside the adapter that uses them.
+Each `DataAdapter` receives it directly and builds its model's structures.
+`EdurecDataAdapter` builds and caches the item knowledge graph; `KGANAdapter`
+samples its relation-grouped memories; `RecBoleAdapter` builds the atomic files
+and converts queries to RecBole inputs. The base class handles positive splits
+and the shared query protocol (histories, interaction context and training
+negatives), all computed only when requested. Reusable graph and query builders
+live in `graphs.py` and `queries.py`, with PyTorch containers in `torch_data.py`.
+Adapters own the assembly and caching of their model's structures.
+RecBole-specific file writers are private functions in
+`edurec/evaluation/baselines/recbole.py`, alongside the adapter that uses them.
 
 ```python
-adapter = dm.adapter  # selected by adapter_name="proposed" by default
+adapter = dm.adapter  # defaults to the proposed adapter
 train_dataset = adapter.dataset("train")
-proposed = dm.require_adapter(ProposedAdapter)
+proposed = dm.require_adapter(EdurecDataAdapter)
 kg = proposed.knowledge_graph  # built once, from static item metadata
 ```
 
@@ -607,6 +611,7 @@ accessors have been replaced by the single `dm.adapter` accessor.
 
 ### Adding a model data adapter
 
+Define the adapter in the same module as the model or baseline it serves.
 Implement `dataset(split)` and `evaluation_input(query)`. Use `prepare(stage)`
 for additional structures when needed; repeated calls must be safe. The two
 generic parameters describe the training sample and evaluation input types.
@@ -617,10 +622,10 @@ import torch
 from torch.utils.data import TensorDataset
 
 from edurec import settings
-from edurec.datasets import ElearningDataModule, ModelDataAdapter, register_adapter
+from edurec.datasets import ElearningDataModule, DataAdapter
 
 
-class PairAdapter(ModelDataAdapter[tuple[torch.Tensor, ...], torch.Tensor]):
+class PairAdapter(DataAdapter[tuple[torch.Tensor, ...], torch.Tensor]):
     def dataset(self, split: str) -> TensorDataset:
         pairs = self.relevant_splits[split][
             [settings.USER_COL, settings.ITEM_COL]
@@ -631,16 +636,16 @@ class PairAdapter(ModelDataAdapter[tuple[torch.Tensor, ...], torch.Tensor]):
         return query.user_id
 
 
-register_adapter("pair_baseline", PairAdapter)
-dm = ElearningDataModule(config, batch_size=128, adapter_name="pair_baseline")
+dm = ElearningDataModule(config, batch_size=128, adapter_factory=PairAdapter)
 dm.setup("fit")
 ```
 
-Register adapters before constructing/setting up the data module in each
-process. Names must be unique. Factories accepting `(processed_data, query_config)` may
-also be registered to provide model-specific options. An adapter can define a
-`collate_fn` (use a static method for a function without `self`), set
-`requires_temporal_order = True`, and inspect `metadata` for catalog sizes.
+Pass the adapter class, or a factory accepting
+`(processed_data, query_config)`, as `adapter_factory`. No global registration
+or import ordering is required. Use `dm.with_adapter(factory)` for an
+independent view with a different adapter, as the KGAN runner does. An adapter
+can define a `collate_fn` (use a static method for a function without `self`),
+set `requires_temporal_order = True`, and inspect `metadata` for catalog sizes.
 Use the existing transformation functions when applicable; model-specific
 assembly belongs in the adapter. Treat processed data and cached structures as
 read-only.
@@ -654,12 +659,14 @@ the evaluation loader always retains the canonical targets and histories.
 Collaborative structures and fitted model transforms must use training only.
 Never rebuild splits or include targets/future events in query inputs.
 
-The RecBole runner selects a separate `recbole:ModelName` adapter for each
-baseline. Its default `RecBoleAdapter` handles general/sequential export, data
-configuration, internal ID mapping and query conversion. To customize one
-baseline, subclass `edurec.datasets.adapters.recbole.RecBoleAdapter` and
-register its exact name, for example `register_adapter("recbole:KGAT", KGATAdapter)`.
-Override `export_files(output_dir)` for additional atomic files,
+The RecBole runner builds a separate adapter for each baseline with
+`RecBoleAdapter.for_model`. Its default `RecBoleAdapter` handles
+general/sequential export, data configuration, internal ID mapping and query
+conversion. To customize one baseline, subclass
+`edurec.evaluation.baselines.recbole.RecBoleAdapter` and pass its factory to
+`eval_recbole_baselines(adapter_factory=...)`, for example
+`adapter_factory=KGATAdapter.for_model` unless the subclass changes the
+constructor. Override `export_files(output_dir)` for additional atomic files,
 `configure(model, base)` for loaded fields, and `evaluation_input(query)` for
 extra inputs. `export()` handles folder replacement; `bind_catalog()` and
 `canonical_scores()` align RecBole IDs with the shared catalog. The generic

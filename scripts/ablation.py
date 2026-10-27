@@ -27,13 +27,13 @@ from common import (
 )
 
 from edurec import settings
-from edurec.datasets import ElearningDataModule, ProposedAdapter
+from edurec.datasets import ElearningDataModule
 from edurec.evaluation.ablation import (
     ABLATIONS,
     ablation_applicable,
     get_ablation_config,
 )
-from edurec.recsys import ModelArch, ModelConfig, RecSys, train_model
+from edurec.recsys import EdurecDataAdapter, ModelArch, ModelConfig, RecSys, train_model
 from edurec.recsys.configs import resolve_train_config
 
 # Dedicated MLflow experiment for ablation runs, separate from training (TFM),
@@ -133,7 +133,7 @@ def main() -> None:
             dm.prepare_data()
             dm.setup()
             print_data_summary("ABLATION", dm)
-            knowledge_graph = dm.require_adapter(ProposedAdapter).knowledge_graph
+            knowledge_graph = dm.require_adapter(EdurecDataAdapter).knowledge_graph
 
             if run_config_path.exists():
                 print("[ABLATION] Using existing model config file:", run_config_path)

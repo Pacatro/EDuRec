@@ -9,19 +9,16 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from edurec import settings
 from edurec.datasets import (
+    DataAdapter,
     DataConfig,
     DatasetName,
     ElearningDataModule,
-    ModelDataAdapter,
-    ProposedAdapter,
     RecSysQuery,
-    create_adapter,
-    register_adapter,
 )
-from edurec.datasets.adapters import base
-from edurec.datasets.adapters.recbole import RecBoleAdapter
 from edurec.datasets.preprocessing.build import build_processed
 from edurec.datasets.queries import QueryConfig
+from edurec.evaluation.baselines.recbole import RecBoleAdapter
+from edurec.recsys import EdurecDataAdapter
 
 
 @pytest.fixture
@@ -36,7 +33,7 @@ def processed(raw_communities):
     return build_processed(raw_communities, config).data
 
 
-class PairAdapter(ModelDataAdapter[tuple[torch.Tensor, ...], torch.Tensor]):
+class PairAdapter(DataAdapter[tuple[torch.Tensor, ...], torch.Tensor]):
     """An unrelated training format with a custom batch collation."""
 
     def prepare(self, stage=None):
@@ -58,8 +55,8 @@ class PairAdapter(ModelDataAdapter[tuple[torch.Tensor, ...], torch.Tensor]):
 
 def test_proposed_adapter_builds_and_caches_its_structures(processed):
     config = QueryConfig(max_history=3)
-    adapter = create_adapter("proposed", processed, config)
-    assert isinstance(adapter, ProposedAdapter)
+    adapter = EdurecDataAdapter(processed, config)
+    assert isinstance(adapter, EdurecDataAdapter)
     assert adapter.dataset("train") is adapter.get_queries("train", config)
     assert "knowledge_graph" not in adapter.__dict__
     assert adapter.knowledge_graph is adapter.knowledge_graph
@@ -71,14 +68,11 @@ def test_proposed_adapter_builds_and_caches_its_structures(processed):
 
 
 def test_custom_adapter_loaders_do_not_change_evaluation(processed, monkeypatch):
-    # Isolate registrations so subsequent tests do not inherit this adapter.
-    monkeypatch.setattr(base, "_FACTORIES", base._FACTORIES.copy())
-    register_adapter("pairs", PairAdapter)
     monkeypatch.setattr(settings, "NUM_WORKERS", 0)
     dm = ElearningDataModule(
         DataConfig(dataset=DatasetName.COCO, random_state=42),
         batch_size=3,
-        adapter_name="pairs",
+        adapter_factory=PairAdapter,
     )
     dm._data = processed
     dm.setup("fit")
@@ -105,18 +99,9 @@ def test_custom_adapter_loaders_do_not_change_evaluation(processed, monkeypatch)
     assert query.target_item_id.tolist() == expected.target_item_ids[:3].tolist()
 
 
-def test_registry_rejects_unknown_and_duplicate_names(processed, monkeypatch):
-    monkeypatch.setattr(base, "_FACTORIES", base._FACTORIES.copy())
-    with pytest.raises(ValueError, match="Unknown"):
-        create_adapter("missing", processed, QueryConfig())
-    with pytest.raises(ValueError, match="already registered"):
-        register_adapter("proposed", PairAdapter)
+def test_model_adapter_contract_is_abstract(processed):
     with pytest.raises(TypeError):
-        ModelDataAdapter(processed, QueryConfig())  # abstract contract
-    register_adapter("recbole:BPR", PairAdapter)
-    assert isinstance(
-        create_adapter("recbole:BPR", processed, QueryConfig()), PairAdapter
-    )
+        DataAdapter(processed, QueryConfig())
 
 
 def test_sequential_adapter_requires_temporal_data(processed):
@@ -168,7 +153,9 @@ def test_recbole_inputs_and_scores_preserve_canonical_ids(processed, sequential)
 
 @pytest.mark.parametrize("model,sequential", [("BPR", False), ("SASRec", True)])
 def test_recbole_factory_config_and_export(processed, tmp_path, model, sequential):
-    adapter = create_adapter(f"recbole:{model}", processed, QueryConfig(max_history=3))
+    adapter = RecBoleAdapter.for_model(
+        model, processed, QueryConfig(max_history=3)
+    )
     assert isinstance(adapter, RecBoleAdapter)
     assert adapter.sequential == sequential
     base = {"epochs": 2}
@@ -193,20 +180,22 @@ def test_recbole_export_supports_legacy_cache_without_manifest(processed, tmp_pa
     assert (tmp_path / "atomic" / "legacy.inter").exists()
 
 
-def test_recbole_runner_uses_registered_model_adapter(processed, monkeypatch):
+def test_recbole_runner_uses_custom_adapter_factory(processed, monkeypatch):
     from edurec.evaluation.baselines import recbole as runner
 
     class CustomBPRAdapter(RecBoleAdapter):
         def configure(self, model, base):
             return {**super().configure(model, base), "embedding_size": 4}
 
-    monkeypatch.setattr(base, "_FACTORIES", base._FACTORIES.copy())
-    register_adapter("recbole:BPR", CustomBPRAdapter)
     monkeypatch.setitem(settings.state, "device", "cpu")
     monkeypatch.setattr(settings, "NUM_WORKERS", 0)
     dm = ElearningDataModule(DataConfig(dataset=DatasetName.COCO), batch_size=4)
     dm._data = processed
     instances = []
+
+    def make_adapter(model: str) -> CustomBPRAdapter:
+        assert model == "BPR"
+        return CustomBPRAdapter(processed, dm.query_config)
 
     def run_model(**kwargs):
         adapter = kwargs["adapter"]
@@ -218,9 +207,11 @@ def test_recbole_runner_uses_registered_model_adapter(processed, monkeypatch):
         return {"ndcg@1": 0.5}, 0.1, 0.01
 
     monkeypatch.setattr(runner, "_run_model", run_model)
-    result = runner.eval_recbole_baselines(["BPR", "BPR"], dm, topks=[1])
+    result = runner.eval_recbole_baselines(
+        ["BPR", "BPR"], dm, topks=[1], adapter_factory=make_adapter
+    )
     assert result["ndcg@1"].tolist() == [0.5, 0.5]
     assert instances[0] is not instances[1]
-    assert dm.require_adapter(ProposedAdapter) is dm.adapter
+    assert dm.require_adapter(EdurecDataAdapter) is dm.adapter
     with pytest.raises(TypeError, match="requires PairAdapter"):
         dm.require_adapter(PairAdapter)

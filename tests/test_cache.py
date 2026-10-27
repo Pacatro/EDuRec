@@ -232,7 +232,7 @@ def test_atomic_files_are_replaced_when_written(make_datamodule, cache_dirs):
 
     dm = make_datamodule()
     dm.setup()
-    from edurec.datasets.adapters.recbole import RecBoleAdapter
+    from edurec.evaluation.baselines.recbole import RecBoleAdapter
 
     RecBoleAdapter(dm.data, dm.query_config).export(dm.atomic_folder)
 

@@ -1,3 +1,5 @@
+from functools import cached_property
+
 import lightning.pytorch as L
 import torch
 import torch.nn.functional as F
@@ -7,10 +9,30 @@ from torchmetrics import MetricCollection
 from torchmetrics.retrieval import RetrievalNormalizedDCG
 
 from edurec import settings
-from edurec.datasets import RecSysQuery
+from edurec.datasets import DataAdapter, RecSysDataset, RecSysQuery, graphs
 from edurec.recsys.archs import BaseRecArch, build_model
 from edurec.recsys.configs import ModelConfig, TrainConfig
 from edurec.recsys.ranking import build_ranking_metrics, update_ranking_metrics
+
+
+class EdurecDataAdapter(DataAdapter[RecSysQuery, RecSysQuery]):
+    """Canonical queries plus the knowledge graph used by the proposed model."""
+
+    @cached_property
+    def knowledge_graph(self) -> HeteroData:
+        """Static item knowledge graph, built once and treated as read-only."""
+        return graphs.build_knowledge_graph(
+            self.data.item_features,
+            self.data.i_static_feats,
+            self.data.schema["items"],
+            self.data.graph_node_features,
+        )
+
+    def dataset(self, split: str) -> RecSysDataset:
+        return self.get_queries(split)
+
+    def evaluation_input(self, query: RecSysQuery) -> RecSysQuery:
+        return query
 
 
 class RecSys(L.LightningModule):

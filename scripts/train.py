@@ -22,8 +22,15 @@ from common import (
 )
 
 from edurec import settings
-from edurec.datasets import ElearningDataModule, ProposedAdapter
-from edurec.recsys import ModelArch, ModelConfig, RecSys, arch_label, train_model
+from edurec.datasets import ElearningDataModule
+from edurec.recsys import (
+    EdurecDataAdapter,
+    ModelArch,
+    ModelConfig,
+    RecSys,
+    arch_label,
+    train_model,
+)
 from edurec.recsys.configs import monitor_topk, resolve_train_config
 from edurec.recsys.io import save_metrics, save_model
 
@@ -173,7 +180,7 @@ def main() -> None:
 
         recsys = RecSys(
             cfg=cfg,
-            knowledge_graph=dm.require_adapter(ProposedAdapter).knowledge_graph,
+            knowledge_graph=dm.require_adapter(EdurecDataAdapter).knowledge_graph,
             i_static_feats=dm.data.i_static_feats,
             u_static_feats=dm.data.u_static_feats,
             u_cat_feats=dm.data.u_cat_feats,

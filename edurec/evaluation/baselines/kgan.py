@@ -19,8 +19,8 @@ from torch.utils.data import Dataset
 
 from edurec import settings
 from edurec.datasets import (
+    DataAdapter,
     ElearningDataModule,
-    ModelDataAdapter,
     RecSysQuery,
     graphs,
     queries,
@@ -85,7 +85,7 @@ class _KGANDataset(Dataset):
         return self.adapter.input_for_query(self.queries[index], self.split)
 
 
-class KGANAdapter(ModelDataAdapter[KGANInput, KGANInput]):
+class KGANAdapter(DataAdapter[KGANInput, KGANInput]):
     """Sample relation-grouped memories from each query's permitted evidence.
 
     Temporal queries use their strictly-past canonical history. Unordered data
@@ -411,9 +411,12 @@ def eval_kgan(
     cfg: KGANConfig | None = None,
 ) -> pd.DataFrame:
     train_cfg = train_cfg or kgan_train_defaults()
-    view = dm.with_adapter("kgan", batch_size=train_cfg.batch_size)
+
     # Custom model settings must also govern the adapter's memory sampler.
-    view._adapter = KGANAdapter(dm.data, view.query_config, cfg)
+    def make_adapter(data: ProcessedData, query_config: QueryConfig) -> KGANAdapter:
+        return KGANAdapter(data, query_config, cfg)
+
+    view = dm.with_adapter(make_adapter, batch_size=train_cfg.batch_size)
     view.setup("fit")
     adapter = view.require_adapter(KGANAdapter)
     model = KGAN(

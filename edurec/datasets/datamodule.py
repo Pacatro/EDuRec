@@ -15,7 +15,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 from edurec import settings
-from edurec.datasets.adapters import ModelDataAdapter, create_adapter
+from edurec.datasets.adapter import AdapterFactory, DataAdapter
 from edurec.datasets.cache import ProcessedData
 from edurec.datasets.config import DataConfig
 from edurec.datasets.preprocessing.build import (
@@ -35,11 +35,17 @@ class ElearningDataModule(L.LightningDataModule):
         use_processed_data: bool = False,
         max_history: int = settings.MAX_HISTORY_LEN,
         persistent_workers: bool = True,
-        adapter_name: str = "proposed",
+        adapter_factory: AdapterFactory | None = None,
     ):
         super().__init__()
         # Lightning rejects frozen dataclasses when it serialises hparams for
         # logging, so store a plain mapping instead of the config instance.
+        # The factory itself is not serialisable; keep its name as a label.
+        adapter_name = (
+            "proposed"
+            if adapter_factory is None
+            else getattr(adapter_factory, "__name__", type(adapter_factory).__name__)
+        )
         self.save_hyperparameters(
             {
                 "config": config.to_dict(),
@@ -56,6 +62,7 @@ class ElearningDataModule(L.LightningDataModule):
         self.max_history = max_history
         self.persistent_workers = persistent_workers
         self.data_variant = config.dataset.value
+        self.adapter_factory = adapter_factory
         self.adapter_name = adapter_name
 
         self.processed_folder = Path(settings.PROCESSED_FOLDER) / self.data_variant
@@ -63,7 +70,7 @@ class ElearningDataModule(L.LightningDataModule):
 
         self._data: ProcessedData | None = None
         self._build_result: BuildResult | None = None
-        self._adapter: ModelDataAdapter[Any, Any] | None = None
+        self._adapter: DataAdapter[Any, Any] | None = None
 
     @property
     def data(self) -> ProcessedData:
@@ -80,15 +87,22 @@ class ElearningDataModule(L.LightningDataModule):
         return self._build_result
 
     @property
-    def adapter(self) -> ModelDataAdapter[Any, Any]:
-        """Adapter selected by name, instantiated once after data preparation."""
+    def adapter(self) -> DataAdapter[Any, Any]:
+        """Adapter built from the injected factory after data preparation.
+
+        ``None`` selects the proposed adapter lazily, keeping the datasets
+        package independent from the model package at import time.
+        """
         if self._adapter is None:
-            self._adapter = create_adapter(
-                self.adapter_name, self.data, self.query_config
-            )
+            factory = self.adapter_factory
+            if factory is None:
+                from edurec.recsys.recsys import EdurecDataAdapter
+
+                factory = EdurecDataAdapter
+            self._adapter = factory(self.data, self.query_config)
         return self._adapter
 
-    def require_adapter[T: ModelDataAdapter[Any, Any]](
+    def require_adapter[T: DataAdapter[Any, Any]](
         self, adapter_type: type[T]
     ) -> T:
         """Get model-specific structures, rejecting an incompatible integration."""
@@ -111,7 +125,7 @@ class ElearningDataModule(L.LightningDataModule):
         )
 
     def with_adapter(
-        self, name: str, batch_size: int | None = None
+        self, adapter_factory: AdapterFactory, batch_size: int | None = None
     ) -> "ElearningDataModule":
         """An independent model view sharing the prepared, read-only data."""
         view = ElearningDataModule(
@@ -120,7 +134,7 @@ class ElearningDataModule(L.LightningDataModule):
             use_processed_data=self.use_processed_data,
             max_history=self.max_history,
             persistent_workers=self.persistent_workers,
-            adapter_name=name,
+            adapter_factory=adapter_factory,
         )
         view._data = self.data
         view._build_result = self.build

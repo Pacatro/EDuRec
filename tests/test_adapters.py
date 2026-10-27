@@ -6,12 +6,13 @@ import pytest
 import torch
 
 from edurec import settings
-from edurec.datasets import DataConfig, DatasetName, ProposedAdapter, graphs, queries
-from edurec.datasets.adapters.recbole import RecBoleAdapter
+from edurec.datasets import DataConfig, DatasetName, graphs, queries
 from edurec.datasets.cache import ProcessedData
 from edurec.datasets.preprocessing.build import build_processed
 from edurec.datasets.queries import QueryConfig
 from edurec.datasets.sources.registry import RawData
+from edurec.evaluation.baselines.recbole import RecBoleAdapter
+from edurec.recsys import EdurecDataAdapter
 
 DATA_DEFAULTS = {
     "test_ratio": 0.2,
@@ -37,7 +38,7 @@ def processed(raw_communities):
 
 @pytest.fixture
 def adapter(processed):
-    return ProposedAdapter(processed)
+    return EdurecDataAdapter(processed)
 
 
 @pytest.fixture
@@ -62,7 +63,7 @@ def implicit_adapter():
         ),
         schema={"items": {"graph_list": ["concept"]}},
     )
-    return ProposedAdapter(build_processed(raw, make_config()).data)
+    return EdurecDataAdapter(build_processed(raw, make_config()).data)
 
 
 def test_processed_data_requires_every_data_field():

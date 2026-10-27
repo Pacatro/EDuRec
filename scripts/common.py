@@ -9,13 +9,12 @@ from edurec.datasets import (
     DataConfig,
     DatasetName,
     ElearningDataModule,
-    ProposedAdapter,
 )
 from edurec.datasets.preprocessing.tabular import (
     categorical_cardinalities,
     feature_columns,
 )
-from edurec.recsys import ModelArch, ModelConfig
+from edurec.recsys import EdurecDataAdapter, ModelArch, ModelConfig
 
 
 def add_runtime_args(parser: argparse.ArgumentParser) -> None:
@@ -148,7 +147,7 @@ def build_config(
     **overrides: Any,
 ) -> ModelConfig:
     data = dm.data
-    adapter = dm.require_adapter(ProposedAdapter)
+    adapter = dm.require_adapter(EdurecDataAdapter)
     interaction_features = adapter.interaction_features
     dataset_config = {
         "num_users": data.num_users,
@@ -192,7 +191,7 @@ def print_data_summary(prefix: str, dm: ElearningDataModule) -> None:
         f"[{prefix}] Splits: "
         + ", ".join(f"{split}={size:,}" for split, size in split_sizes.items())
     )
-    if not data.is_explicit and isinstance(dm.adapter, ProposedAdapter):
+    if not data.is_explicit and isinstance(dm.adapter, EdurecDataAdapter):
         negatives = dm.adapter.dataset("train").negative_item_ids
         print(
             f"[{prefix}] Train negatives: "

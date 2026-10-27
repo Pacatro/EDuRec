@@ -8,12 +8,13 @@ from edurec.recsys.archs import (
 )
 from edurec.recsys.configs import ModelArch, ModelConfig, TrainConfig
 from edurec.recsys.optimization import optimize_model
-from edurec.recsys.recsys import RecSys
+from edurec.recsys.recsys import EdurecDataAdapter, RecSys
 from edurec.recsys.training import train_model
 
 __all__ = [
     "ARCH_LABELS",
     "BaseRecArch",
+    "EdurecDataAdapter",
     "KGSeq",
     "ModelArch",
     "ModelConfig",

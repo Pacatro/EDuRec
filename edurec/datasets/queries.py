@@ -29,7 +29,7 @@ from edurec.datasets.preprocessing.tabular import (
 class QueryConfig:
     """Parameters that change the content of a query view.
 
-    Instances are hashable so :class:`~edurec.datasets.adapters.base.ModelDataAdapter`
+    Instances are hashable so :class:`~edurec.datasets.adapter.DataAdapter`
     can memoise views by content. ``random_state`` only affects negative
     sampling; it never changes splits or labels. ``use_histories=None`` derives
     the setting from the data: histories are only meaningful when a chronology

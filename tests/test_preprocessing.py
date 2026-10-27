@@ -7,13 +7,13 @@ import torch
 from torch.utils.data import DataLoader
 
 from edurec import settings
-from edurec.datasets import DataConfig, DatasetName, ProposedAdapter
-from edurec.datasets.adapters.recbole import RecBoleAdapter
+from edurec.datasets import DataConfig, DatasetName
 from edurec.datasets.cache import ProcessedData
 from edurec.datasets.preprocessing import text
 from edurec.datasets.preprocessing.build import build_processed
 from edurec.datasets.queries import QueryConfig
-from edurec.recsys import RecSys
+from edurec.evaluation.baselines.recbole import RecBoleAdapter
+from edurec.recsys import EdurecDataAdapter, RecSys
 from edurec.recsys.configs import ModelArch, TrainConfig
 from scripts.common import build_config
 
@@ -112,7 +112,7 @@ def test_raw_features_reach_graph_torch_queries_and_models(
         "scaler"
     ].data_max_.tolist() == [10.0]
 
-    adapter = ProposedAdapter(loaded)
+    adapter = EdurecDataAdapter(loaded)
     graph = adapter.knowledge_graph
     assert graph["attr::concept"].node_ids == ["python"]
     assert graph["attr::concept"].x.shape == (1, settings.TEXT_EMBEDDING_DIM)

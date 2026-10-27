@@ -15,9 +15,9 @@ from lightning.pytorch.loggers import MLFlowLogger
 from torch_geometric.data import HeteroData
 
 from edurec import settings
-from edurec.datasets import ElearningDataModule, ProposedAdapter
+from edurec.datasets import ElearningDataModule
 from edurec.recsys.configs import ModelArch, ModelConfig, TrainConfig
-from edurec.recsys.recsys import RecSys
+from edurec.recsys.recsys import EdurecDataAdapter, RecSys
 from edurec.recsys.training import train_model
 
 # Bump whenever the search space or the objective changes so old studies are
@@ -276,7 +276,7 @@ def optimize_model(
         batch_size=dm.batch_size,
     )
 
-    knowledge_graph = dm.require_adapter(ProposedAdapter).knowledge_graph
+    knowledge_graph = dm.require_adapter(EdurecDataAdapter).knowledge_graph
     storage = None
     callbacks = None
 
