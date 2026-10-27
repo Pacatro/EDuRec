@@ -160,21 +160,6 @@ def test_mooccubex_source_filters_courses_users_and_extreme_enrollments(
     raw_mooccubex,
 ):
     raw = raw_mooccubex
-    filters = raw.source_report["filters"]
-
-    assert filters["courses_total"] == 6
-    assert filters["courses_without_educational_resources"] == 2
-    assert filters["courses_experimental"] == 1
-    assert filters["removed_experimental_courses"] == [
-        {"item_id": "C_2", "name": "测试课程"}
-    ]
-    assert filters["users_before_enrollment_cap"] == 3
-    assert filters["users_over_enrollment_cap"] == 1
-    assert filters["users_retained"] == 2
-    assert filters["interactions_before_enrollment_cap"] == 6
-    assert filters["interactions_after_enrollment_cap"] == 3
-    assert filters["courses_with_enrollments"] == 3
-    assert raw.source_report["users_without_valid_enrollments"] == 3
 
     assert set(raw.item_features[settings.ITEM_COL]) == {"C_1", "C_5", "C_6"}
     assert set(raw.user_features[settings.USER_COL]) == {"U_2", "U_5"}

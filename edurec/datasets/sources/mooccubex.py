@@ -1,7 +1,6 @@
 import json
 import re
 import warnings
-from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -77,7 +76,7 @@ def _mooccubex_timestamp(value: object) -> int | None:
 
 
 def _mooccubex_enrollments(
-    record: dict[str, Any], catalog: set[str], counts: Counter
+    record: dict[str, Any], catalog: set[str]
 ) -> list[tuple[str, int]]:
     courses, times = record.get("course_order"), record.get("enroll_time")
     if (
@@ -85,35 +84,29 @@ def _mooccubex_enrollments(
         or not isinstance(times, list)
         or len(courses) != len(times)
     ):
-        counts["unaligned_users"] += 1
         return []
     # Enrollment duplicates are not repeat learning events. Keep the first
     # enrollment so that re-registration does not move a course into the future.
     first: dict[str, int] = {}
     for course, value in zip(courses, times):
         if course is None:
-            counts["invalid_events"] += 1
             continue
         course_id = str(course)
         if not course_id.startswith("C_"):
             course_id = f"C_{course_id}"
         stamp = _mooccubex_timestamp(value)
         if course_id not in catalog or stamp is None:
-            counts["invalid_events"] += 1
             continue
-        if course_id in first:
-            counts["duplicate_enrollments"] += 1
         first[course_id] = min(first.get(course_id, stamp), stamp)
     # Stable course-ID tie break is explicit; equal times do not establish a
-    # pedagogical order and are reported in the source diagnostics.
+    # pedagogical order.
     return sorted(first.items(), key=lambda event: (event[1], event[0]))
 
 
 def _load_mooccubex_enrollments(
     user_path: Path, catalog: set[str]
-) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Read every valid enrollment; repeated enrollments keep their first time."""
-    counts: Counter = Counter()
     rows: list[tuple[str, str, int]] = []
     profiles: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -122,18 +115,14 @@ def _load_mooccubex_enrollments(
             if not line.strip():
                 continue
             record = json.loads(line)
-            counts["scanned_users"] += 1
             if not record.get("id"):
-                counts["missing_user_ids"] += 1
                 continue
             user = str(record["id"])
             if user in seen:
-                counts["duplicate_user_records"] += 1
                 continue
             seen.add(user)
-            history = _mooccubex_enrollments(record, catalog, counts)
+            history = _mooccubex_enrollments(record, catalog)
             if not history:
-                counts["users_without_valid_enrollments"] += 1
                 continue
             rows.extend((user, course, stamp) for course, stamp in history)
             profiles.append(
@@ -153,7 +142,7 @@ def _load_mooccubex_enrollments(
     )
     birth = pd.to_numeric(users["year_of_birth"], errors="coerce")
     users["year_of_birth"] = birth.where(birth.between(1900, 2010))
-    return events, users, dict(counts)
+    return events, users
 
 
 def load_mooccubex() -> RawData:
@@ -163,15 +152,9 @@ def load_mooccubex() -> RawData:
     items.rename(columns={"id": settings.ITEM_COL}, inplace=True)
     items = items.drop_duplicates(settings.ITEM_COL).copy()
 
-    filters: dict[str, object] = {"courses_total": len(items)}
     educational = items["resource"].map(_has_educational_resource)
-    filters["courses_without_educational_resources"] = int((~educational).sum())
     items = items.loc[educational].copy()
     experimental = items["name"].map(_is_experimental_course)
-    filters["courses_experimental"] = int(experimental.sum())
-    filters["removed_experimental_courses"] = items.loc[
-        experimental, [settings.ITEM_COL, "name"]
-    ].to_dict("records")
     items = items.loc[~experimental].copy()
     if items.empty:
         raise ValueError(
@@ -179,11 +162,9 @@ def load_mooccubex() -> RawData:
         )
 
     relations_folder = entities_folder.parent / "relations"
-    interactions, users, report = _load_mooccubex_enrollments(
+    interactions, users = _load_mooccubex_enrollments(
         entities_folder / "user.json", set(items[settings.ITEM_COL].astype(str))
     )
-    filters["users_before_enrollment_cap"] = len(users)
-    filters["interactions_before_enrollment_cap"] = len(interactions)
 
     max_user_enrollments = settings.MOOCCUBEX_MAX_USER_ENROLLMENTS
     if max_user_enrollments < 1:
@@ -194,10 +175,6 @@ def load_mooccubex() -> RawData:
         ~interactions[settings.USER_COL].isin(over_cap)
     ].reset_index(drop=True)
     users = users.loc[~users[settings.USER_COL].isin(over_cap)].reset_index(drop=True)
-    filters["max_user_enrollments"] = max_user_enrollments
-    filters["users_over_enrollment_cap"] = len(over_cap)
-    filters["users_retained"] = len(users)
-    filters["interactions_after_enrollment_cap"] = len(interactions)
 
     items = items.loc[
         items[settings.ITEM_COL].isin(interactions[settings.ITEM_COL])
@@ -207,9 +184,6 @@ def load_mooccubex() -> RawData:
             "MOOCCubeX has no interactions after source filtering; relax the "
             "enrollment cap or the course filters."
         )
-    filters["courses_with_enrollments"] = len(items)
-    report["filters"] = filters
-
     items["resource_count"] = items["resource"].map(len)
     items = items.drop(columns=["resource"])
     # Load static memberships only for the final retained catalog.
@@ -230,21 +204,6 @@ def load_mooccubex() -> RawData:
         else None
     )
 
-    concept_support = Counter(
-        concept for values in items["concept"] for concept in values
-    )
-    report["graph"] = {
-        "concept_nodes": len(concept_support),
-        "shared_concept_nodes": sum(count > 1 for count in concept_support.values()),
-        "courses_without_shared_concepts": sum(
-            not any(concept_support[concept] > 1 for concept in values)
-            for values in items["concept"]
-        ),
-        "memberships": {
-            field: int(items[field].map(len).sum())
-            for field in ("field", "concept", "teacher", "school")
-        },
-    }
     schema = {
         "users": {
             "bin": [],
@@ -283,7 +242,6 @@ def load_mooccubex() -> RawData:
         user_features=users,
         schema=schema,
         graph_entities={"concept": concepts} if concepts is not None else None,
-        source_report=report,
     )
 
 

@@ -113,21 +113,19 @@ def build_processed(raw: RawData, config: DataConfig) -> BuildResult:
         num_users=len(prepared_raw.user_features),
         num_items=len(prepared_raw.item_features),
     )
-    artifacts.reports = _reports(raw, artifacts, train)
+    artifacts.reports = _reports(artifacts, train)
     if budget_report is not None:
         artifacts.reports["interaction_budget"] = budget_report
     return BuildResult(data=artifacts, raw=prepared_raw)
 
 
 def _reports(
-    raw: RawData,
     artifacts: ProcessedData,
     train: pd.DataFrame,
 ) -> dict:
     train_items = train[settings.ITEM_COL].map(artifacts.id_maps["items"])
 
     return {
-        "source_report": raw.source_report,
         "split_report": {
             name: {
                 "interactions": len(frame),

@@ -69,9 +69,9 @@ def main() -> None:
     item_categorical = len(categorical_cardinalities(data.transforms["items"]))
     print(f"Number of item features: {data.i_static_feats.shape[1] + item_categorical}")
 
-    for label, report in (("source", data.reports.get("source_report")),):
+    for label, report in data.reports.items():
         if report is not None:
-            print(f"\nDataset {label} diagnostics:")
+            print(f"\nDataset report: {label}")
             print(json.dumps(report, indent=2, ensure_ascii=False, default=str))
 
     max_rows = args.max_rows

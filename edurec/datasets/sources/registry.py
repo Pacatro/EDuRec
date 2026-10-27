@@ -25,7 +25,6 @@ class RawData(NamedTuple):
     user_features: pd.DataFrame
     schema: Schema
     graph_entities: dict[str, pd.DataFrame] | None = None
-    source_report: dict[str, Any] | None = None
 
 
 type ExportFn = Callable[[], RawData]

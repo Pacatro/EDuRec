@@ -71,7 +71,9 @@ preprocessing fitted on training data.
 
 Processed data is written to `data/processed/<dataset>/` after every build and
 replaces the previous folder. A `manifest.json` records the dataset, the
-processing version, the full data configuration and the split seed.
+processing version, the full data configuration and the split seed. A
+`report.json` records per-split statistics and the realized interaction budget
+when `--max-interactions` is used.
 `--use-processed` reuses that folder only when the configuration matches the
 current options; otherwise the loader raises an actionable error, so rebuild
 without the flag after changing any split or preprocessing option.
