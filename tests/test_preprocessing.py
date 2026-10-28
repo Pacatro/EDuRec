@@ -10,6 +10,7 @@ from edurec import settings
 from edurec.datasets import DataConfig, DatasetName, ProcessedData, QueryConfig
 from edurec.datasets.preprocessing import text
 from edurec.datasets.preprocessing.build import build_processed
+from edurec.datasets.preprocessing.prepare import apply_common_filters
 from edurec.evaluation.baselines.recbole import RecBoleAdapter
 from edurec.recsys import EdurecDataAdapter, ModelArch, RecSys, TrainConfig
 from scripts.common import build_config
@@ -86,7 +87,7 @@ def test_raw_features_reach_graph_torch_queries_and_models(
         min_interactions=3,
         random_state=42,
     )
-    result = build_processed(raw, config)
+    result = build_processed(apply_common_filters(raw, config), config)
     data = result.data
     assert data.id_maps["items"] == dict(zip(items, range(4)))
     assert data.user_features[settings.USER_COL].tolist() == list(range(4))

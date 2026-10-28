@@ -1,4 +1,4 @@
-"""Per-dataset download, raw loading and schema.
+"""Per-dataset download, preparation, filtering and schema.
 
 Importing this package registers every dataset spec with the registry.
 """

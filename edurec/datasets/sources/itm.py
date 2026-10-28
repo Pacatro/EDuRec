@@ -5,6 +5,8 @@ import kagglehub
 import pandas as pd
 
 from edurec import settings
+from edurec.datasets.config import DataConfig
+from edurec.datasets.preprocessing.prepare import apply_common_filters
 from edurec.datasets.sources.common import ensure_files
 from edurec.datasets.sources.registry import DatasetName, DatasetSpec, RawData
 
@@ -89,4 +91,9 @@ def load_itm() -> RawData:
     )
 
 
-SPEC = DatasetSpec(DatasetName.ITM, FOLDER, download_itm, load_itm)
+def prepare_itm(config: DataConfig) -> RawData:
+    """Load and clean source tables, then apply shared selection rules."""
+    return apply_common_filters(load_itm(), config)
+
+
+SPEC = DatasetSpec(DatasetName.ITM, FOLDER, download_itm, prepare_itm)

@@ -1,10 +1,15 @@
 """Source cleaning, sparsity filtering and interaction budgeting."""
 
 import hashlib
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
 from edurec import settings
+from edurec.datasets.sources.registry import RawData
+
+if TYPE_CHECKING:
+    from edurec.datasets.config import DataConfig
 
 _BUDGET_SALT = "edurec-max-interactions:"
 
@@ -142,4 +147,72 @@ def filter_sparse(
         users.loc[users[settings.USER_COL].isin(valid_users)].reset_index(drop=True),
         items.loc[items[settings.ITEM_COL].isin(valid_items)].reset_index(drop=True),
         filtered.reset_index(drop=True),
+    )
+
+
+def apply_common_filters(
+    raw: RawData,
+    config: "DataConfig",
+    budget_applied: bool = False,
+) -> RawData:
+    """Clean, deduplicate, filter support and select complete user histories.
+
+    Sources that select histories while streaming pass ``budget_applied=True``
+    to avoid a second selection. Their sampling report describes that selection.
+    Support is checked again after a budget because selected users can leave
+    items below the minimum. Catalogs follow the retained interactions.
+    """
+    interactions = clean_cols(raw.interactions)
+    users = clean_cols(raw.user_features)
+    items = clean_cols(raw.item_features)
+
+    if config.deduplicate or settings.TIME_COL not in interactions:
+        interactions = deduplicate_interactions(interactions)
+
+    if config.remove_sparse:
+        users, items, interactions = filter_sparse(
+            users,
+            items,
+            interactions,
+            min_interactions=config.effective_min_interactions,
+        )
+
+    reports = dict(raw.reports or {})
+    if config.max_interactions is not None:
+        if not budget_applied:
+            interactions = limit_interactions(interactions, config.max_interactions)
+        # Keep the static user table aligned with the selected histories. Without
+        # this, users with no interaction (and no source-level sparsity filter,
+        # as in MOOCCubeX) would inflate ``num_users`` and the id map.
+        users = users.loc[
+            users[settings.USER_COL].isin(interactions[settings.USER_COL])
+        ].reset_index(drop=True)
+        items = items.loc[
+            items[settings.ITEM_COL].isin(interactions[settings.ITEM_COL])
+        ].reset_index(drop=True)
+        # Removing whole users can leave courses below the support threshold.
+        if config.remove_sparse:
+            users, items, interactions = filter_sparse(
+                users,
+                items,
+                interactions,
+                min_interactions=config.effective_min_interactions,
+            )
+        reports["interaction_budget"] = {
+            "requested": config.max_interactions,
+            "interactions": len(interactions),
+            "users": int(interactions[settings.USER_COL].nunique()),
+            "items": int(interactions[settings.ITEM_COL].nunique()),
+            "selection": (
+                raw.reports["source_sampling"]["selection"]
+                if budget_applied and raw.reports
+                else "whole_users_sha256"
+            ),
+        }
+
+    return raw._replace(
+        interactions=interactions,
+        user_features=users,
+        item_features=items,
+        reports=reports,
     )

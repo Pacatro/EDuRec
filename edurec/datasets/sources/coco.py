@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 
 from edurec import settings
+from edurec.datasets.config import DataConfig
+from edurec.datasets.preprocessing.prepare import apply_common_filters
 from edurec.datasets.sources.common import ensure_files
 from edurec.datasets.sources.registry import DatasetName, DatasetSpec, RawData
 
@@ -134,16 +136,8 @@ def _flatten_list_text(value: object) -> object:
     return value
 
 
-def load_coco() -> RawData:
-    """Load the COCO course-review dataset.
-
-    Ratings live in ``evaluate_latest.csv``; the free-text reviewer comment is
-    dropped because it is written after the rating and would leak the relevance
-    target. Course metadata is enriched with curriculum and instructor
-    aggregates so the item encoder receives course-level signals.
-    """
-    coco_folder = settings.RAW_DATA_FOLDER / FOLDER
-
+def _load_coco_interactions(coco_folder: Path) -> pd.DataFrame:
+    """Read review targets, excluding missing fields and unparseable dates."""
     interactions = pd.read_csv(
         coco_folder / "evaluate_latest.csv",
         usecols=["learner_id", "course_id", "learner_rating", "learner_timestamp"],
@@ -171,6 +165,21 @@ def load_coco() -> RawData:
         timestamps.loc[timestamps.notna()].astype("int64") // 10**9
     )
     interactions = interactions.reset_index(drop=True)
+
+    return interactions
+
+
+def load_coco() -> RawData:
+    """Load the COCO course-review dataset.
+
+    Ratings live in ``evaluate_latest.csv``; the free-text reviewer comment is
+    dropped because it is written after the rating and would leak the relevance
+    target. Course metadata is enriched with curriculum and instructor
+    aggregates so the item encoder receives course-level signals.
+    """
+    coco_folder = settings.RAW_DATA_FOLDER / FOLDER
+
+    interactions = _load_coco_interactions(coco_folder)
 
     items = pd.read_csv(coco_folder / "course_latest.csv")
     items.rename(columns={"course_id": settings.ITEM_COL}, inplace=True)
@@ -255,4 +264,9 @@ def load_coco() -> RawData:
     )
 
 
-SPEC = DatasetSpec(DatasetName.COCO, FOLDER, download_coco, load_coco)
+def prepare_coco(config: DataConfig) -> RawData:
+    """Load and clean source tables, then apply shared selection rules."""
+    return apply_common_filters(load_coco(), config)
+
+
+SPEC = DatasetSpec(DatasetName.COCO, FOLDER, download_coco, prepare_coco)

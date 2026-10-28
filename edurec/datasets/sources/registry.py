@@ -2,9 +2,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import pandas as pd
+
+if TYPE_CHECKING:
+    from edurec.datasets.config import DataConfig
 
 
 class DatasetName(StrEnum):
@@ -25,20 +28,21 @@ class RawData(NamedTuple):
     user_features: pd.DataFrame
     schema: Schema
     graph_entities: dict[str, pd.DataFrame] | None = None
+    reports: dict[str, Any] | None = None
 
 
-type ExportFn = Callable[[], RawData]
+type PrepareFn = Callable[["DataConfig"], RawData]
 type DownloadFn = Callable[[], Path]
 
 
 @dataclass(frozen=True)
 class DatasetSpec:
-    """Source contract of one dataset: raw folder, download step and loader."""
+    """Source contract: download and prepare canonical tables before splitting."""
 
     name: DatasetName
     folder: str
     download: DownloadFn
-    load: ExportFn
+    prepare: PrepareFn
 
 
 DATASETS: dict[DatasetName, DatasetSpec] = {}
@@ -59,5 +63,6 @@ def download_raw_data(dataset_name: DatasetName) -> Path:
     return get_spec(dataset_name).download()
 
 
-def load_raw_data(dataset_name: DatasetName) -> RawData:
-    return get_spec(dataset_name).load()
+def prepare_raw_data(config: "DataConfig") -> RawData:
+    """Run the source's explicit preparation sequence, including common filters."""
+    return get_spec(config.dataset).prepare(config)

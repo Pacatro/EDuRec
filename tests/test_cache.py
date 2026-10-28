@@ -13,6 +13,7 @@ from edurec.datasets import (
     datamodule,
 )
 from edurec.datasets import cache as cache_module
+from edurec.datasets.preprocessing.prepare import apply_common_filters
 
 
 def _unexpected_call(*args, **kwargs):
@@ -32,7 +33,9 @@ def cache_dirs(tmp_path, monkeypatch):
 def make_datamodule(raw_communities, monkeypatch, cache_dirs):
     def build(**overrides):
         monkeypatch.setattr(
-            datamodule, "load_raw_data", lambda dataset: raw_communities
+            datamodule,
+            "prepare_raw_data",
+            lambda config: apply_common_filters(raw_communities, config),
         )
         use_processed_data = overrides.pop("use_processed_data", False)
         params = {
@@ -83,7 +86,7 @@ def test_use_processed_loads_cache_without_reading_raw_data(
 ):
     built = make_datamodule()
     built.setup()
-    monkeypatch.setattr(datamodule, "load_raw_data", _unexpected_call)
+    monkeypatch.setattr(datamodule, "prepare_raw_data", _unexpected_call)
 
     cached = make_datamodule(use_processed_data=True)
     cached.setup()
@@ -112,7 +115,7 @@ def test_use_processed_accepts_legacy_cache_without_report(
     built = make_datamodule()
     built.setup()
     (processed / "report.json").unlink()
-    monkeypatch.setattr(datamodule, "load_raw_data", _unexpected_call)
+    monkeypatch.setattr(datamodule, "prepare_raw_data", _unexpected_call)
 
     dm = make_datamodule(use_processed_data=True)
     dm.setup()
@@ -127,7 +130,7 @@ def test_incompatible_cache_raises_actionable_error(
     processed, _ = cache_dirs
     make_datamodule().setup()
     (processed / "preprocessing.joblib").write_bytes(b"not a pickle")
-    monkeypatch.setattr(datamodule, "load_raw_data", _unexpected_call)
+    monkeypatch.setattr(datamodule, "prepare_raw_data", _unexpected_call)
 
     dm = make_datamodule(use_processed_data=True)
     with pytest.raises(RuntimeError, match="incompatible"):
@@ -244,7 +247,7 @@ def test_use_processed_rejects_incompatible_options(
     make_datamodule, cache_dirs, monkeypatch
 ):
     make_datamodule().setup()
-    monkeypatch.setattr(datamodule, "load_raw_data", _unexpected_call)
+    monkeypatch.setattr(datamodule, "prepare_raw_data", _unexpected_call)
 
     dm = make_datamodule(use_processed_data=True, remove_sparse=False)
     with pytest.raises(RuntimeError, match="different data options"):
@@ -258,7 +261,7 @@ def test_use_processed_warns_on_cache_without_manifest(
     built = make_datamodule()
     built.setup()
     (processed / "manifest.json").unlink()
-    monkeypatch.setattr(datamodule, "load_raw_data", _unexpected_call)
+    monkeypatch.setattr(datamodule, "prepare_raw_data", _unexpected_call)
     dm = make_datamodule(use_processed_data=True)
 
     with pytest.warns(UserWarning, match="manifest"):

@@ -17,6 +17,7 @@ from edurec.datasets import (
     QueryConfig,
 )
 from edurec.datasets.preprocessing.build import build_processed
+from edurec.datasets.preprocessing.prepare import apply_common_filters
 from edurec.evaluation import baseline_train_defaults, get_baseline
 from edurec.evaluation.baselines.kgan import (
     KGAN,
@@ -31,15 +32,16 @@ from edurec.recsys.configs import resolve_train_config
 
 @pytest.fixture
 def data(raw_communities):
+    config = DataConfig(
+        dataset=DatasetName.COCO,
+        min_interactions=3,
+        val_ratio=0.2,
+        test_ratio=0.2,
+        random_state=42,
+    )
     return build_processed(
-        raw_communities,
-        DataConfig(
-            dataset=DatasetName.COCO,
-            min_interactions=3,
-            val_ratio=0.2,
-            test_ratio=0.2,
-            random_state=42,
-        ),
+        apply_common_filters(raw_communities, config),
+        config,
     ).data
 
 

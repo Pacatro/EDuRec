@@ -293,6 +293,8 @@ def optimize_model(
             "dataset": dm.data_variant,
             "min_interactions": data_config.effective_min_interactions,
             "max_interactions": data_config.max_interactions,
+            "sampling_seed": data_config.sampling_seed,
+            "max_exclusive_concepts": data_config.max_exclusive_concepts,
             "test_ratio": data_config.test_ratio,
             "val_ratio": data_config.val_ratio,
         },

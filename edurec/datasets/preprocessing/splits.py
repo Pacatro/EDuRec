@@ -21,8 +21,7 @@ def split_data(
     min_interactions: int,
     random_state: int | None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    # Callers must normalize repeated pairs; build_processed deduplicates once
-    # before filtering and this split.
+    # Sources apply their deduplication policy before filtering and splitting.
     if not 0 < test_ratio < 1 or not 0 < val_ratio < 1 or test_ratio + val_ratio >= 1:
         raise ValueError(
             "Validation/test ratios must be positive and sum to less than 1."

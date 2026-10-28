@@ -41,10 +41,22 @@ def add_preprocessing_args(parser: argparse.ArgumentParser) -> None:
         "-i",
         type=int,
         default=settings.MAX_INTERACTIONS,
-        help="Maximum interactions after filtering; whole user histories are "
-        "selected. Defaults to no limit. Minimum interactions per user/item are "
-        "read from settings.MIN_INTERACTIONS (or MOOCCUBEX_MIN_CONNECTIONS for "
-        "MOOCCubeX).",
+        help="Maximum interactions, keeping whole user histories. MOOCCubeX "
+        "samples by activity before preprocessing; other sources sample after "
+        "sparsity filtering. Defaults to no limit.",
+    )
+    parser.add_argument(
+        "--sampling-seed",
+        type=int,
+        default=42,
+        help="Reproducible MOOCCubeX sampling seed, independent of training seeds.",
+    )
+    parser.add_argument(
+        "--max-exclusive-concepts",
+        type=int,
+        default=None,
+        help="MOOCCubeX: cap concepts linked to only one retained course; keep "
+        "all shared concepts. Defaults to no cap; 0 removes exclusive concepts.",
     )
     parser.add_argument(
         "--remove-sparse",
@@ -128,6 +140,8 @@ def data_config(
         test_ratio=args.test_size,
         val_ratio=args.val_size,
         max_interactions=args.max_interactions,
+        sampling_seed=args.sampling_seed,
+        max_exclusive_concepts=args.max_exclusive_concepts,
         remove_sparse=args.remove_sparse,
         deduplicate=deduplicate,
         random_state=random_state,

@@ -17,6 +17,7 @@ from edurec.datasets import (
     RecSysQuery,
 )
 from edurec.datasets.preprocessing.build import build_processed
+from edurec.datasets.preprocessing.prepare import apply_common_filters
 from edurec.evaluation.baselines.recbole import RecBoleAdapter
 from edurec.recsys import EdurecDataAdapter
 
@@ -30,7 +31,7 @@ def processed(raw_communities):
         val_ratio=0.2,
         random_state=42,
     )
-    return build_processed(raw_communities, config).data
+    return build_processed(apply_common_filters(raw_communities, config), config).data
 
 
 class PairAdapter(DataAdapter[tuple[torch.Tensor, ...], torch.Tensor]):
@@ -153,9 +154,7 @@ def test_recbole_inputs_and_scores_preserve_canonical_ids(processed, sequential)
 
 @pytest.mark.parametrize("model,sequential", [("BPR", False), ("SASRec", True)])
 def test_recbole_factory_config_and_export(processed, tmp_path, model, sequential):
-    adapter = RecBoleAdapter.for_model(
-        model, processed, QueryConfig(max_history=3)
-    )
+    adapter = RecBoleAdapter.for_model(model, processed, QueryConfig(max_history=3))
     assert isinstance(adapter, RecBoleAdapter)
     assert adapter.sequential == sequential
     base = {"epochs": 2}

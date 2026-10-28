@@ -165,7 +165,38 @@ Options:
 -d, --dataset [explicit_mars|implicit_mars|itm|doris|mooccubex|coco]  Dataset to use
 -m, --max-rows INTEGER          Number of rows to show
 -i, --max-interactions INTEGER  Optional whole-user interaction budget
+--sampling-seed INTEGER        MOOCCubeX sampling seed (default: 42)
+--max-exclusive-concepts INTEGER  MOOCCubeX exclusive concepts per course
 ```
+
+For a reduced MOOCCubeX dataset with complete user histories:
+
+```bash
+uv run scripts/dataset.py --dataset mooccubex --max-interactions 100000 \
+  --sampling-seed 42 --max-exclusive-concepts 8 --no-remove-sparse
+```
+
+MOOCCubeX sampling runs before preprocessing. A first pass counts valid user
+histories, then users are selected reproducibly in activity strata (1, 2–4,
+5–9, 10–19, 20–49, 50–100 courses). Each stratum receives a proportional event
+budget; whole-history rounding and filling the remaining budget make the
+proportions approximate, especially for small samples. A second pass loads only
+selected histories. Only their courses and static relations are retained.
+
+The concept cap keeps every concept shared by multiple retained courses, plus
+at most the requested number of exclusive concepts per course, selected by
+seeded hash. Teachers, institutions and fields remain unchanged. This is not a
+global graph-size limit: shared concepts can still be numerous. Without either
+budget, its corresponding reduction is disabled. `--no-remove-sparse` prevents
+subsequent sparsity filtering from removing events from selected histories.
+
+These options also work with the training, evaluation and HPO commands. The
+sampling seed is independent of training seeds and is checked when reusing a
+cache. Reports record source selection, activity strata and graph reduction;
+`interaction_budget` records counts after preprocessing. Processing version v8
+requires rebuilding older caches. A sampled catalog changes evaluation
+candidates, so comparable ranking metrics and representativeness still need
+validation against a common reference protocol.
 
 ### Train EDuRec
 
@@ -541,10 +572,11 @@ edurec/datasets/
 ├── sources/
 │   ├── registry.py          # source contracts, names and registration
 │   ├── common.py            # download/file helpers
-│   └── <dataset>.py         # dataset-specific loading and schemas
+│   └── <dataset>.py         # preparation, source filters and schemas
 └── preprocessing/
-    ├── build.py             # canonical processing pipeline
+    ├── build.py             # split, relevance and feature encoding
     ├── prepare.py           # cleaning, deduplication and filtering
+    ├── sampling.py          # whole-user sampling and concept reduction
     ├── splits.py            # temporal/random partitions
     ├── ids.py               # canonical user/item identifiers
     ├── lists.py             # list-valued feature normalization
@@ -559,7 +591,15 @@ Each model adapter lives beside the model or baseline it serves:
 `edurec/evaluation/baselines/recbole.py`. The shared contract is
 `edurec/datasets/adapter.py`.
 
-Source loading feeds canonical preprocessing and caching. Model adapters then
+Each `sources/<dataset>.py` defines a `prepare_<dataset>(config)` entry point
+registered by `DatasetSpec.prepare`. It reads and normalizes the source, applies
+its specific rules and calls `preprocessing/prepare.py:apply_common_filters`
+for deduplication, minimum support and interaction budgeting. MOOCCubeX selects
+complete histories while streaming and explicitly skips a second budget
+selection. Its metadata/concept reduction stays before common filtering to
+preserve the existing catalog semantics.
+
+Prepared source tables feed canonical preprocessing and caching. Model adapters then
 consume `ProcessedData` and use shared builders or their own format writers
 to assemble their inputs. `ElearningDataModule` connects
 these stages to loaders. `DataConfig`, `DatasetName`, `ProcessedData`,

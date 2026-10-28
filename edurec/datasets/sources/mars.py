@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 
 from edurec import settings
+from edurec.datasets.config import DataConfig
+from edurec.datasets.preprocessing.prepare import apply_common_filters
 from edurec.datasets.sources.common import ensure_files, extract_zip
 from edurec.datasets.sources.registry import DatasetName, DatasetSpec, RawData
 
@@ -32,8 +34,7 @@ def load_mars(data_type: Literal["explicit", "implicit"]) -> RawData:
     """Load the MARS dataset.
 
     Combines the English and French rating files and merges them with item
-    metadata. Dataset-wide cleaning and filtering happen later in the
-    pipeline preprocessing phase.
+    metadata. Shared filtering is applied by the source preparation entry point.
     """
     mars_folder = settings.RAW_DATA_FOLDER / FOLDER
     items_en = pd.read_csv(mars_folder / "items_en.csv")
@@ -56,22 +57,6 @@ def load_mars(data_type: Literal["explicit", "implicit"]) -> RawData:
         },
         inplace=True,
     )
-
-    if settings.TIME_COL in interactions.columns:
-        timestamp_seconds = _to_epoch_seconds(interactions[settings.TIME_COL])
-        valid_timestamps = timestamp_seconds.notna() & timestamp_seconds.ge(0)
-        num_invalid = int((~valid_timestamps).sum())
-        if num_invalid:
-            warnings.warn(
-                f"Dropping {num_invalid} MARS interactions with invalid "
-                "created_at timestamps.",
-                stacklevel=2,
-            )
-        interactions = interactions.loc[valid_timestamps].copy()
-        interactions[settings.TIME_COL] = timestamp_seconds.loc[
-            valid_timestamps
-        ].astype(np.int64)
-        interactions = interactions.reset_index(drop=True)
 
     items.rename(
         columns={"item_id": settings.ITEM_COL, "type": "item_type"},
@@ -116,15 +101,46 @@ def load_mars(data_type: Literal["explicit", "implicit"]) -> RawData:
     )
 
 
-def load_explicit_mars() -> RawData:
-    return load_mars(data_type="explicit")
+def _filter_mars_timestamps(interactions: pd.DataFrame) -> pd.DataFrame:
+    """Discard unparseable dates and dates before Unix epoch, when present."""
+    if settings.TIME_COL in interactions.columns:
+        timestamp_seconds = _to_epoch_seconds(interactions[settings.TIME_COL])
+        valid_timestamps = timestamp_seconds.notna() & timestamp_seconds.ge(0)
+        num_invalid = int((~valid_timestamps).sum())
+        if num_invalid:
+            warnings.warn(
+                f"Dropping {num_invalid} MARS interactions with invalid "
+                "created_at timestamps.",
+                stacklevel=2,
+            )
+        interactions = interactions.loc[valid_timestamps].copy()
+        interactions[settings.TIME_COL] = timestamp_seconds.loc[
+            valid_timestamps
+        ].astype(np.int64)
+        interactions = interactions.reset_index(drop=True)
+
+    return interactions
 
 
-def load_implicit_mars() -> RawData:
-    return load_mars(data_type="implicit")
+def prepare_explicit_mars(config: DataConfig) -> RawData:
+    """Load explicit events, discard invalid timestamps and apply common filters."""
+    raw = load_mars(data_type="explicit")
+    raw = raw._replace(interactions=_filter_mars_timestamps(raw.interactions))
+    return apply_common_filters(raw, config)
+
+
+def prepare_implicit_mars(config: DataConfig) -> RawData:
+    """Load implicit events, discard invalid timestamps and apply common filters."""
+    raw = load_mars(data_type="implicit")
+    raw = raw._replace(interactions=_filter_mars_timestamps(raw.interactions))
+    return apply_common_filters(raw, config)
 
 
 SPECS = (
-    DatasetSpec(DatasetName.EXPLICIT_MARS, FOLDER, download_mars, load_explicit_mars),
-    DatasetSpec(DatasetName.IMPLICIT_MARS, FOLDER, download_mars, load_implicit_mars),
+    DatasetSpec(
+        DatasetName.EXPLICIT_MARS, FOLDER, download_mars, prepare_explicit_mars
+    ),
+    DatasetSpec(
+        DatasetName.IMPLICIT_MARS, FOLDER, download_mars, prepare_implicit_mars
+    ),
 )

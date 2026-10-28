@@ -1,15 +1,21 @@
 import json
 import re
 import warnings
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
 from edurec import settings
+from edurec.datasets.preprocessing.prepare import apply_common_filters
+from edurec.datasets.preprocessing.sampling import reduce_concepts, sample_users
 from edurec.datasets.sources.common import ensure_files, stream_to_file
 from edurec.datasets.sources.registry import DatasetName, DatasetSpec, RawData
+
+if TYPE_CHECKING:
+    from edurec.datasets.config import DataConfig
 
 FOLDER = DatasetName.MOOCCUBEX.value
 
@@ -103,12 +109,10 @@ def _mooccubex_enrollments(
     return sorted(first.items(), key=lambda event: (event[1], event[0]))
 
 
-def _load_mooccubex_enrollments(
-    user_path: Path, catalog: set[str]
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Read every valid enrollment; repeated enrollments keep their first time."""
-    rows: list[tuple[str, str, int]] = []
-    profiles: list[dict[str, Any]] = []
+def _iter_mooccubex_users(
+    user_path: Path, catalog: set[str], selected_users: set[str] | None = None
+) -> Iterator[tuple[str, dict[str, Any], list[tuple[str, int]]]]:
+    """Stream normalized histories with the same filters on both sampling passes."""
     seen: set[str] = set()
     with user_path.open(encoding="utf-8") as source:
         for line in source:
@@ -118,22 +122,36 @@ def _load_mooccubex_enrollments(
             if not record.get("id"):
                 continue
             user = str(record["id"])
+            if selected_users is not None and user not in selected_users:
+                continue
             if user in seen:
                 continue
             seen.add(user)
             history = _mooccubex_enrollments(record, catalog)
-            if not history:
+            if not history or len(history) > settings.MOOCCUBEX_MAX_USER_ENROLLMENTS:
                 continue
-            rows.extend((user, course, stamp) for course, stamp in history)
-            profiles.append(
-                {
-                    settings.USER_COL: user,
-                    **{
-                        name: record.get(name)
-                        for name in ("gender", "school", "year_of_birth")
-                    },
-                }
-            )
+            yield user, record, history
+
+
+def _load_mooccubex_enrollments(
+    user_path: Path, catalog: set[str], selected_users: set[str] | None = None
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Materialize only retained complete histories and their user profiles."""
+    rows: list[tuple[str, str, int]] = []
+    profiles: list[dict[str, Any]] = []
+    for user, record, history in _iter_mooccubex_users(
+        user_path, catalog, selected_users
+    ):
+        rows.extend((user, course, stamp) for course, stamp in history)
+        profiles.append(
+            {
+                settings.USER_COL: user,
+                **{
+                    name: record.get(name)
+                    for name in ("gender", "school", "year_of_birth")
+                },
+            }
+        )
     events = pd.DataFrame(
         rows, columns=[settings.USER_COL, settings.ITEM_COL, settings.TIME_COL]
     )
@@ -145,10 +163,9 @@ def _load_mooccubex_enrollments(
     return events, users
 
 
-def load_mooccubex() -> RawData:
-    """Load valid enrollments after course and user source-level filtering."""
-    entities_folder = settings.RAW_DATA_FOLDER / FOLDER / "entities"
-    items = pd.read_json(entities_folder / "course.json", lines=True)
+def _load_mooccubex_courses(path: Path) -> pd.DataFrame:
+    """Deduplicate courses and retain educational, non-placeholder courses."""
+    items = pd.read_json(path, lines=True)
     items.rename(columns={"id": settings.ITEM_COL}, inplace=True)
     items = items.drop_duplicates(settings.ITEM_COL).copy()
 
@@ -161,20 +178,38 @@ def load_mooccubex() -> RawData:
             "MOOCCubeX has no courses with educational resources after filtering."
         )
 
-    relations_folder = entities_folder.parent / "relations"
-    interactions, users = _load_mooccubex_enrollments(
-        entities_folder / "user.json", set(items[settings.ITEM_COL].astype(str))
-    )
+    return items
 
-    max_user_enrollments = settings.MOOCCUBEX_MAX_USER_ENROLLMENTS
-    if max_user_enrollments < 1:
+
+def load_mooccubex(config: "DataConfig | None" = None) -> RawData:
+    """Load valid enrollments after course and user source-level filtering."""
+    if config is not None and config.dataset is not DatasetName.MOOCCUBEX:
+        raise ValueError("Expected MOOCCubeX source configuration.")
+    if settings.MOOCCUBEX_MAX_USER_ENROLLMENTS < 1:
         raise ValueError("MOOCCUBEX_MAX_USER_ENROLLMENTS must be positive.")
-    user_counts = interactions[settings.USER_COL].value_counts(sort=False)
-    over_cap = user_counts[user_counts > max_user_enrollments].index
-    interactions = interactions.loc[
-        ~interactions[settings.USER_COL].isin(over_cap)
-    ].reset_index(drop=True)
-    users = users.loc[~users[settings.USER_COL].isin(over_cap)].reset_index(drop=True)
+    entities_folder = settings.RAW_DATA_FOLDER / FOLDER / "entities"
+    items = _load_mooccubex_courses(entities_folder / "course.json")
+
+    relations_folder = entities_folder.parent / "relations"
+    catalog = set(items[settings.ITEM_COL].astype(str))
+    reports: dict[str, Any] = {}
+    selected_users = None
+    if config is not None and config.max_interactions is not None:
+        # Count compact histories first, without building millions of event rows
+        # or profiles. The second pass materializes only selected users.
+        sizes = {
+            user: len(history)
+            for user, _, history in _iter_mooccubex_users(
+                entities_folder / "user.json", catalog
+            )
+        }
+        selected_users, reports["source_sampling"] = sample_users(
+            sizes, config.max_interactions, config.sampling_seed
+        )
+        del sizes
+    interactions, users = _load_mooccubex_enrollments(
+        entities_folder / "user.json", catalog, selected_users
+    )
 
     items = items.loc[
         items[settings.ITEM_COL].isin(interactions[settings.ITEM_COL])
@@ -197,6 +232,13 @@ def load_mooccubex() -> RawData:
             items[settings.ITEM_COL],
             course_column=course_column,
         )
+    if config is not None and config.max_exclusive_concepts is not None:
+        items, reports["concept_sampling"] = reduce_concepts(
+            items, config.max_exclusive_concepts, config.sampling_seed
+        )
+    if "source_sampling" in reports:
+        reports["source_sampling"]["items_before"] = len(catalog)
+        reports["source_sampling"]["items"] = len(items)
     concept_ids = {concept for concepts in items["concept"] for concept in concepts}
     concepts = (
         _load_concept_metadata(entities_folder / "concept.json", concept_ids)
@@ -242,6 +284,7 @@ def load_mooccubex() -> RawData:
         user_features=users,
         schema=schema,
         graph_entities={"concept": concepts} if concepts is not None else None,
+        reports=reports,
     )
 
 
@@ -301,4 +344,19 @@ def _load_course_relations(
     return [sorted(memberships[str(course)]) for course in course_ids]
 
 
-SPEC = DatasetSpec(DatasetName.MOOCCUBEX, FOLDER, download_mooccubex, load_mooccubex)
+def prepare_mooccubex(config: "DataConfig") -> RawData:
+    """Filter courses/enrollments and sample early, then apply common filters.
+
+    Metadata and concept reduction remain before support filtering so concept
+    degrees and sampling reports retain their original catalog semantics.
+    """
+    raw = load_mooccubex(config)
+    raw = apply_common_filters(
+        raw,
+        config,
+        budget_applied=config.max_interactions is not None,
+    )
+    return raw
+
+
+SPEC = DatasetSpec(DatasetName.MOOCCUBEX, FOLDER, download_mooccubex, prepare_mooccubex)

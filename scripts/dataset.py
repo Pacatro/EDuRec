@@ -7,11 +7,10 @@ import argparse
 import json
 
 import pandas as pd
-from common import add_dataset_args
+from common import add_dataset_args, add_preprocessing_args, data_config
 
 from edurec import settings
 from edurec.datasets import (
-    DataConfig,
     DatasetName,
     ElearningDataModule,
 )
@@ -28,24 +27,16 @@ def main() -> None:
         default=10,
         help="Number of rows to display per table.",
     )
-    parser.add_argument(
-        "--max-interactions",
-        "-i",
-        type=int,
-        default=settings.MAX_INTERACTIONS,
-        help="Maximum interactions after filtering; whole user histories are "
-        "selected. Defaults to no limit. Minimum interactions per user/item are "
-        "read from settings.MIN_INTERACTIONS (or MOOCCUBEX_MIN_CONNECTIONS for "
-        "MOOCCubeX).",
-    )
+    add_preprocessing_args(parser)
     args = parser.parse_args()
 
-    config = DataConfig(
-        dataset=args.dataset,
-        max_interactions=args.max_interactions,
-    )
+    config = data_config(args, args.dataset)
 
-    dm = ElearningDataModule(config=config, batch_size=settings.BATCH_SIZE)
+    dm = ElearningDataModule(
+        config=config,
+        batch_size=settings.BATCH_SIZE,
+        use_processed_data=args.use_processed,
+    )
 
     dm.prepare_data()
     dm.setup()

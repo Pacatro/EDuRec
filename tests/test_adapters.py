@@ -16,6 +16,7 @@ from edurec.datasets import (
     queries,
 )
 from edurec.datasets.preprocessing.build import build_processed
+from edurec.datasets.preprocessing.prepare import apply_common_filters
 from edurec.evaluation.baselines.recbole import RecBoleAdapter
 from edurec.recsys import EdurecDataAdapter
 
@@ -38,7 +39,8 @@ def make_config(**overrides) -> DataConfig:
 
 @pytest.fixture
 def processed(raw_communities):
-    return build_processed(raw_communities, make_config()).data
+    config = make_config()
+    return build_processed(apply_common_filters(raw_communities, config), config).data
 
 
 @pytest.fixture
@@ -68,7 +70,10 @@ def implicit_adapter():
         ),
         schema={"items": {"graph_list": ["concept"]}},
     )
-    return EdurecDataAdapter(build_processed(raw, make_config()).data)
+    config = make_config()
+    return EdurecDataAdapter(
+        build_processed(apply_common_filters(raw, config), config).data
+    )
 
 
 def test_processed_data_requires_every_data_field():

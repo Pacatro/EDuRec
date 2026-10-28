@@ -22,7 +22,7 @@ from edurec.datasets.preprocessing.build import (
     split_strategy_for,
 )
 from edurec.datasets.queries import QueryConfig
-from edurec.datasets.sources.registry import download_raw_data, load_raw_data
+from edurec.datasets.sources.registry import download_raw_data, prepare_raw_data
 
 
 class ElearningDataModule(L.LightningDataModule):
@@ -100,9 +100,7 @@ class ElearningDataModule(L.LightningDataModule):
             self._adapter = factory(self.data, self.query_config)
         return self._adapter
 
-    def require_adapter[T: DataAdapter[Any, Any]](
-        self, adapter_type: type[T]
-    ) -> T:
+    def require_adapter[T: DataAdapter[Any, Any]](self, adapter_type: type[T]) -> T:
         """Get model-specific structures, rejecting an incompatible integration."""
         adapter = self.adapter
         if not isinstance(adapter, adapter_type):
@@ -212,7 +210,8 @@ class ElearningDataModule(L.LightningDataModule):
             )
 
     def _process_raw_data(self) -> None:
-        result = build_processed(load_raw_data(self.config.dataset), self.config)
+        raw = prepare_raw_data(self.config)
+        result = build_processed(raw, self.config)
         self._data = result.data
         self._build_result = result
         result.data.save(self.processed_folder)

@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 
 from edurec import settings
+from edurec.datasets.config import DataConfig
+from edurec.datasets.preprocessing.prepare import apply_common_filters
 from edurec.datasets.sources.common import ensure_files, extract_zip
 from edurec.datasets.sources.registry import DatasetName, DatasetSpec, RawData
 
@@ -50,21 +52,6 @@ def load_doris() -> RawData:
         inplace=True,
     )
 
-    ratings_df[settings.RATING_COL] = pd.to_numeric(
-        ratings_df[settings.RATING_COL],
-        errors="coerce",
-    )
-    ratings_df = ratings_df.dropna(subset=[settings.RATING_COL]).reset_index(drop=True)
-
-    start_year = (
-        ratings_df[settings.TIME_COL]
-        .astype("string")
-        .str.extract(r"^(\d{2})-", expand=False)
-    )
-    ratings_df[settings.TIME_COL] = pd.to_numeric("20" + start_year, errors="coerce")
-
-    ratings_df = ratings_df.dropna(subset=[settings.TIME_COL]).reset_index(drop=True)
-    ratings_df[settings.TIME_COL] = ratings_df[settings.TIME_COL].astype(np.int64)
     items_df.rename(
         columns={"CourseId": settings.ITEM_COL, "Type": "item_type"}, inplace=True
     )
@@ -107,4 +94,32 @@ def load_doris() -> RawData:
     )
 
 
-SPEC = DatasetSpec(DatasetName.DORIS, FOLDER, download_doris, load_doris)
+def _filter_doris_interactions(ratings_df: pd.DataFrame) -> pd.DataFrame:
+    """Keep numeric scores and academic years with a parseable starting year."""
+    ratings_df = ratings_df.copy()
+    ratings_df[settings.RATING_COL] = pd.to_numeric(
+        ratings_df[settings.RATING_COL],
+        errors="coerce",
+    )
+    ratings_df = ratings_df.dropna(subset=[settings.RATING_COL]).reset_index(drop=True)
+
+    start_year = (
+        ratings_df[settings.TIME_COL]
+        .astype("string")
+        .str.extract(r"^(\d{2})-", expand=False)
+    )
+    ratings_df[settings.TIME_COL] = pd.to_numeric("20" + start_year, errors="coerce")
+
+    ratings_df = ratings_df.dropna(subset=[settings.TIME_COL]).reset_index(drop=True)
+    ratings_df[settings.TIME_COL] = ratings_df[settings.TIME_COL].astype(np.int64)
+    return ratings_df
+
+
+def prepare_doris(config: DataConfig) -> RawData:
+    """Read tables, remove invalid scores/years and apply shared filters."""
+    raw = load_doris()
+    raw = raw._replace(interactions=_filter_doris_interactions(raw.interactions))
+    return apply_common_filters(raw, config)
+
+
+SPEC = DatasetSpec(DatasetName.DORIS, FOLDER, download_doris, prepare_doris)

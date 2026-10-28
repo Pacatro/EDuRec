@@ -3,11 +3,14 @@ import pandas as pd
 from edurec import settings
 from edurec.datasets import DataConfig, DatasetName
 from edurec.datasets.preprocessing.build import build_processed
+from edurec.datasets.preprocessing.prepare import apply_common_filters
 
 
 def test_build_preserves_disconnected_groups(raw_communities):
+    config = DataConfig(dataset=DatasetName.COCO, random_state=42)
     result = build_processed(
-        raw_communities, DataConfig(dataset=DatasetName.COCO, random_state=42)
+        apply_common_filters(raw_communities, config),
+        config,
     )
 
     pd.testing.assert_frame_equal(result.raw.interactions, raw_communities.interactions)
@@ -28,9 +31,10 @@ def test_build_can_keep_sparse_items(make_raw):
         {user: [0, 1, 2, user + 3] for user in range(4)},
         {item: [str(item)] for item in range(7)},
     )
+    config = DataConfig(dataset=DatasetName.COCO, remove_sparse=False, random_state=42)
     result = build_processed(
-        raw,
-        DataConfig(dataset=DatasetName.COCO, remove_sparse=False, random_state=42),
+        apply_common_filters(raw, config),
+        config,
     )
 
     pd.testing.assert_frame_equal(result.raw.interactions, raw.interactions)
@@ -43,14 +47,15 @@ def test_interaction_budget_prunes_the_user_catalog(make_raw):
         {user: [0, 1, 2, 3, 4] for user in range(10)},
         {item: [] for item in range(5)},
     )
+    config = DataConfig(
+        dataset=DatasetName.MOOCCUBEX,
+        max_interactions=25,
+        remove_sparse=False,
+        random_state=42,
+    )
     result = build_processed(
-        raw,
-        DataConfig(
-            dataset=DatasetName.MOOCCUBEX,
-            max_interactions=25,
-            remove_sparse=False,
-            random_state=42,
-        ),
+        apply_common_filters(raw, config),
+        config,
     )
 
     selected = set(result.raw.interactions[settings.USER_COL])
@@ -60,3 +65,19 @@ def test_interaction_budget_prunes_the_user_catalog(make_raw):
     assert len(result.raw.user_features) == 5
     assert set(result.raw.user_features[settings.USER_COL]) == selected
     assert result.data.reports["interaction_budget"]["users"] == 5
+
+
+def test_interaction_budget_prunes_unobserved_items_without_sparsity_filter(make_raw):
+    raw = make_raw(
+        {user: list(range(user * 5, user * 5 + 5)) for user in range(4)},
+        {item: [str(item)] for item in range(20)},
+    )
+    config = DataConfig(
+        dataset=DatasetName.MOOCCUBEX, max_interactions=5, remove_sparse=False
+    )
+    result = build_processed(
+        apply_common_filters(raw, config),
+        config,
+    )
+    assert result.data.num_items == 5
+    assert set(result.raw.item_features.item_id) == set(result.raw.interactions.item_id)

@@ -7,7 +7,10 @@ import pytest
 from edurec import settings
 from edurec.datasets import DataConfig, DatasetName
 from edurec.datasets.preprocessing.build import build_processed
-from edurec.datasets.preprocessing.prepare import limit_interactions
+from edurec.datasets.preprocessing.prepare import (
+    apply_common_filters,
+    limit_interactions,
+)
 from edurec.datasets.sources import mooccubex
 
 
@@ -185,8 +188,8 @@ def test_mooccubex_defaults_to_five_connections(make_raw):
         random_state=42,
     )
 
-    result = build_processed(raw, config)
-    again = build_processed(raw, config)
+    result = build_processed(apply_common_filters(raw, config), config)
+    again = build_processed(apply_common_filters(raw, config), config)
 
     assert result.data.num_users == 5
     assert result.data.num_items == 5
