@@ -159,6 +159,10 @@ Print basic statistics and sample rows from a dataset.
 uv run scripts/dataset.py --dataset explicit_mars --max-rows 10
 ```
 
+Every command that prepares data (`dataset`, `train`, `eval`, `hpo`, `ablation`)
+also reports the knowledge-graph size: nodes per node type, forward and reverse
+edges per relation, and the number of relations.
+
 Options:
 
 ```text

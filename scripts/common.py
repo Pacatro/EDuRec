@@ -1,7 +1,7 @@
 import argparse
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from edurec import settings
 from edurec.datasets import (
@@ -15,6 +15,9 @@ from edurec.datasets.preprocessing.tabular import (
     feature_columns,
 )
 from edurec.recsys import EdurecDataAdapter, ModelArch, ModelConfig
+
+if TYPE_CHECKING:
+    from torch_geometric.data import HeteroData
 
 
 def add_runtime_args(parser: argparse.ArgumentParser) -> None:
@@ -193,6 +196,61 @@ def build_config(
     return ModelConfig(**effective)
 
 
+def graph_statistics(graph: "HeteroData") -> dict[str, Any]:
+    """Node and relation counts of a heterogeneous graph.
+
+    Forward relations and their explicit ``rev_`` mirrors are counted
+    separately, so the reported edge total matches what message passing sees
+    while the per-relation breakdown stays readable.
+    """
+    nodes = {
+        node_type: int(graph[node_type].num_nodes) for node_type in graph.node_types
+    }
+    forward: dict[str, int] = {}
+    reverse: dict[str, int] = {}
+    for source, relation, target in graph.edge_types:
+        key = f"{source} -{relation}-> {target}"
+        count = int(graph[source, relation, target].num_edges)
+        (reverse if relation.startswith("rev_") else forward)[key] = count
+
+    return {
+        "nodes": nodes,
+        "forward_edges": forward,
+        "reverse_edges": reverse,
+        "num_nodes": sum(nodes.values()),
+        "num_forward_edges": sum(forward.values()),
+        "num_reverse_edges": sum(reverse.values()),
+        "num_relations": len(graph.edge_types),
+    }
+
+
+def print_graph_summary(prefix: str, dm: ElearningDataModule) -> None:
+    """Print the knowledge-graph size next to the tabular data summary."""
+    adapter = dm.adapter
+    if not isinstance(adapter, EdurecDataAdapter):
+        return
+
+    stats = graph_statistics(adapter.knowledge_graph)
+    print(
+        f"[{prefix}] Graph: nodes={stats['num_nodes']:,}, "
+        f"edges={stats['num_forward_edges'] + stats['num_reverse_edges']:,} "
+        f"(forward={stats['num_forward_edges']:,}, "
+        f"reverse={stats['num_reverse_edges']:,}), "
+        f"relations={stats['num_relations']}"
+    )
+    print(
+        f"[{prefix}] Graph nodes: "
+        + ", ".join(f"{node}={count:,}" for node, count in stats["nodes"].items())
+    )
+    if stats["forward_edges"]:
+        print(
+            f"[{prefix}] Graph edges: "
+            + ", ".join(
+                f"{edge}={count:,}" for edge, count in stats["forward_edges"].items()
+            )
+        )
+
+
 def print_data_summary(prefix: str, dm: ElearningDataModule) -> None:
     data = dm.data
     split_sizes = {split: len(frame) for split, frame in data.splits().items()}
@@ -212,6 +270,8 @@ def print_data_summary(prefix: str, dm: ElearningDataModule) -> None:
             f"{settings.TRAIN_NEGATIVES_PER_POSITIVE} per positive "
             f"({negatives.numel():,} precomputed)"
         )
+
+    print_graph_summary(prefix, dm)
 
     if settings.state["verbose"]:
         user_text = data.u_static_feats.shape[1] - len(

@@ -7,7 +7,12 @@ import argparse
 import json
 
 import pandas as pd
-from common import add_dataset_args, add_preprocessing_args, data_config
+from common import (
+    add_dataset_args,
+    add_preprocessing_args,
+    data_config,
+    print_graph_summary,
+)
 
 from edurec import settings
 from edurec.datasets import (
@@ -59,6 +64,7 @@ def main() -> None:
     )
     item_categorical = len(categorical_cardinalities(data.transforms["items"]))
     print(f"Number of item features: {data.i_static_feats.shape[1] + item_categorical}")
+    print_graph_summary("DATASET", dm)
 
     for label, report in data.reports.items():
         if report is not None:
