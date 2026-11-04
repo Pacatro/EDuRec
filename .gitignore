@@ -36,6 +36,7 @@ models/
 saved/
 *.pt
 results/
+docs/
 
 # Agents files/folders
 .codex
