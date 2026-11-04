@@ -8,37 +8,6 @@ from torch import nn
 from edurec import settings
 
 
-class AttentionPooling(nn.Module):
-    """Attention-weighted pooling over a padded sequence.
-
-    A learnable scoring function assigns a weight to every step and the module
-    returns the weighted sum of the sequence.
-    """
-
-    def __init__(self, dim: int):
-        super().__init__()
-        self.attn = nn.Linear(dim, 1)
-
-    def forward(
-        self,
-        sequence: torch.Tensor,
-        mask: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        """Return the pooled representation with shape ``[batch, dim]``.
-
-        Args:
-            sequence: Hidden states with shape ``[batch, seq_len, dim]``.
-            mask: Optional boolean mask with shape ``[batch, seq_len]``. True
-                values indicate valid steps; padded steps are ignored. Rows
-                with no valid step receive a zero vector.
-        """
-        scores = self.attn(sequence).squeeze(-1)
-        if mask is not None:
-            scores = scores.masked_fill(~mask.bool(), float("-inf"))
-        weights = torch.nan_to_num(scores.softmax(dim=1))
-        return torch.einsum("bl,blh->bh", weights, sequence)
-
-
 def masked_mean_pool(sequence: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     """Uniform mean over valid steps with shape ``[batch, dim]``.
 
@@ -67,7 +36,6 @@ class SeqEncoder(nn.Module):
         num_layers: int = settings.GRU_LAYERS,
         dropout: float = 0.1,
         cell_type: Literal["gru", "lstm"] = settings.SEQ_CELL,
-        use_attention_pooling: bool = False,
     ):
         super().__init__()
         self.cell_type = cell_type
@@ -82,7 +50,6 @@ class SeqEncoder(nn.Module):
             batch_first=True,
             dropout=dropout if num_layers > 1 else 0.0,
         )
-        self.pool = AttentionPooling(hidden_dim) if use_attention_pooling else None
         self.proj = nn.Linear(hidden_dim, emb_dim)
         self.norm = nn.LayerNorm(emb_dim)
 
@@ -128,12 +95,9 @@ class SeqEncoder(nn.Module):
         else:
             outputs, _ = self.rnn(event_emb, hidden)
 
-        if self.pool is not None:
-            pooled = self.pool(outputs, mask)
-        else:
-            # Read the last valid hidden state of each row.
-            last = (lengths - 1).clamp(min=0)
-            pooled = outputs[torch.arange(batch_size, device=outputs.device), last]
+        # Read the last valid hidden state of each row.
+        last = (lengths - 1).clamp(min=0)
+        pooled = outputs[torch.arange(batch_size, device=outputs.device), last]
 
         user = self.norm(self.proj(pooled)) * has_history.unsqueeze(-1)
         return user
@@ -144,7 +108,7 @@ class TransformerSeqEncoder(nn.Module):
 
     A learned positional embedding marks the interaction order and a stack of
     pre-norm Transformer blocks mixes items through self-attention. The
-    resulting states are attention-pooled into a single user vector.
+    resulting states are pooled into a single user vector.
     """
 
     def __init__(
@@ -155,7 +119,6 @@ class TransformerSeqEncoder(nn.Module):
         num_heads: int = settings.TRANSFORMER_HEADS,
         dropout: float = 0.1,
         max_history_len: int = settings.MAX_HISTORY_LEN,
-        use_attention_pooling: bool = True,
         causal: bool = False,
         use_last_state: bool = False,
     ):
@@ -183,7 +146,6 @@ class TransformerSeqEncoder(nn.Module):
             norm=nn.LayerNorm(hidden_dim),
             enable_nested_tensor=False,
         )
-        self.pool = AttentionPooling(hidden_dim) if use_attention_pooling else None
         self.proj = nn.Linear(hidden_dim, emb_dim)
         self.norm = nn.LayerNorm(emb_dim)
 
@@ -248,11 +210,7 @@ class TransformerSeqEncoder(nn.Module):
             )
             pooled = encoded[torch.arange(x.size(0), device=x.device), last]
         else:
-            pooled = (
-                self.pool(encoded, history_mask | empty.unsqueeze(1))
-                if self.pool is not None
-                else masked_mean_pool(encoded, history_mask)
-            )
+            pooled = masked_mean_pool(encoded, history_mask)
 
         seq_user_emb = self.norm(self.proj(pooled))
         return seq_user_emb * (~empty).unsqueeze(-1)

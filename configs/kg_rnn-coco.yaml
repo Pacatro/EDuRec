@@ -61,7 +61,6 @@ model:
   use_user_features: true
   use_interaction_features: true
   use_time_features: true
-  use_attention_pooling: false
   use_user_id_embedding: false
   gnn_layers: 2
   gnn_heads: 4

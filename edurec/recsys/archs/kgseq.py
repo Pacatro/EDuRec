@@ -96,7 +96,6 @@ class KGSeq(BaseRecArch):
                 num_layers=cfg.rnn_layers,
                 dropout=cfg.rnn_dropout,
                 cell_type=cfg.rnn_type,
-                use_attention_pooling=cfg.use_attention_pooling,
             )
             if cfg.has_history
             else None

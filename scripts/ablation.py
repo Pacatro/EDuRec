@@ -182,7 +182,6 @@ def main() -> None:
                         "use_user_features": int(cfg.use_user_features),
                         "use_interaction_features": int(cfg.use_interaction_features),
                         "use_time_features": int(cfg.use_time_features),
-                        "use_attention_pooling": int(cfg.use_attention_pooling),
                         "use_item_bias": int(cfg.use_item_bias),
                         "num_parameters": 0,
                         "training_time_s": 0.0,
@@ -273,7 +272,6 @@ def main() -> None:
                     "use_user_features": int(cfg.use_user_features),
                     "use_interaction_features": int(cfg.use_interaction_features),
                     "use_time_features": int(cfg.use_time_features),
-                    "use_attention_pooling": int(cfg.use_attention_pooling),
                     "use_item_bias": int(cfg.use_item_bias),
                     **{
                         name.removeprefix("test/"): value

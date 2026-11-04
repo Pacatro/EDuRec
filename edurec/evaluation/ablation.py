@@ -13,7 +13,6 @@ FULL_ABLATION: dict[str, Any] = {
     "use_user_features": True,
     "use_interaction_features": True,
     "use_time_features": True,
-    "use_attention_pooling": False,
     "use_item_bias": True,
     "use_gcl": True,
 }

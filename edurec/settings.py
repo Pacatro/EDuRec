@@ -139,9 +139,6 @@ TRANSFORMER_LAYERS: int = 2
 TRANSFORMER_HEADS: int = 4
 DROPOUT: float = 0.15
 MAX_HISTORY_LEN: int = 50
-# The main architecture reads the last valid hidden state; attention pooling is
-# kept only as an optional ablation.
-USE_ATTENTION_POOLING: bool = False
 # Feature toggles for the kg_rnn architecture.
 USE_ITEM_FEATURES: bool = True
 USE_INTERACTION_FEATURES: bool = True

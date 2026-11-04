@@ -31,7 +31,6 @@ class SASRecText(BaseRecArch):
             num_heads=cfg.transformer_heads,
             dropout=cfg.dropout,
             max_history_len=cfg.max_history_len,
-            use_attention_pooling=cfg.use_attention_pooling,
             causal=True,
             use_last_state=True,
         )

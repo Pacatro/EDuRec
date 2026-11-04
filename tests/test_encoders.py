@@ -46,7 +46,6 @@ def test_transformer_encoder_ignores_padding_and_empty_histories():
         num_heads=2,
         dropout=0.0,
         max_history_len=6,
-        use_attention_pooling=True,
     )
     encoder.eval()
     history = torch.randn(2, 4, 4)

@@ -412,8 +412,8 @@ configurations, which in turn take precedence over the global defaults in
 
 The scorer is always an MLP over `concat(user_state, candidate_item_embedding)`.
 Feature modules are toggled with `use_item_features`, `use_user_features`,
-`use_interaction_features`, `use_time_features`, `use_attention_pooling`,
-`graph_mode`, and `use_text_features`.
+`use_interaction_features`, `use_time_features`, `graph_mode`, and
+`use_text_features`.
 
 ### Run Ablations
 
@@ -430,7 +430,6 @@ Implemented main variants (all keep the item knowledge graph and the GRU):
 - `item_kg_context`: adds the interaction context to each event.
 - `item_kg_time`: adds the time-gap signal to each event.
 - `full`: context + time + user profile (the default architecture).
-- `attention_pooling`: `full` + optional attention pooling.
 - `no_graph`: drops the knowledge-graph message passing, keeping only item ID
   embeddings and feature projections.
 - `no_text`: removes the text embeddings from the item node features.
@@ -461,7 +460,7 @@ are joined with their field names) and numeric course metadata. Both history
 and candidates use the same course embedding table. A causal Transformer with
 learned positions produces the user state from the last valid history position;
 dot products with candidates produce scores for Top-K ranking. Graph, user
-profile, attention pooling, and item bias are disabled for this architecture.
+profile, and item bias are disabled for this architecture.
 Empty histories produce a zero state and tied scores. If no content features
 are available, the model uses course ID embeddings alone. Only `full` and
 `no_text` (when text is available) apply in the ablation command.
@@ -491,9 +490,8 @@ Use the existing `transformer_hidden_dim`, `transformer_layers`,
   comes from the preprocessed interaction features (rating, numeric,
   categorical, precomputed text embeddings) and the time signal is
   `Linear(log1p(delta_t))`. The static user profile is projected into the GRU's
-  initial hidden state `h0`; the default user state is the last valid hidden
-  state (attention pooling is an optional ablation). Missing signals are simply
-  omitted.
+  initial hidden state `h0`; the user state is the last valid hidden state.
+  Missing signals are simply omitted.
 - **Scorer**: an MLP over `concat(user_state, candidate_item_embedding)`. Full
   catalog scoring is chunked to bound memory. An optional item bias can be
   added.

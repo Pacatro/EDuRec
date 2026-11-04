@@ -11,14 +11,12 @@ from edurec.recsys.archs.modules.graph import (
 )
 from edurec.recsys.archs.modules.scorer import Scorer
 from edurec.recsys.archs.modules.sequence import (
-    AttentionPooling,
     SeqEncoder,
     TransformerSeqEncoder,
     masked_mean_pool,
 )
 
 __all__ = [
-    "AttentionPooling",
     "EdgeType",
     "GraphEncoder",
     "Scorer",

@@ -126,7 +126,6 @@ class ModelConfig(BaseConfig):
     use_user_features: bool = True
     use_interaction_features: bool = settings.USE_INTERACTION_FEATURES
     use_time_features: bool = settings.USE_TIME_FEATURES
-    use_attention_pooling: bool = settings.USE_ATTENTION_POOLING
 
     # User profile
     use_user_id_embedding: bool = False
@@ -180,7 +179,6 @@ class ModelConfig(BaseConfig):
             self.use_user_id_embedding = False
             self.use_interaction_features = False
             self.use_time_features = False
-            self.use_attention_pooling = False
             self.use_item_bias = False
 
     @property
