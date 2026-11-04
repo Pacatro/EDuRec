@@ -10,7 +10,6 @@ import pandas as pd
 
 from edurec import settings
 from edurec.datasets.preprocessing.prepare import apply_common_filters
-from edurec.datasets.preprocessing.sampling import reduce_concepts, sample_users
 from edurec.datasets.sources.common import ensure_files, stream_to_file
 from edurec.datasets.sources.registry import DatasetName, DatasetSpec, RawData
 
@@ -110,9 +109,9 @@ def _mooccubex_enrollments(
 
 
 def _iter_mooccubex_users(
-    user_path: Path, catalog: set[str], selected_users: set[str] | None = None
+    user_path: Path, catalog: set[str]
 ) -> Iterator[tuple[str, dict[str, Any], list[tuple[str, int]]]]:
-    """Stream normalized histories with the same filters on both sampling passes."""
+    """Stream normalized histories that pass the source-level filters."""
     seen: set[str] = set()
     with user_path.open(encoding="utf-8") as source:
         for line in source:
@@ -122,8 +121,6 @@ def _iter_mooccubex_users(
             if not record.get("id"):
                 continue
             user = str(record["id"])
-            if selected_users is not None and user not in selected_users:
-                continue
             if user in seen:
                 continue
             seen.add(user)
@@ -134,14 +131,12 @@ def _iter_mooccubex_users(
 
 
 def _load_mooccubex_enrollments(
-    user_path: Path, catalog: set[str], selected_users: set[str] | None = None
+    user_path: Path, catalog: set[str]
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Materialize only retained complete histories and their user profiles."""
+    """Materialize retained complete histories and their user profiles."""
     rows: list[tuple[str, str, int]] = []
     profiles: list[dict[str, Any]] = []
-    for user, record, history in _iter_mooccubex_users(
-        user_path, catalog, selected_users
-    ):
+    for user, record, history in _iter_mooccubex_users(user_path, catalog):
         rows.extend((user, course, stamp) for course, stamp in history)
         profiles.append(
             {
@@ -192,23 +187,8 @@ def load_mooccubex(config: "DataConfig | None" = None) -> RawData:
 
     relations_folder = entities_folder.parent / "relations"
     catalog = set(items[settings.ITEM_COL].astype(str))
-    reports: dict[str, Any] = {}
-    selected_users = None
-    if config is not None and config.max_interactions is not None:
-        # Count compact histories first, without building millions of event rows
-        # or profiles. The second pass materializes only selected users.
-        sizes = {
-            user: len(history)
-            for user, _, history in _iter_mooccubex_users(
-                entities_folder / "user.json", catalog
-            )
-        }
-        selected_users, reports["source_sampling"] = sample_users(
-            sizes, config.max_interactions, config.sampling_seed
-        )
-        del sizes
     interactions, users = _load_mooccubex_enrollments(
-        entities_folder / "user.json", catalog, selected_users
+        entities_folder / "user.json", catalog
     )
 
     items = items.loc[
@@ -232,13 +212,6 @@ def load_mooccubex(config: "DataConfig | None" = None) -> RawData:
             items[settings.ITEM_COL],
             course_column=course_column,
         )
-    if config is not None and config.max_exclusive_concepts is not None:
-        items, reports["concept_sampling"] = reduce_concepts(
-            items, config.max_exclusive_concepts, config.sampling_seed
-        )
-    if "source_sampling" in reports:
-        reports["source_sampling"]["items_before"] = len(catalog)
-        reports["source_sampling"]["items"] = len(items)
     concept_ids = {concept for concepts in items["concept"] for concept in concepts}
     concepts = (
         _load_concept_metadata(entities_folder / "concept.json", concept_ids)
@@ -284,7 +257,6 @@ def load_mooccubex(config: "DataConfig | None" = None) -> RawData:
         user_features=users,
         schema=schema,
         graph_entities={"concept": concepts} if concepts is not None else None,
-        reports=reports,
     )
 
 
@@ -345,18 +317,9 @@ def _load_course_relations(
 
 
 def prepare_mooccubex(config: "DataConfig") -> RawData:
-    """Filter courses/enrollments and sample early, then apply common filters.
-
-    Metadata and concept reduction remain before support filtering so concept
-    degrees and sampling reports retain their original catalog semantics.
-    """
+    """Filter courses and enrollments, then apply common filters."""
     raw = load_mooccubex(config)
-    raw = apply_common_filters(
-        raw,
-        config,
-        budget_applied=config.max_interactions is not None,
-    )
-    return raw
+    return apply_common_filters(raw, config)
 
 
 SPEC = DatasetSpec(DatasetName.MOOCCUBEX, FOLDER, download_mooccubex, prepare_mooccubex)

@@ -229,20 +229,3 @@ def test_common_preparation_preserves_deduplication_policy(
             ].item()
             == 3
         )
-
-
-def test_sampling_report_does_not_control_common_budget(make_raw):
-    from edurec.datasets import DataConfig, DatasetName
-    from edurec.datasets.preprocessing.prepare import apply_common_filters
-
-    raw = make_raw({u: list(range(5)) for u in range(4)}, {i: [] for i in range(5)})
-    raw = raw._replace(reports={"source_sampling": {"selection": "informational"}})
-    config = DataConfig(
-        dataset=DatasetName.COCO, max_interactions=5, remove_sparse=False
-    )
-
-    prepared = apply_common_filters(raw, config)
-
-    assert len(prepared.interactions) == 5
-    assert prepared.reports["interaction_budget"]["selection"] == "whole_users_sha256"
-    assert "interaction_budget" not in raw.reports

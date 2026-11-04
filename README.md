@@ -63,17 +63,13 @@ encoder. Only concepts linked to retained courses are encoded, once per concept.
 
 Datasets retain all users and items after source cleaning and optional sparsity
 filtering (`--remove-sparse`). Minimum interactions per user and item are read
-from `edurec/settings.py`. An optional whole-user interaction budget
-(`-i`/`--max-interactions`) selects users in a stable hash order until the requested
-number of interactions is reached and drops the users left out of the static
-catalog, so histories, temporal splits and `num_users` stay consistent. Data is then split into train, validation and test sets, with
-preprocessing fitted on training data.
+from `edurec/settings.py`. Data is then split into train, validation and test
+sets, with preprocessing fitted on training data.
 
 Processed data is written to `data/processed/<dataset>/` after every build and
 replaces the previous folder. A `manifest.json` records the dataset, the
 processing version, the full data configuration and the split seed. A
-`report.json` records per-split statistics and the realized interaction budget
-when `--max-interactions` is used.
+`report.json` records per-split statistics.
 `--use-processed` reuses that folder only when the configuration matches the
 current options; otherwise the loader raises an actionable error, so rebuild
 without the flag after changing any split or preprocessing option.
@@ -168,39 +164,11 @@ Options:
 ```text
 -d, --dataset [explicit_mars|implicit_mars|itm|doris|mooccubex|coco]  Dataset to use
 -m, --max-rows INTEGER          Number of rows to show
--i, --max-interactions INTEGER  Optional whole-user interaction budget
---sampling-seed INTEGER        MOOCCubeX sampling seed (default: 42)
---max-exclusive-concepts INTEGER  MOOCCubeX exclusive concepts per course
+--remove-sparse / --no-remove-sparse  Remove sparse users/items (default: on)
 ```
 
-For a reduced MOOCCubeX dataset with complete user histories:
-
-```bash
-uv run scripts/dataset.py --dataset mooccubex --max-interactions 100000 \
-  --sampling-seed 42 --max-exclusive-concepts 8 --no-remove-sparse
-```
-
-MOOCCubeX sampling runs before preprocessing. A first pass counts valid user
-histories, then users are selected reproducibly in activity strata (1, 2–4,
-5–9, 10–19, 20–49, 50–100 courses). Each stratum receives a proportional event
-budget; whole-history rounding and filling the remaining budget make the
-proportions approximate, especially for small samples. A second pass loads only
-selected histories. Only their courses and static relations are retained.
-
-The concept cap keeps every concept shared by multiple retained courses, plus
-at most the requested number of exclusive concepts per course, selected by
-seeded hash. Teachers, institutions and fields remain unchanged. This is not a
-global graph-size limit: shared concepts can still be numerous. Without either
-budget, its corresponding reduction is disabled. `--no-remove-sparse` prevents
-subsequent sparsity filtering from removing events from selected histories.
-
-These options also work with the training, evaluation and HPO commands. The
-sampling seed is independent of training seeds and is checked when reusing a
-cache. Reports record source selection, activity strata and graph reduction;
-`interaction_budget` records counts after preprocessing. Processing version v8
-requires rebuilding older caches. A sampled catalog changes evaluation
-candidates, so comparable ranking metrics and representativeness still need
-validation against a common reference protocol.
+MOOCCubeX retains every user and course that passes its source filters and the
+minimum-support threshold; there is no interaction budget or concept cap.
 
 ### Train EDuRec
 
@@ -209,12 +177,6 @@ iterates through all registered datasets.
 
 ```bash
 uv run scripts/train.py --dataset explicit_mars --use-processed --save-model
-```
-
-For a smaller MOOCCubeX run on a modest machine, cap the whole-user budget:
-
-```bash
-uv run scripts/train.py -d mooccubex --max-interactions 500000 --device cpu
 ```
 
 Common options:
@@ -229,7 +191,6 @@ Common options:
 --test-size FLOAT               Default: 0.2
 -k, --top-k INTEGER             Default: 20
 --remove-sparse / --no-remove-sparse  Remove sparse users/items (default: on)
--i, --max-interactions INTEGER  Optional whole-user interaction budget
 -a, --adaptive-k               Use adaptive-k metrics where supported
 -r, --random-state INTEGER      Seed for training and data splits
 -D, --debug                     Fast debug run
@@ -307,7 +268,6 @@ Useful options:
 -p, --patience INTEGER          Default: from saved train config
 -k, --top-k INTEGER             Repeat for multiple cutoffs
 --remove-sparse / --no-remove-sparse
--i, --max-interactions INTEGER  Optional whole-user interaction budget
 -P, --use-processed / --no-use-processed  Reuse data/processed/<dataset> when its manifest matches
 -m, --baseline-model TEXT       Baseline to evaluate (repeat, or `all`)
 -s, --seeds TEXT                Comma-separated seeds (default: 13,42,77)
@@ -580,7 +540,6 @@ edurec/datasets/
 └── preprocessing/
     ├── build.py             # split, relevance and feature encoding
     ├── prepare.py           # cleaning, deduplication and filtering
-    ├── sampling.py          # whole-user sampling and concept reduction
     ├── splits.py            # temporal/random partitions
     ├── ids.py               # canonical user/item identifiers
     ├── lists.py             # list-valued feature normalization
@@ -598,10 +557,8 @@ Each model adapter lives beside the model or baseline it serves:
 Each `sources/<dataset>.py` defines a `prepare_<dataset>(config)` entry point
 registered by `DatasetSpec.prepare`. It reads and normalizes the source, applies
 its specific rules and calls `preprocessing/prepare.py:apply_common_filters`
-for deduplication, minimum support and interaction budgeting. MOOCCubeX selects
-complete histories while streaming and explicitly skips a second budget
-selection. Its metadata/concept reduction stays before common filtering to
-preserve the existing catalog semantics.
+for deduplication and minimum support. MOOCCubeX streams enrollment histories
+and retains every user and course that passes its source filters.
 
 Prepared source tables feed canonical preprocessing and caching. Model adapters then
 consume `ProcessedData` and use shared builders or their own format writers

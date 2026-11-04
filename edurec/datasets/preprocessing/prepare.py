@@ -1,6 +1,5 @@
-"""Source cleaning, sparsity filtering and interaction budgeting."""
+"""Source cleaning and sparsity filtering."""
 
-import hashlib
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -10,8 +9,6 @@ from edurec.datasets.sources.registry import RawData
 
 if TYPE_CHECKING:
     from edurec.datasets.config import DataConfig
-
-_BUDGET_SALT = "edurec-max-interactions:"
 
 
 def clean_cols(df: pd.DataFrame) -> pd.DataFrame:
@@ -42,54 +39,6 @@ def deduplicate_interactions(df: pd.DataFrame) -> pd.DataFrame:
             [settings.USER_COL, settings.TIME_COL], kind="mergesort"
         )
     return frame.drop_duplicates(subset=subset, keep="last").reset_index(drop=True)
-
-
-def limit_interactions(
-    df: pd.DataFrame,
-    max_interactions: int,
-) -> pd.DataFrame:
-    """Keep whole user histories until the interaction budget is exhausted.
-
-    Users are visited in a stable hash order, so the selected subset is
-    reproducible and independent from training seeds. A user that does not fit
-    in the remaining budget is skipped; histories are never truncated.
-    """
-    if isinstance(max_interactions, bool) or max_interactions < 1:
-        raise ValueError("max_interactions must be a positive integer.")
-
-    user_col = settings.USER_COL
-    if user_col not in df.columns:
-        raise ValueError(
-            f"Interaction budget requires the {user_col!r} column to select users."
-        )
-    if len(df) <= max_interactions:
-        return df.reset_index(drop=True)
-
-    sizes = df[user_col].value_counts(sort=False)
-    order = sorted(
-        sizes.index,
-        key=lambda user: (
-            hashlib.sha256(f"{_BUDGET_SALT}{user}".encode()).digest(),
-            str(user),
-        ),
-    )
-
-    selected: list[object] = []
-    used = 0
-    for user in order:
-        size = int(sizes[user])
-        if used + size <= max_interactions:
-            selected.append(user)
-            used += size
-            if used == max_interactions:
-                break
-
-    if not selected:
-        raise ValueError(
-            "max_interactions is too small to retain any complete user history."
-        )
-
-    return df.loc[df[user_col].isin(selected)].reset_index(drop=True)
 
 
 def filter_sparse(
@@ -150,18 +99,8 @@ def filter_sparse(
     )
 
 
-def apply_common_filters(
-    raw: RawData,
-    config: "DataConfig",
-    budget_applied: bool = False,
-) -> RawData:
-    """Clean, deduplicate, filter support and select complete user histories.
-
-    Sources that select histories while streaming pass ``budget_applied=True``
-    to avoid a second selection. Their sampling report describes that selection.
-    Support is checked again after a budget because selected users can leave
-    items below the minimum. Catalogs follow the retained interactions.
-    """
+def apply_common_filters(raw: RawData, config: "DataConfig") -> RawData:
+    """Clean, deduplicate and filter support; catalogs follow retained rows."""
     interactions = clean_cols(raw.interactions)
     users = clean_cols(raw.user_features)
     items = clean_cols(raw.item_features)
@@ -177,42 +116,8 @@ def apply_common_filters(
             min_interactions=config.effective_min_interactions,
         )
 
-    reports = dict(raw.reports or {})
-    if config.max_interactions is not None:
-        if not budget_applied:
-            interactions = limit_interactions(interactions, config.max_interactions)
-        # Keep the static user table aligned with the selected histories. Without
-        # this, users with no interaction (and no source-level sparsity filter,
-        # as in MOOCCubeX) would inflate ``num_users`` and the id map.
-        users = users.loc[
-            users[settings.USER_COL].isin(interactions[settings.USER_COL])
-        ].reset_index(drop=True)
-        items = items.loc[
-            items[settings.ITEM_COL].isin(interactions[settings.ITEM_COL])
-        ].reset_index(drop=True)
-        # Removing whole users can leave courses below the support threshold.
-        if config.remove_sparse:
-            users, items, interactions = filter_sparse(
-                users,
-                items,
-                interactions,
-                min_interactions=config.effective_min_interactions,
-            )
-        reports["interaction_budget"] = {
-            "requested": config.max_interactions,
-            "interactions": len(interactions),
-            "users": int(interactions[settings.USER_COL].nunique()),
-            "items": int(interactions[settings.ITEM_COL].nunique()),
-            "selection": (
-                raw.reports["source_sampling"]["selection"]
-                if budget_applied and raw.reports
-                else "whole_users_sha256"
-            ),
-        }
-
     return raw._replace(
         interactions=interactions,
         user_features=users,
         item_features=items,
-        reports=reports,
     )

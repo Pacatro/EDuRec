@@ -8,7 +8,7 @@ from edurec.datasets.sources.registry import DatasetName
 
 #: Schema version of the persisted processed data. Bump when the layout or the
 #: meaning of any stored artefact changes.
-PROCESSING_VERSION = "v8"
+PROCESSING_VERSION = "v9"
 
 type SplitStrategy = Literal["temporal", "random"]
 
@@ -46,29 +46,11 @@ class DataConfig:
     test_ratio: float = settings.TEST_RATIO
     val_ratio: float = settings.VAL_RATIO
     min_interactions: int | None = None
-    max_interactions: int | None = None
     remove_sparse: bool = settings.REMOVE_SPARSE
     deduplicate: bool = settings.DEDUPLICATE_INTERACTIONS
     random_state: int | None = None
-    sampling_seed: int = 42
-    max_exclusive_concepts: int | None = None
 
     def __post_init__(self) -> None:
-        if isinstance(self.sampling_seed, bool) or not isinstance(
-            self.sampling_seed, int
-        ):
-            raise TypeError("sampling_seed must be an integer.")
-        if self.max_exclusive_concepts is not None:
-            if (
-                isinstance(self.max_exclusive_concepts, bool)
-                or not isinstance(self.max_exclusive_concepts, int)
-                or self.max_exclusive_concepts < 0
-            ):
-                raise ValueError("max_exclusive_concepts must be nonnegative or None.")
-            if self.dataset is not DatasetName.MOOCCUBEX:
-                raise ValueError(
-                    "max_exclusive_concepts is only supported by MOOCCubeX."
-                )
         if not 0 < self.test_ratio < 1 or not 0 < self.val_ratio < 1:
             raise ValueError("Validation/test ratios must be in (0, 1).")
         if self.test_ratio + self.val_ratio >= 1:
@@ -83,15 +65,6 @@ class DataConfig:
             raise ValueError(
                 "min_interactions must be at least 3 to create train/val/test splits."
             )
-        if self.max_interactions is not None:
-            if (
-                isinstance(self.max_interactions, bool)
-                or not isinstance(self.max_interactions, int)
-                or self.max_interactions < 1
-            ):
-                raise ValueError("max_interactions must be a positive integer or None.")
-            if self.max_interactions < min_interactions:
-                raise ValueError("max_interactions must be at least min_interactions.")
 
     @property
     def effective_min_interactions(self) -> int:

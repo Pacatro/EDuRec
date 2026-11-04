@@ -39,8 +39,8 @@ def split_strategy_for(interactions: pd.DataFrame) -> SplitStrategy:
 def build_processed(raw: RawData, config: DataConfig) -> BuildResult:
     """Split, label and encode tables already prepared by the source.
 
-    Source preparation owns cleaning, filtering and sampling. This stage only
-    fits interaction preprocessing on train and preserves preparation reports.
+    Source preparation owns cleaning and filtering. This stage only fits
+    interaction preprocessing on train and preserves preparation reports.
     """
     train, val, test = _split_with_relevance(raw.interactions, config)
     artifacts = preprocess(

@@ -7,10 +7,7 @@ import pytest
 from edurec import settings
 from edurec.datasets import DataConfig, DatasetName
 from edurec.datasets.preprocessing.build import build_processed
-from edurec.datasets.preprocessing.prepare import (
-    apply_common_filters,
-    limit_interactions,
-)
+from edurec.datasets.preprocessing.prepare import apply_common_filters
 from edurec.datasets.sources import mooccubex
 
 
@@ -182,57 +179,17 @@ def test_mooccubex_defaults_to_five_connections(make_raw):
 
     histories = {user: [0, 1, 2, 3, 4] for user in range(10)}
     raw = make_raw(histories, {item: [] for item in range(5)})
-    config = DataConfig(
-        dataset=DatasetName.MOOCCUBEX,
-        max_interactions=25,
-        random_state=42,
-    )
+    config = DataConfig(dataset=DatasetName.MOOCCUBEX, random_state=42)
 
     result = build_processed(apply_common_filters(raw, config), config)
     again = build_processed(apply_common_filters(raw, config), config)
 
-    assert result.data.num_users == 5
+    assert result.data.num_users == 10
     assert result.data.num_items == 5
-    assert result.data.num_interactions == 25
+    assert result.data.num_interactions == 50
     assert result.data.manifest is not None
     assert result.data.manifest.config["min_interactions"] == 5
-    assert result.data.manifest.config["max_interactions"] == 25
-    assert result.data.reports["interaction_budget"] == {
-        "requested": 25,
-        "interactions": 25,
-        "users": 5,
-        "items": 5,
-        "selection": "whole_users_sha256",
-    }
-    assert result.raw.interactions.groupby(settings.USER_COL).size().eq(5).all()
     pd.testing.assert_frame_equal(result.raw.interactions, again.raw.interactions)
-
-
-def test_limit_interactions_keeps_whole_user_histories():
-    frame = pd.DataFrame(
-        {
-            settings.USER_COL: ["a"] * 3 + ["b"] * 2 + ["c"] * 4,
-            settings.ITEM_COL: list(range(9)),
-        }
-    )
-
-    limited = limit_interactions(frame, 5)
-
-    assert len(limited) <= 5
-    for user, count in limited[settings.USER_COL].value_counts().items():
-        assert count == int((frame[settings.USER_COL] == user).sum())
-
-
-def test_limit_interactions_rejects_an_impossible_budget():
-    frame = pd.DataFrame(
-        {
-            settings.USER_COL: ["a"] * 3,
-            settings.ITEM_COL: [0, 1, 2],
-        }
-    )
-
-    with pytest.raises(ValueError, match="complete user history"):
-        limit_interactions(frame, 2)
 
 
 def test_source_filter_settings_invalidate_the_manifest(monkeypatch):
@@ -241,11 +198,3 @@ def test_source_filter_settings_invalidate_the_manifest(monkeypatch):
     monkeypatch.setattr(settings, "MOOCCUBEX_MAX_USER_ENROLLMENTS", 50)
 
     assert manifest.incompatibility(config.manifest("temporal")) is not None
-
-
-def test_max_interactions_validation():
-    with pytest.raises(ValueError, match="positive integer"):
-        DataConfig(dataset=DatasetName.COCO, max_interactions=0)
-
-    with pytest.raises(ValueError, match="at least min_interactions"):
-        DataConfig(dataset=DatasetName.COCO, max_interactions=2)

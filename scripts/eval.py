@@ -290,7 +290,6 @@ def main() -> None:
                 "[EVAL] Data config: "
                 f"use_processed={args.use_processed}, "
                 f"remove_sparse={args.remove_sparse}, "
-                f"max_interactions={args.max_interactions or 'none'}, "
                 f"val_ratio={args.val_size}, test_ratio={args.test_size}"
             )
 

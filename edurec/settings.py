@@ -48,9 +48,6 @@ TIME_COL: str = "timestamp"
 RATING_COL: str = "rating"
 RELEVANT_COL: str = "relevant"
 MIN_INTERACTIONS: int = 3
-# Optional cap on the total interactions kept after source cleaning. Whole user
-# histories are selected, so temporal order and evaluation splits stay valid.
-MAX_INTERACTIONS: int | None = None
 TRAIN_NEGATIVES_PER_POSITIVE: int = 4
 RAW_DATA_FOLDER = Path(DATA_FOLDER) / "raw"
 
