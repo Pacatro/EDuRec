@@ -107,6 +107,7 @@ def main() -> None:
                 "batch_size": args.batch_size,
                 "patience": args.patience,
                 "adaptive_k": args.adaptive_k,
+                "max_history": args.max_history,
             },
             saved_path=run_config_path,
         )
@@ -154,12 +155,19 @@ def main() -> None:
 
         print_data_summary("TRAIN", dm)
 
-        gcl_overrides = {
+        model_overrides = {
             "use_gcl": args.use_gcl,
             "gcl_weight": args.gcl_weight,
             "gcl_temperature": args.gcl_temperature,
             "gcl_edge_dropout": args.gcl_edge_dropout,
             "gcl_max_items": args.gcl_max_items,
+            "emb_dim": args.emb_dim,
+            "gnn_layers": args.gnn_layers,
+            "gnn_heads": args.gnn_heads,
+            "rnn_layers": args.rnn_layers,
+            "rnn_hidden_dim": args.rnn_hidden_dim,
+            "dropout": args.dropout,
+            "hidden_dims": args.hidden_dims,
         }
 
         if run_config_path.exists():
@@ -167,11 +175,11 @@ def main() -> None:
                 dm,
                 base=ModelConfig.load(run_config_path),
                 arch=resolved_arch,
-                **gcl_overrides,
+                **model_overrides,
             )
             print(f"[TRAIN] Using saved model config: {run_config_path}")
         else:
-            cfg = build_config(dm, arch=resolved_arch, **gcl_overrides)
+            cfg = build_config(dm, arch=resolved_arch, **model_overrides)
             print("[TRAIN] No saved model config found; using the full model.")
 
         if run_config_path.exists():

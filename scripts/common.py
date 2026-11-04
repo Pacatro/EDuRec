@@ -75,6 +75,20 @@ def add_model_args(parser: argparse.ArgumentParser, with_arch: bool = True) -> N
     parser.add_argument(
         "--compile", action="store_true", default=settings.COMPILE_MODEL
     )
+    parser.add_argument("--emb-dim", type=int, help="Embedding width.")
+    parser.add_argument("--gnn-layers", type=int, help="Knowledge-graph GNN layers.")
+    parser.add_argument("--gnn-heads", type=int, help="Knowledge-graph GNN heads.")
+    parser.add_argument("--rnn-layers", type=int, help="Sequence encoder layers.")
+    parser.add_argument(
+        "--rnn-hidden-dim", type=int, help="Sequence encoder hidden width."
+    )
+    parser.add_argument("--dropout", type=float, help="Model dropout probability.")
+    parser.add_argument(
+        "--hidden-dims",
+        type=int,
+        nargs="+",
+        help="Scorer hidden layer widths, for example: --hidden-dims 64 32.",
+    )
 
 
 def add_training_args(parser: argparse.ArgumentParser) -> None:
@@ -88,6 +102,12 @@ def add_training_args(parser: argparse.ArgumentParser) -> None:
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Use adaptive k. Uses the saved training config if omitted.",
+    )
+    parser.add_argument(
+        "--max-history",
+        type=int,
+        metavar="LEN",
+        help="Maximum history length fed to the model.",
     )
 
 
