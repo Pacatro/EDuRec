@@ -7,6 +7,7 @@ from edurec.datasets.cache import ProcessedData
 from edurec.datasets.config import DataConfig, SplitStrategy
 from edurec.datasets.preprocessing.ids import encode_ids
 from edurec.datasets.preprocessing.lists import normalize_lists
+from edurec.datasets.preprocessing.sampling import reduce_dataset
 from edurec.datasets.preprocessing.splits import (
     add_relevance,
     get_relevance_threshold,
@@ -39,10 +40,21 @@ def split_strategy_for(interactions: pd.DataFrame) -> SplitStrategy:
 def build_processed(raw: RawData, config: DataConfig) -> BuildResult:
     """Split, label and encode tables already prepared by the source.
 
-    Source preparation owns cleaning and filtering. This stage only fits
-    interaction preprocessing on train and preserves preparation reports.
+    Source preparation owns cleaning and filtering. Optional reduction follows
+    the split; interaction preprocessing is fitted on the retained train rows.
     """
-    train, val, test = _split_with_relevance(raw.interactions, config)
+    splits = split_data(
+        raw.interactions,
+        test_ratio=config.test_ratio,
+        val_ratio=config.val_ratio,
+        min_interactions=config.effective_min_interactions,
+        random_state=config.random_state,
+    )
+    raw, (train, val, test) = reduce_dataset(raw, splits, config)
+    thresholds = get_relevance_threshold(train)
+    train, val, test = (
+        add_relevance(frame, thresholds) for frame in (train, val, test)
+    )
     artifacts = preprocess(
         schema=raw.schema,
         users=raw.user_features,
@@ -81,27 +93,6 @@ def _reports(
             for name, frame in artifacts.splits().items()
         },
     }
-
-
-def _split_with_relevance(
-    interactions: pd.DataFrame,
-    config: DataConfig,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    train, val, test = split_data(
-        interactions,
-        test_ratio=config.test_ratio,
-        val_ratio=config.val_ratio,
-        min_interactions=config.effective_min_interactions,
-        random_state=config.random_state,
-    )
-
-    thresholds = get_relevance_threshold(train)
-
-    return (
-        add_relevance(train, thresholds),
-        add_relevance(val, thresholds),
-        add_relevance(test, thresholds),
-    )
 
 
 def preprocess(

@@ -61,8 +61,8 @@ encoder. Only concepts linked to retained courses are encoded, once per concept.
 
 ### Data preprocessing and cache
 
-Datasets retain all users and items after source cleaning and optional sparsity
-filtering (`--remove-sparse`). Minimum interactions per user and item are read
+By default, datasets retain all users and items after source cleaning and optional
+sparsity filtering (`--remove-sparse`). Minimum interactions per user and item are read
 from `edurec/settings.py`. Data is then split into train, validation and test
 sets, with preprocessing fitted on training data.
 
@@ -90,6 +90,61 @@ excluded. The pipeline then keeps users and courses with at least
 `settings.MOOCCUBEX_MIN_CONNECTIONS` connections (5 by default for this
 dataset). Concept text can be disabled through
 `settings.MOOCCUBEX_ENCODE_CONCEPT_TEXT`.
+
+#### Reducing interactions and the knowledge graph
+
+For a smaller MOOCCubeX build, sample whole users and prune concepts independently:
+
+```bash
+uv run scripts/dataset.py --dataset mooccubex \
+  --max-interactions 500000 --sampling-seed 42 \
+  --max-exclusive-concepts 10 --no-remove-sparse
+```
+
+Both reductions are disabled unless requested. The options are shared by training,
+evaluation, HPO and ablation scripts. Repeat the same options with
+`--use-processed` to reuse the resulting cache. Building without `--use-processed`
+replaces the previous processed cache for this dataset.
+
+1. Source cleaning and deduplication run as usual. `--no-remove-sparse` skips the
+   iterative k-core, retaining low-activity users. Omit it to sample the existing
+   k-core population instead. Users below the split minimum remain train-only;
+   this method does not create evaluation targets for them.
+2. Split each user's history once, using the existing split ratios (defaults:
+   70% train, 10% validation, 20% test). MOOCCubeX uses chronological order.
+3. Count **training** interactions per user and place users in activity intervals
+   with inclusive upper bounds 1, 4, 9, 19, 49 and 100 (plus an overflow interval).
+   Shuffle users within each interval with `--sampling-seed`, then interleave
+   intervals in proportion to their user counts. Retain a prefix whose training
+   interactions fit `max_interactions * (1 - val_size - test_size)`. Every selected
+   user keeps their complete train, validation and test histories.
+4. Treat `--max-interactions` as an **approximate total**, not a hard cap. Per-user
+   split rounding and indivisible histories affect the actual total. Neither the
+   contents nor the lengths of held-out histories influence user selection.
+   A budget too small to select the first complete training history raises an
+   error. Small samples can lose activity intervals, fields or tail courses.
+5. Keep the entire catalog left by source cleaning and optional k-core filtering.
+   Sampling can leave courses without training interactions; these remain ranking
+   candidates. Coverage is measured, not guaranteed or enforced by oversampling.
+6. Count concept degree across that catalog. Keep every concept linked to at
+   least two courses. For degree-one concepts, retain at most
+   `--max-exclusive-concepts` per course, selected by a stable hash of the seed and
+   concept ID. Zero removes all exclusive concepts. Drop discarded concept
+   memberships and entity metadata before graph construction/text encoding.
+   Other item metadata and graph relations remain intact. Degree-one concepts can
+   still be useful educational content; the cap is a tunable compression policy.
+7. Fit interaction preprocessing and relevance thresholds on the selected train
+   split. Persist the reduced data and a `reduction_report` in `report.json`, with
+   actual counts, activity distributions, training coverage of courses/fields/
+   concepts, courses without training data, and concept node/edge counts.
+
+The reduction options and seed are part of the cache manifest (processing version
+v10); changing them invalidates reuse, including for temporal splits. The report
+does not establish model-ranking fidelity: compare several sampling seeds, an
+unstratified user baseline and a larger reference before drawing conclusions.
+With the report's catalog counts, retaining all 74,780 shared concepts and at most
+10 exclusive concepts for each of 765 courses gives an upper bound of 82,430
+concepts. This is a projection, not a measurement of a newly rebuilt dataset.
 
 Missing metadata falls back to the name in the concept ID and emits a warning.
 Embeddings and original IDs are saved with the processor; the KG exposes the

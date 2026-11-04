@@ -37,6 +37,7 @@ saved/
 *.pt
 results/
 docs/
+reports/
 
 # Agents files/folders
 .codex

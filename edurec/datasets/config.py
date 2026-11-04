@@ -8,7 +8,7 @@ from edurec.datasets.sources.registry import DatasetName
 
 #: Schema version of the persisted processed data. Bump when the layout or the
 #: meaning of any stored artefact changes.
-PROCESSING_VERSION = "v9"
+PROCESSING_VERSION = "v10"
 
 type SplitStrategy = Literal["temporal", "random"]
 
@@ -49,8 +49,17 @@ class DataConfig:
     remove_sparse: bool = settings.REMOVE_SPARSE
     deduplicate: bool = settings.DEDUPLICATE_INTERACTIONS
     random_state: int | None = None
+    max_interactions: int | None = None
+    sampling_seed: int = 42
+    max_exclusive_concepts: int | None = None
 
     def __post_init__(self) -> None:
+        if self.max_interactions is not None and self.max_interactions < 1:
+            raise ValueError("max_interactions must be positive.")
+        if self.max_exclusive_concepts is not None and self.max_exclusive_concepts < 0:
+            raise ValueError("max_exclusive_concepts must be nonnegative.")
+        if self.sampling_seed < 0:
+            raise ValueError("sampling_seed must be nonnegative.")
         if not 0 < self.test_ratio < 1 or not 0 < self.val_ratio < 1:
             raise ValueError("Validation/test ratios must be in (0, 1).")
         if self.test_ratio + self.val_ratio >= 1:

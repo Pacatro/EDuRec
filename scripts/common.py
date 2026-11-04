@@ -54,6 +54,19 @@ def add_preprocessing_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--val-size", type=float, default=settings.VAL_RATIO)
     parser.add_argument("--test-size", type=float, default=settings.TEST_RATIO)
+    parser.add_argument(
+        "--max-interactions",
+        type=int,
+        help="Approximate total interaction budget; sample whole users by train "
+        "activity after splitting. Disabled by default; not a strict row cap.",
+    )
+    parser.add_argument("--sampling-seed", type=int, default=42)
+    parser.add_argument(
+        "--max-exclusive-concepts",
+        type=int,
+        help="Maximum degree-one concepts per course; keep all shared concepts. "
+        "Disabled by default; zero removes all exclusive concepts.",
+    )
 
 
 def add_model_args(parser: argparse.ArgumentParser, with_arch: bool = True) -> None:
@@ -123,6 +136,9 @@ def data_config(
         remove_sparse=args.remove_sparse,
         deduplicate=deduplicate,
         random_state=random_state,
+        max_interactions=args.max_interactions,
+        sampling_seed=args.sampling_seed,
+        max_exclusive_concepts=args.max_exclusive_concepts,
     )
 
 
