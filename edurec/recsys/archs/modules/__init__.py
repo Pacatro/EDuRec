@@ -1,38 +1,33 @@
-from edurec.recsys.archs.modules.interaction_context import (
-    ContextConfig,
-    ContextEncoder,
+from edurec.recsys.archs.modules.features import (
+    TabularEncoder,
+    UserStateEncoder,
+    clamp_user_ids,
 )
-from edurec.recsys.archs.modules.kg_encoder import (
+from edurec.recsys.archs.modules.graph import (
     EdgeType,
     GraphEncoder,
-    GraphEncoderConfig,
+    drop_relation_edges,
+    item_contrastive_loss,
 )
-from edurec.recsys.archs.modules.scorer import Scorer, ScorerConfig
-from edurec.recsys.archs.modules.seq_encoder import (
+from edurec.recsys.archs.modules.scorer import Scorer
+from edurec.recsys.archs.modules.sequence import (
+    AttentionPooling,
     SeqEncoder,
-    SeqEncoderConfig,
     TransformerSeqEncoder,
-    TransformerSeqEncoderConfig,
-)
-from edurec.recsys.archs.modules.user_state import (
-    UserProfileEncoder,
-    UserStateConfig,
-    UserStateEncoder,
+    masked_mean_pool,
 )
 
 __all__ = [
-    "ContextConfig",
-    "ContextEncoder",
+    "AttentionPooling",
     "EdgeType",
     "GraphEncoder",
-    "GraphEncoderConfig",
     "Scorer",
-    "ScorerConfig",
     "SeqEncoder",
-    "SeqEncoderConfig",
+    "TabularEncoder",
     "TransformerSeqEncoder",
-    "TransformerSeqEncoderConfig",
-    "UserProfileEncoder",
-    "UserStateConfig",
     "UserStateEncoder",
+    "clamp_user_ids",
+    "drop_relation_edges",
+    "item_contrastive_loss",
+    "masked_mean_pool",
 ]

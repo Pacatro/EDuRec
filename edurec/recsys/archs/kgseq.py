@@ -3,14 +3,12 @@ from torch import nn
 
 from edurec.recsys.archs.base import BaseRecArch
 from edurec.recsys.archs.modules import (
-    ContextEncoder,
     GraphEncoder,
     Scorer,
     SeqEncoder,
-    UserProfileEncoder,
+    TabularEncoder,
     UserStateEncoder,
-)
-from edurec.recsys.archs.modules.contrastive import (
+    clamp_user_ids,
     drop_relation_edges,
     item_contrastive_loss,
 )
@@ -39,9 +37,51 @@ class KGSeq(BaseRecArch):
         super().__init__()
         self.cfg = cfg
 
-        self.kg = GraphEncoder(cfg.kg_encoder)
-        self.interaction_context = ContextEncoder(cfg.interaction_context)
-        self.user_state = UserStateEncoder(cfg.user_state) if cfg.has_history else None
+        user_dense_dim = cfg.num_user_dense_feats if cfg.use_user_features else 0
+        user_cats = cfg.user_cat_cardinalities if cfg.use_user_features else []
+        use_user_ids = cfg.use_user_id_embedding and cfg.use_user_features
+
+        edge_types = [
+            (source, relation, target) for source, relation, target in cfg.kg_edge_types
+        ]
+        self.kg = GraphEncoder(
+            num_items=cfg.num_items,
+            emb_dim=cfg.emb_dim,
+            item_feat_dim=cfg.effective_item_dense_feats,
+            num_layers=cfg.gnn_layers,
+            heads=cfg.gnn_heads,
+            dropout=cfg.gnn_dropout,
+            node_counts=dict(cfg.kg_node_counts),
+            node_feat_dims=(
+                dict(cfg.kg_node_feat_dims)
+                if cfg.use_text_features and cfg.graph_mode == "kg"
+                else {}
+            ),
+            edge_types=edge_types,
+            graph_mode=cfg.graph_mode,
+        )
+        self.interaction_context = (
+            TabularEncoder(
+                emb_dim=cfg.emb_dim,
+                dense_dim=cfg.num_interaction_dense_feats,
+                cat_cardinalities=cfg.interaction_cat_cardinalities,
+            )
+            if cfg.has_interaction_context
+            else None
+        )
+        self.user_state = (
+            UserStateEncoder(
+                emb_dim=cfg.emb_dim,
+                hidden_dim=cfg.rnn_hidden_dim,
+                num_layers=cfg.rnn_layers,
+                num_dense_feats=user_dense_dim,
+                cat_cardinalities=user_cats,
+                num_users=cfg.num_users,
+                use_id_embedding=use_user_ids,
+            )
+            if cfg.has_history
+            else None
+        )
         self.time_proj = (
             nn.Linear(1, cfg.emb_dim)
             if cfg.use_time_features and cfg.has_history
@@ -49,9 +89,27 @@ class KGSeq(BaseRecArch):
         )
         self.event_norm = nn.LayerNorm(cfg.emb_dim)
 
-        self.seq_encoder = SeqEncoder(cfg.seq_encoder) if cfg.has_history else None
+        self.seq_encoder = (
+            SeqEncoder(
+                emb_dim=cfg.emb_dim,
+                hidden_dim=cfg.rnn_hidden_dim,
+                num_layers=cfg.rnn_layers,
+                dropout=cfg.rnn_dropout,
+                cell_type=cfg.rnn_type,
+                use_attention_pooling=cfg.use_attention_pooling,
+            )
+            if cfg.has_history
+            else None
+        )
         self.static_user = (
-            UserProfileEncoder(cfg.user_state) if not cfg.has_history else None
+            TabularEncoder(
+                emb_dim=cfg.emb_dim,
+                dense_dim=user_dense_dim,
+                cat_cardinalities=user_cats,
+                num_ids=cfg.num_users if use_user_ids else 0,
+            )
+            if not cfg.has_history and cfg.has_user_profile
+            else None
         )
         self.user_embedding = (
             nn.Embedding(cfg.num_users, cfg.emb_dim) if not cfg.has_history else None
@@ -60,11 +118,15 @@ class KGSeq(BaseRecArch):
         self.item_bias = (
             nn.Parameter(torch.zeros(cfg.num_items)) if cfg.use_item_bias else None
         )
-        self.scorer = Scorer(cfg.scorer)
+        self.scorer = Scorer(
+            emb_dim=cfg.emb_dim,
+            hidden_dims=cfg.hidden_dims,
+            dropout=cfg.dropout,
+            max_pairs_per_chunk=cfg.scorer_max_pairs_per_chunk,
+        )
 
     def _compute_item_embeddings(self) -> torch.Tensor:
-        item_feats = self.i_static_feats[:, : self.cfg.effective_item_dense_feats]
-        return self.kg(self.edge_index, item_feats, self.graph_node_feats)
+        return self.kg(self.edge_index, self.item_dense_feats, self.graph_node_feats)
 
     def auxiliary_loss(
         self,
@@ -88,7 +150,7 @@ class KGSeq(BaseRecArch):
             selected = torch.randperm(ids.numel(), device=ids.device)
             ids = ids[selected[: self.cfg.gcl_max_items]]
 
-        item_feats = self.i_static_feats[:, : self.cfg.effective_item_dense_feats]
+        item_feats = self.item_dense_feats
         edges = self.edge_index
         first = self.kg(
             drop_relation_edges(edges, self.cfg.gcl_edge_dropout),
@@ -113,42 +175,64 @@ class KGSeq(BaseRecArch):
         candidate_item_ids: torch.Tensor | None = None,
     ) -> torch.Tensor:
         item_emb = self.item_embeddings()
-
-        if self.seq_encoder is None:
-            assert self.user_embedding is not None and self.static_user is not None
-            user_emb = self.user_embedding(user_ids)
-            profile = self.static_user(self.u_cat_feats, self.u_static_feats, user_ids)
-            if profile is not None:
-                user_emb = user_emb + profile
-        else:
-            padded = torch.cat([item_emb.new_zeros(1, item_emb.size(1)), item_emb])
-            event = padded[h_ids.clamp(min=0)]
-
-            if h_dense is not None and h_cat is not None:
-                context = self.interaction_context(h_dense, h_cat)
-                if context is not None:
-                    event = event + context
-
-            if self.time_proj is not None and h_delta is not None:
-                event = event + self.time_proj(
-                    torch.log1p(h_delta.clamp(min=0.0)).unsqueeze(-1)
-                )
-
-            event = self.event_norm(event)
-
-            assert self.user_state is not None
-            initial_state = self.user_state(
-                self.u_cat_feats, self.u_static_feats, user_ids
-            )
-            user_emb = self.seq_encoder(event, h_mask, initial_state=initial_state)
+        user_emb = self._encode_user(
+            item_emb, h_ids, h_mask, user_ids, h_dense, h_cat, h_delta
+        )
 
         scores = self.scorer(user_emb, item_emb, item_ids=candidate_item_ids)
 
         if self.item_bias is not None:
-            scores += (
-                self.item_bias[candidate_item_ids]
-                if candidate_item_ids is not None
-                else self.item_bias
+            bias = (
+                self.item_bias
+                if candidate_item_ids is None
+                else self.item_bias[candidate_item_ids]
             )
+            scores = scores + bias
 
         return scores
+
+    def _encode_user(
+        self,
+        item_emb: torch.Tensor,
+        h_ids: torch.Tensor,
+        h_mask: torch.Tensor,
+        user_ids: torch.Tensor,
+        h_dense: torch.Tensor | None,
+        h_cat: torch.Tensor | None,
+        h_delta: torch.Tensor | None,
+    ) -> torch.Tensor:
+        if self.seq_encoder is None:
+            return self._static_user(user_ids)
+
+        padded = torch.cat([item_emb.new_zeros(1, item_emb.size(1)), item_emb])
+        event = padded[h_ids.clamp(min=0)]
+
+        if (
+            self.interaction_context is not None
+            and h_dense is not None
+            and h_cat is not None
+        ):
+            event = event + self.interaction_context(h_dense, h_cat)
+
+        if self.time_proj is not None and h_delta is not None:
+            event = event + self.time_proj(
+                torch.log1p(h_delta.clamp(min=0.0)).unsqueeze(-1)
+            )
+
+        event = self.event_norm(event)
+
+        assert self.user_state is not None
+        initial_state = self.user_state(
+            self.u_cat_feats, self.u_static_feats, user_ids
+        )
+        return self.seq_encoder(event, h_mask, initial_state=initial_state)
+
+    def _static_user(self, user_ids: torch.Tensor) -> torch.Tensor:
+        assert self.user_embedding is not None
+        user = self.user_embedding(user_ids)
+        if self.static_user is not None:
+            ids = clamp_user_ids(user_ids, self.cfg.num_users)
+            user = user + self.static_user(
+                self.u_static_feats[ids], self.u_cat_feats[ids], ids=ids
+            )
+        return user

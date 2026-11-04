@@ -1,6 +1,6 @@
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import lightning as L
 import torch
@@ -9,6 +9,20 @@ from lightning.pytorch.loggers import MLFlowLogger
 
 from edurec import settings
 from edurec.datasets import ElearningDataModule
+from edurec.recsys.configs import monitor_mode
+
+
+def _resolve_limit_val_batches(
+    dm: ElearningDataModule, limit_val_batches: float | None
+) -> int | float | None:
+    """Resolve a validation-batch fraction to an explicit batch count.
+
+    Lightning rejects a fraction that maps to fewer than one batch.
+    """
+    if limit_val_batches is None or not 0 < limit_val_batches < 1:
+        return limit_val_batches
+    num_val_batches = len(dm.val_dataloader())
+    return max(1, int(limit_val_batches * num_val_batches))
 
 
 def train_model(
@@ -33,10 +47,11 @@ def train_model(
     )
     model_name = type(model).__name__
 
-    if compile:
-        model = cast(L.LightningModule, torch.compile(model))
+    # ``torch.compile`` returns a wrapper rather than a ``LightningModule``, but
+    # the wrapper exposes the same training API.
+    module: Any = torch.compile(model) if compile else model
 
-    mode = "min" if monitor.lower().endswith("loss") else "max"
+    mode = monitor_mode(monitor)
 
     early_stopping = EarlyStopping(
         monitor=monitor,
@@ -72,13 +87,9 @@ def train_model(
         default_root_dir = Path("mlflow_checkpoints")
 
     trainer_kwargs: dict[str, Any] = {}
-    if limit_val_batches is not None:
-        if 0 < limit_val_batches < 1:
-            # Lightning rejects a fraction that maps to fewer than one batch, so
-            # resolve it to an explicit batch count of at least one.
-            num_val_batches = len(dm.val_dataloader())
-            limit_val_batches = max(1, int(limit_val_batches * num_val_batches))
-        trainer_kwargs["limit_val_batches"] = limit_val_batches
+    limit = _resolve_limit_val_batches(dm, limit_val_batches)
+    if limit is not None:
+        trainer_kwargs["limit_val_batches"] = limit
 
     trainer = L.Trainer(
         logger=logger,
@@ -94,6 +105,6 @@ def train_model(
         **trainer_kwargs,
     )
 
-    trainer.fit(model, datamodule=dm)
+    trainer.fit(module, datamodule=dm)
 
     return trainer, Path(checkpoint.best_model_path), timer

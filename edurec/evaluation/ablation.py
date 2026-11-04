@@ -80,10 +80,8 @@ def ablation_applicable(base_cfg: ModelConfig, variant: str) -> bool:
         return False
 
     full = get_ablation_config(base_cfg, "full")
-    user_active = full.use_user_features and full.user_state.is_active
-    context_active = (
-        full.use_interaction_features and full.interaction_context.is_active
-    )
+    user_active = full.has_user_profile
+    context_active = full.has_interaction_context
 
     if variant == "no_graph":
         return full.graph_mode == "kg" and bool(full.kg_edge_types)

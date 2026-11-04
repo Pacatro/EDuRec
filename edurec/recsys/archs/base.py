@@ -1,10 +1,13 @@
 from abc import ABC, abstractmethod
-from typing import Self, cast
+from typing import TYPE_CHECKING, Self, cast
 
 import torch
 from torch import nn
 
 from edurec.recsys.archs.modules import EdgeType
+
+if TYPE_CHECKING:
+    from edurec.recsys.configs import ModelConfig
 
 
 class BaseRecArch(nn.Module, ABC):
@@ -25,6 +28,9 @@ class BaseRecArch(nn.Module, ABC):
     i_static_feats: torch.Tensor
     u_static_feats: torch.Tensor
     u_cat_feats: torch.Tensor
+
+    # Set by every concrete architecture in ``__init__``.
+    cfg: "ModelConfig"
 
     _edge_types: tuple[EdgeType, ...] = ()
     _graph_feature_types: tuple[str, ...] = ()
@@ -71,6 +77,11 @@ class BaseRecArch(nn.Module, ABC):
             for idx, edge_type in enumerate(self._edge_types)
         }
 
+    @property
+    def item_dense_feats(self) -> torch.Tensor:
+        """Item feature columns after the configured feature ablations."""
+        return self.i_static_feats[:, : self.cfg.effective_item_dense_feats]
+
     def item_embeddings(self) -> torch.Tensor:
         """Return the shared ``[num_items, emb_dim]`` item table.
 
@@ -82,7 +93,9 @@ class BaseRecArch(nn.Module, ABC):
 
         embeddings = self._compute_item_embeddings()
         if not self.training:
-            self._item_emb_cache = embeddings
+            # Detach so an evaluation cache populated with gradients enabled
+            # cannot retain the graph encoder's computation graph.
+            self._item_emb_cache = embeddings.detach()
         return embeddings
 
     @abstractmethod

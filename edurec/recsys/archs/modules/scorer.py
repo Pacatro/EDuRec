@@ -1,16 +1,8 @@
-from dataclasses import dataclass, field
+from collections.abc import Sequence
 
 import torch
 from torch import nn
 from torch.utils.checkpoint import checkpoint
-
-
-@dataclass
-class ScorerConfig:
-    emb_dim: int
-    hidden_dims: list[int] = field(default_factory=list)
-    dropout: float = 0.1
-    max_pairs_per_chunk: int = 32768
 
 
 class Scorer(nn.Module):
@@ -21,22 +13,29 @@ class Scorer(nn.Module):
     evaluation. Full-catalog scoring is chunked over items to bound peak memory.
     """
 
-    def __init__(self, cfg: ScorerConfig, chunk_size: int = 1024):
+    max_items_per_chunk = 1024
+
+    def __init__(
+        self,
+        emb_dim: int,
+        hidden_dims: Sequence[int] = (),
+        dropout: float = 0.1,
+        max_pairs_per_chunk: int = 32768,
+    ):
         super().__init__()
-        self.chunk_size = chunk_size
-        if cfg.max_pairs_per_chunk < 1:
+        if max_pairs_per_chunk < 1:
             raise ValueError("max_pairs_per_chunk must be positive.")
-        self.max_pairs_per_chunk = cfg.max_pairs_per_chunk
+        self.max_pairs_per_chunk = max_pairs_per_chunk
 
         layers: list[nn.Module] = []
-        prev_dim = cfg.emb_dim * 2
+        prev_dim = emb_dim * 2
 
-        for hidden_dim in cfg.hidden_dims:
+        for hidden_dim in hidden_dims:
             layers.extend(
                 [
                     nn.Linear(prev_dim, hidden_dim),
                     nn.GELU(),
-                    nn.Dropout(cfg.dropout),
+                    nn.Dropout(dropout),
                 ]
             )
             prev_dim = hidden_dim
@@ -71,7 +70,7 @@ class Scorer(nn.Module):
 
         num_items = item_emb.shape[0]
         chunk_size = min(
-            self.chunk_size if self.chunk_size > 0 else num_items,
+            self.max_items_per_chunk,
             max(1, self.max_pairs_per_chunk // max(1, user_emb.size(0))),
         )
 

@@ -7,15 +7,6 @@ from typing import Any, Literal, Self, get_type_hints
 import yaml
 
 from edurec import settings
-from edurec.recsys.archs.modules import (
-    ContextConfig,
-    EdgeType,
-    GraphEncoderConfig,
-    ScorerConfig,
-    SeqEncoderConfig,
-    TransformerSeqEncoderConfig,
-    UserStateConfig,
-)
 
 
 @dataclass
@@ -207,89 +198,26 @@ class ModelConfig(BaseConfig):
         return self.num_item_dense_feats - self.num_item_text_feats
 
     @property
-    def kg_encoder(self) -> GraphEncoderConfig:
-        edge_types: list[EdgeType] = [
-            (edge[0], edge[1], edge[2]) for edge in self.kg_edge_types
-        ]
-        return GraphEncoderConfig(
-            num_items=self.num_items,
-            emb_dim=self.emb_dim,
-            item_feat_dim=self.effective_item_dense_feats,
-            num_layers=self.gnn_layers,
-            heads=self.gnn_heads,
-            dropout=self.gnn_dropout,
-            node_counts=dict(self.kg_node_counts),
-            node_feat_dims=(
-                dict(self.kg_node_feat_dims)
-                if self.use_text_features and self.graph_mode == "kg"
-                else {}
-            ),
-            edge_types=edge_types,
-            graph_mode=self.graph_mode,
+    def has_user_profile(self) -> bool:
+        """Whether any static user signal is available to condition on."""
+        return self.use_user_features and (
+            self.num_user_dense_feats > 0
+            or len(self.user_cat_cardinalities) > 0
+            or self.use_user_id_embedding
         )
 
     @property
-    def interaction_context(self) -> ContextConfig:
-        if not self.use_interaction_features:
-            return ContextConfig(emb_dim=self.emb_dim)
-        return ContextConfig(
-            emb_dim=self.emb_dim,
-            dense_dim=self.num_interaction_dense_feats,
-            cat_cardinalities=list(self.interaction_cat_cardinalities),
+    def has_interaction_context(self) -> bool:
+        """Whether any per-interaction context signal is available."""
+        return self.use_interaction_features and (
+            self.num_interaction_dense_feats > 0
+            or len(self.interaction_cat_cardinalities) > 0
         )
 
-    @property
-    def user_state(self) -> UserStateConfig:
-        if not self.use_user_features:
-            return UserStateConfig(
-                emb_dim=self.emb_dim,
-                hidden_dim=self.rnn_hidden_dim,
-                num_layers=self.rnn_layers,
-            )
-        return UserStateConfig(
-            emb_dim=self.emb_dim,
-            hidden_dim=self.rnn_hidden_dim,
-            num_layers=self.rnn_layers,
-            num_dense_feats=self.num_user_dense_feats,
-            cat_cardinalities=list(self.user_cat_cardinalities),
-            num_users=self.num_users,
-            use_id_embedding=self.use_user_id_embedding,
-        )
 
-    @property
-    def seq_encoder(self) -> SeqEncoderConfig:
-        return SeqEncoderConfig(
-            emb_dim=self.emb_dim,
-            hidden_dim=self.rnn_hidden_dim,
-            num_layers=self.rnn_layers,
-            dropout=self.rnn_dropout,
-            cell_type=self.rnn_type,
-            use_attention_pooling=self.use_attention_pooling,
-        )
-
-    @property
-    def transformer_seq_encoder(self) -> TransformerSeqEncoderConfig:
-        return TransformerSeqEncoderConfig(
-            emb_dim=self.emb_dim,
-            hidden_dim=self.transformer_hidden_dim,
-            num_layers=self.transformer_layers,
-            num_heads=self.transformer_heads,
-            dropout=self.dropout,
-            condition_dim=0,
-            max_history_len=self.max_history_len,
-            use_attention_pooling=self.use_attention_pooling,
-            causal=self.arch == ModelArch.SASREC_TEXT,
-            use_last_state=self.arch == ModelArch.SASREC_TEXT,
-        )
-
-    @property
-    def scorer(self) -> ScorerConfig:
-        return ScorerConfig(
-            emb_dim=self.emb_dim,
-            hidden_dims=self.hidden_dims,
-            dropout=self.dropout,
-            max_pairs_per_chunk=self.scorer_max_pairs_per_chunk,
-        )
+def monitor_mode(monitor: str) -> Literal["min", "max"]:
+    """Whether the monitored metric improves by decreasing or increasing."""
+    return "min" if monitor.lower().endswith("loss") else "max"
 
 
 def resolve_train_config(

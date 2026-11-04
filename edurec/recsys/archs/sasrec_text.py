@@ -24,13 +24,22 @@ class SASRecText(BaseRecArch):
             if cfg.effective_item_dense_feats > 0
             else None
         )
-        self.seq_encoder = TransformerSeqEncoder(cfg.transformer_seq_encoder)
+        self.seq_encoder = TransformerSeqEncoder(
+            emb_dim=cfg.emb_dim,
+            hidden_dim=cfg.transformer_hidden_dim,
+            num_layers=cfg.transformer_layers,
+            num_heads=cfg.transformer_heads,
+            dropout=cfg.dropout,
+            max_history_len=cfg.max_history_len,
+            use_attention_pooling=cfg.use_attention_pooling,
+            causal=True,
+            use_last_state=True,
+        )
 
     def _compute_item_embeddings(self) -> torch.Tensor:
         embeddings = self.item_embedding.weight
         if self.content_proj is not None:
-            content = self.i_static_feats[:, : self.cfg.effective_item_dense_feats]
-            embeddings = embeddings + self.content_proj(content)
+            embeddings = embeddings + self.content_proj(self.item_dense_feats)
         return embeddings
 
     def forward(

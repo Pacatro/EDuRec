@@ -35,8 +35,8 @@ def test_feature_switches_disable_corresponding_modules(model_config):
         use_interaction_features=False,
     )
     assert cfg.effective_item_dense_feats == 1
-    assert not cfg.user_state.is_active
-    assert not cfg.interaction_context.is_active
+    assert not cfg.has_user_profile
+    assert not cfg.has_interaction_context
     assert replace(cfg, use_item_features=False).effective_item_dense_feats == 0
 
 
