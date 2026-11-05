@@ -295,9 +295,9 @@ class KGAN(L.LightningModule):
                 nn.init.zeros_(module.bias)
         with torch.no_grad():
             self.entities.weight[num_entities].zero_()
-        self.val_metrics = build_ranking_metrics([val_topk], "val/")
+        self.val_metrics = build_ranking_metrics([val_topk], "val")
         self.test_metrics = build_ranking_metrics(
-            self.topks, "test/", adaptive_k=train_cfg.adaptive_k
+            self.topks, "test", adaptive_k=train_cfg.adaptive_k
         )
 
     def forward(

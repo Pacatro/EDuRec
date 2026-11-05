@@ -604,7 +604,7 @@ def _evaluate_common_queries(
     """Evaluate RecBole scores with KGSeq's one-target-per-query protocol."""
     device = cast(torch.device, config["device"])
     topks = list(cast(list[int], config["topk"]))
-    metrics = build_ranking_metrics(topks, adaptive_k=adaptive_k).to(device)
+    metrics = build_ranking_metrics(topks, "test", adaptive_k=adaptive_k).to(device)
 
     adapter.prepare("test")
     adapter.bind_catalog(dataset, device)
@@ -631,7 +631,7 @@ def _evaluate_common_queries(
         )
 
     return {
-        name: float(value.detach().cpu().item())
+        name.removeprefix("test/"): float(value.detach().cpu().item())
         for name, value in metrics.compute().items()
     }
 

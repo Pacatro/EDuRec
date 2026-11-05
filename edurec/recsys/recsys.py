@@ -10,7 +10,7 @@ from torchmetrics import MetricCollection
 
 from edurec import settings
 from edurec.datasets import DataAdapter, RecSysDataset, RecSysQuery, graphs
-from edurec.recsys.archs import BaseRecArch, build_model
+from edurec.recsys.archs import build_model
 from edurec.recsys.configs import ModelConfig, TrainConfig, monitor_mode
 from edurec.recsys.ranking import build_ranking_metrics, update_ranking_metrics
 
@@ -64,8 +64,7 @@ class RecSys(L.LightningModule):
         cfg = replace(
             cfg,
             kg_node_feat_dims={
-                node: features.size(1)
-                for node, features in graph_node_feats.items()
+                node: features.size(1) for node, features in graph_node_feats.items()
             },
         )
         self.save_hyperparameters(
@@ -83,14 +82,14 @@ class RecSys(L.LightningModule):
         self.topks = sorted(set(self.train_cfg.topks or [settings.TOP_K]))
         self.monitor = f"val/ndcg@{self.val_topk}"
 
-        self.val_ranking_metrics = build_ranking_metrics([self.val_topk], "val/")
+        self.val_ranking_metrics = build_ranking_metrics([self.val_topk], "val")
         self.test_ranking_metrics = build_ranking_metrics(
             self.topks,
-            "test/",
+            "test",
             adaptive_k=self.train_cfg.adaptive_k,
         )
 
-        self.model: BaseRecArch = build_model(cfg)
+        self.model = build_model(cfg)
         self.model.register_static(
             edge_index={
                 edge_type: knowledge_graph[edge_type].edge_index
@@ -178,9 +177,7 @@ class RecSys(L.LightningModule):
                 dim=1,
             )
             scores = self(batch, candidate_item_ids=candidate_item_ids)
-            labels = torch.zeros(
-                scores.size(0), dtype=torch.long, device=scores.device
-            )
+            labels = torch.zeros(scores.size(0), dtype=torch.long, device=scores.device)
         else:
             scores = self(batch)
             labels = batch.target_item_id.reshape(-1).long()

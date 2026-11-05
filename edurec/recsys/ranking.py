@@ -14,20 +14,24 @@ EVALUATION_PROTOCOL = "one-target-per-interaction-v1"
 
 def build_ranking_metrics(
     topks: list[int],
-    prefix: str = "",
+    prefix: str,
     adaptive_k: bool = False,
 ) -> MetricCollection:
     """Build the full-catalog retrieval metric set for every top-k."""
     metrics = {}
     for k in topks:
         common = {"top_k": k, "empty_target_action": "neg", "aggregation": "mean"}
+        metrics[f"ndcg@{k}"] = RetrievalNormalizedDCG(**common)
+
+        if prefix == "val":
+            continue
+
         metrics[f"precision@{k}"] = RetrievalPrecision(**common, adaptive_k=adaptive_k)
         metrics[f"recall@{k}"] = RetrievalRecall(**common)
-        metrics[f"ndcg@{k}"] = RetrievalNormalizedDCG(**common)
         metrics[f"hit@{k}"] = RetrievalHitRate(**common)
         metrics[f"map@{k}"] = RetrievalMAP(**common)
         metrics[f"mrr@{k}"] = RetrievalMRR(**common)
-    return MetricCollection(metrics, prefix=prefix)
+    return MetricCollection(metrics, prefix=f"{prefix}/")
 
 
 @torch.no_grad()

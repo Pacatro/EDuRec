@@ -21,7 +21,7 @@ def test_seen_items_are_masked_but_repeated_target_remains_eligible():
 
 
 def test_ranking_metrics_use_queries_and_accept_negative_logits():
-    metrics = build_ranking_metrics([1])
+    metrics = build_ranking_metrics([1], "test")
     update_ranking_metrics(
         metrics,
         torch.tensor([[-1.0, -2.0, -3.0], [-3.0, -1.0, -2.0]]),
@@ -38,7 +38,7 @@ def test_ranking_metrics_use_queries_and_accept_negative_logits():
 def test_ranking_rejects_nonfinite_scores():
     with pytest.raises(FloatingPointError, match="NaN or infinite"):
         update_ranking_metrics(
-            build_ranking_metrics([1]),
+            build_ranking_metrics([1], "test"),
             torch.tensor([[float("nan"), 1.0]]),
             torch.tensor([0]),
             torch.tensor([0]),
