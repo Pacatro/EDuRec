@@ -1,17 +1,29 @@
 from dataclasses import replace
 
 import pytest
+import yaml
 
 from edurec.evaluation.ablation import ablation_applicable, get_ablation_config
 from edurec.recsys import ModelArch, ModelConfig, TrainConfig
-from edurec.recsys.configs import resolve_train_config, save_run_config
+from edurec.recsys.configs import (
+    DATASET_MODEL_FIELDS,
+    resolve_train_config,
+    save_run_config,
+)
 
 
 def test_run_config_round_trip_and_cli_precedence(tmp_path, model_config):
     path = tmp_path / "run.yaml"
     train = TrainConfig(epochs=7, lr=0.001, batch_size=16)
     save_run_config(path, model_config, train)
-    assert ModelConfig.load(path) == model_config
+
+    document = yaml.safe_load(path.read_text())
+    assert DATASET_MODEL_FIELDS.isdisjoint(document["model"])
+    assert document["arch"] == model_config.arch.value
+    dataset_defaults = {
+        name: getattr(ModelConfig(), name) for name in DATASET_MODEL_FIELDS
+    }
+    assert ModelConfig.load(path) == replace(model_config, **dataset_defaults)
     assert TrainConfig.load(path) == train
     resolved = resolve_train_config(
         {"epochs": 2, "lr": None}, path, TrainConfig(batch_size=8)
@@ -19,6 +31,15 @@ def test_run_config_round_trip_and_cli_precedence(tmp_path, model_config):
     assert resolved.epochs == 2
     assert resolved.batch_size == 16
     assert resolved.lr == 0.001
+
+
+def test_model_config_save_omits_dataset_fields(tmp_path, model_config):
+    path = tmp_path / "model.yaml"
+    model_config.save(path)
+
+    document = yaml.safe_load(path.read_text())
+    assert DATASET_MODEL_FIELDS.isdisjoint(document)
+    assert document["arch"] == model_config.arch.value
 
 
 def test_yaml_scientific_notation_and_old_fields(tmp_path):

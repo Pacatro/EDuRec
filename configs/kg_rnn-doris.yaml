@@ -1,41 +1,5 @@
 arch: kg_rnn
 model:
-  num_users: 3951
-  num_items: 2746
-  num_item_dense_feats: 384
-  num_item_text_feats: 384
-  num_user_dense_feats: 0
-  num_interaction_dense_feats: 385
-  user_cat_cardinalities:
-  - 10
-  - 2
-  - 110
-  interaction_cat_cardinalities:
-  - 4
-  - 44
-  has_history: true
-  kg_node_counts:
-    attr::item_type: 9
-    attr::grade: 17
-  kg_edge_types:
-  - - item
-    - item_type
-    - attr::item_type
-  - - item
-    - grade
-    - attr::grade
-  - - item
-    - ref::prerequisite
-    - item
-  - - attr::item_type
-    - rev_item_type
-    - item
-  - - attr::grade
-    - rev_grade
-    - item
-  - - item
-    - rev_ref::prerequisite
-    - item
   emb_dim: 256
   use_item_bias: true
   dropout: 0.3

@@ -6,11 +6,7 @@
 # also shrinks the HGT activations that cause out-of-memory errors.
 arch: kg_rnn
 model:
-  # Overwritten from the processed data by scripts/common.build_config.
-  num_users: 1
-  num_items: 1
-  num_item_dense_feats: 1
-  num_item_text_feats: 1
+  # Dataset dimensions are derived from the processed data at runtime.
   emb_dim: 64
   gnn_layers: 2
   gnn_heads: 2

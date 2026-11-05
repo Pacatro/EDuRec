@@ -1,9 +1,9 @@
 import torch
 
 from edurec.recsys.archs.modules import (
+    FeatureEncoder,
     GraphEncoder,
     Scorer,
-    TabularEncoder,
     TransformerSeqEncoder,
     UserStateEncoder,
 )
@@ -11,7 +11,7 @@ from edurec.recsys.archs.modules import (
 
 def test_tabular_encoder_matches_between_profile_and_event_shapes():
     torch.manual_seed(0)
-    encoder = TabularEncoder(emb_dim=4, dense_dim=2, cat_cardinalities=[3, 4])
+    encoder = FeatureEncoder(emb_dim=4, dense_dim=2, cat_cardinalities=[3, 4])
     dense = torch.randn(2, 3, 2)
     cat = torch.stack(
         [torch.randint(-1, 3, (2, 3)), torch.randint(-1, 4, (2, 3))], dim=-1

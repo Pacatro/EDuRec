@@ -5,7 +5,6 @@ Usage: uv run scripts/ablation.py -d coco --seeds 13,42,77
 
 import argparse
 import datetime
-from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -34,7 +33,7 @@ from edurec.evaluation.ablation import (
     get_ablation_config,
 )
 from edurec.recsys import EdurecDataAdapter, ModelArch, ModelConfig, RecSys, train_model
-from edurec.recsys.configs import resolve_train_config
+from edurec.recsys.configs import model_config_payload, resolve_train_config
 
 # Dedicated MLflow experiment for ablation runs, separate from training (TFM),
 # evaluation (EVAL), and HPO runs.
@@ -192,7 +191,7 @@ def main() -> None:
                         variant_root / settings.METRICS_FILENAME,
                         index=False,
                     )
-                    pd.DataFrame([asdict(cfg)]).to_csv(
+                    pd.DataFrame([model_config_payload(cfg)]).to_csv(
                         variant_root / "config.csv",
                         index=False,
                     )
@@ -288,7 +287,7 @@ def main() -> None:
                     variant_root / settings.METRICS_FILENAME,
                     index=False,
                 )
-                pd.DataFrame([asdict(cfg)]).to_csv(
+                pd.DataFrame([model_config_payload(cfg)]).to_csv(
                     variant_root / "config.csv",
                     index=False,
                 )

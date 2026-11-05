@@ -1,5 +1,5 @@
 from edurec.recsys.archs.modules.features import (
-    TabularEncoder,
+    FeatureEncoder,
     UserStateEncoder,
     clamp_user_ids,
 )
@@ -18,10 +18,10 @@ from edurec.recsys.archs.modules.sequence import (
 
 __all__ = [
     "EdgeType",
+    "FeatureEncoder",
     "GraphEncoder",
     "Scorer",
     "SeqEncoder",
-    "TabularEncoder",
     "TransformerSeqEncoder",
     "UserStateEncoder",
     "clamp_user_ids",

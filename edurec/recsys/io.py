@@ -1,14 +1,13 @@
 import json
 import shutil
 from collections.abc import Mapping
-from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
 
 from edurec import settings
-from edurec.recsys.configs import ModelConfig
+from edurec.recsys.configs import ModelConfig, model_config_payload
 
 
 def save_model(
@@ -17,7 +16,11 @@ def save_model(
     best_model_path: str | Path,
     models_folder: str | Path,
 ) -> tuple[Path, Path]:
-    """Save the best model and its config to the expected folder structure."""
+    """Save the best model and its architecture config.
+
+    Dataset-derived dimensions are intentionally omitted; they are rebuilt from
+    the processed data when the model is used again.
+    """
     timestamp = datetime.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
     models_root = Path(models_folder)
     models_root.mkdir(parents=True, exist_ok=True)
@@ -30,7 +33,7 @@ def save_model(
 
     shutil.move(best_model_path, model_file_path)
     model_config_path.write_text(
-        json.dumps(asdict(model_config), indent=2, ensure_ascii=False),
+        json.dumps(model_config_payload(model_config), indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
     return model_file_path, model_config_path
@@ -53,7 +56,11 @@ def load_model(
     models_folder: str | Path,
     dataset_name: str,
 ) -> tuple[Path, ModelConfig]:
-    """Load the most recent saved model and rebuild its config."""
+    """Load the most recent saved model and its architecture config.
+
+    Dataset-derived fields are absent from the saved config; combine the result
+    with ``scripts.common.build_config`` and the processed data before use.
+    """
     root = Path(models_folder) / dataset_name
 
     if not root.exists():

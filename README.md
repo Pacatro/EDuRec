@@ -467,12 +467,18 @@ with model and training parameters grouped in separate mappings:
 arch: kg_rnn
 model:
   emb_dim: 256
-  # Remaining model parameters, including dataset dimensions.
+  # Architecture parameters only; dataset dimensions are derived at runtime.
 train:
   epochs: 150
   lr: 0.0005
   batch_size: 128
 ```
+
+Dataset-dependent model values such as the number of users and items, feature
+widths, categorical cardinalities, history availability, and knowledge-graph
+node/edge structure are not stored in configuration files. They are read from
+the processed dataset before the model is built, so rebuilding or sampling a
+different catalog cannot leave stale dimensions in a saved configuration.
 
 `<arch>` can be `kg_rnn` or `sasrec_text`. When a config file exists for the
 dataset and architecture being run, training, evaluation, and ablation commands

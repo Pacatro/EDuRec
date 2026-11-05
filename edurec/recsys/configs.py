@@ -90,6 +90,26 @@ class ModelArch(StrEnum):
     SASREC_TEXT = "sasrec_text"
 
 
+#: Model fields computed from the processed dataset. ``build_config`` fills
+#: them at runtime, so they must not be persisted in configuration files.
+DATASET_MODEL_FIELDS: frozenset[str] = frozenset(
+    {
+        "num_users",
+        "num_items",
+        "num_item_dense_feats",
+        "num_item_text_feats",
+        "num_user_dense_feats",
+        "num_interaction_dense_feats",
+        "user_cat_cardinalities",
+        "interaction_cat_cardinalities",
+        "has_history",
+        "kg_node_counts",
+        "kg_node_feat_dims",
+        "kg_edge_types",
+    }
+)
+
+
 @dataclass
 class ModelConfig(BaseConfig):
     """Model architecture configuration.
@@ -98,12 +118,16 @@ class ModelConfig(BaseConfig):
     relational GNN, an event sequence (item embedding + interaction context +
     time gap) encoded by a GRU/LSTM, a user profile that initialises the
     recurrent state, and an MLP scorer.
+
+    Dataset dimensions default to zero so that saved architecture files can
+    omit them. Training and evaluation derive their real values from the
+    processed data before constructing the model.
     """
 
-    num_users: int
-    num_items: int
-    num_item_dense_feats: int
-    num_item_text_feats: int
+    num_users: int = 0
+    num_items: int = 0
+    num_item_dense_feats: int = 0
+    num_item_text_feats: int = 0
     num_user_dense_feats: int = 0
     num_interaction_dense_feats: int = 0
     user_cat_cardinalities: list[int] = field(default_factory=list)
@@ -159,6 +183,13 @@ class ModelConfig(BaseConfig):
     hidden_dims: list[int] = field(
         default_factory=lambda: [settings.EMB_DIM * 2, settings.EMB_DIM]
     )
+
+    def save(self, path: Path | str) -> None:
+        """Save architecture settings without dataset-derived dimensions."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            yaml.safe_dump(model_config_payload(self), f)
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.gcl_weight < float("inf"):
@@ -244,10 +275,24 @@ def monitor_topk(top_k: int | None, train_cfg: TrainConfig) -> int:
     return top_k if top_k is not None else max(train_cfg.topks)
 
 
+def model_config_payload(config: ModelConfig) -> dict[str, Any]:
+    """Plain model configuration without dataset-derived values.
+
+    Dataset dimensions, cardinalities and graph structure are rebuilt from the
+    processed data by ``build_config``. Keeping them out of YAML/JSON files
+    prevents stale values after rebuilding or sampling a different catalog.
+    """
+    payload = asdict(config)
+    for name in DATASET_MODEL_FIELDS:
+        payload.pop(name, None)
+    payload["arch"] = config.arch.value
+    return payload
+
+
 def save_run_config(path: Path | str, model: ModelConfig, train: TrainConfig) -> None:
-    """Save model and training settings in one architecture-specific document."""
-    model_payload = asdict(model)
-    arch = ModelArch(model_payload.pop("arch")).value
+    """Save model and training settings without dataset-derived model values."""
+    model_payload = model_config_payload(model)
+    arch = model_payload.pop("arch")
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(

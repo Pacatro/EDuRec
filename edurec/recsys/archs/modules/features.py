@@ -13,7 +13,7 @@ def clamp_user_ids(user_ids: torch.Tensor, num_users: int) -> torch.Tensor:
     return ids.clamp(max=max(num_users - 1, 0))
 
 
-class TabularEncoder(nn.Module):
+class FeatureEncoder(nn.Module):
     """Encode tabular features by summing one embedding per column.
 
     Dense columns go through a linear projection and every categorical column
@@ -66,7 +66,7 @@ class TabularEncoder(nn.Module):
             ids: Optional ``[...,]`` identifiers for the identifier embedding.
         """
         if not self.is_active:
-            raise RuntimeError("TabularEncoder has no feature block to encode.")
+            raise RuntimeError("FeatureEncoder has no feature block to encode.")
 
         parts: list[torch.Tensor] = []
         if self.dense_proj is not None:
@@ -92,7 +92,7 @@ class TabularEncoder(nn.Module):
 class UserStateEncoder(nn.Module):
     """Build the initial recurrent state for a user from their static profile.
 
-    The static profile is encoded by :class:`TabularEncoder` and projected into
+    The static profile is encoded by :class:`FeatureEncoder` and projected into
     ``num_layers`` recurrent states. When no profile feature is available a
     learned per-layer state is broadcast to the batch as a fallback.
     """
@@ -113,7 +113,7 @@ class UserStateEncoder(nn.Module):
         self.num_users = num_users
 
         self.profile = (
-            TabularEncoder(
+            FeatureEncoder(
                 emb_dim=emb_dim,
                 dense_dim=num_dense_feats,
                 cat_cardinalities=cat_cardinalities,

@@ -3,10 +3,10 @@ from torch import nn
 
 from edurec.recsys.archs.base import BaseRecArch
 from edurec.recsys.archs.modules import (
+    FeatureEncoder,
     GraphEncoder,
     Scorer,
     SeqEncoder,
-    TabularEncoder,
     UserStateEncoder,
     clamp_user_ids,
     drop_relation_edges,
@@ -61,7 +61,7 @@ class KGSeq(BaseRecArch):
             graph_mode=cfg.graph_mode,
         )
         self.interaction_context = (
-            TabularEncoder(
+            FeatureEncoder(
                 emb_dim=cfg.emb_dim,
                 dense_dim=cfg.num_interaction_dense_feats,
                 cat_cardinalities=cfg.interaction_cat_cardinalities,
@@ -101,7 +101,7 @@ class KGSeq(BaseRecArch):
             else None
         )
         self.static_user = (
-            TabularEncoder(
+            FeatureEncoder(
                 emb_dim=cfg.emb_dim,
                 dense_dim=user_dense_dim,
                 cat_cardinalities=user_cats,

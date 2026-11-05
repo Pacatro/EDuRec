@@ -192,6 +192,11 @@ def build_config(
     base: ModelConfig | None = None,
     **overrides: Any,
 ) -> ModelConfig:
+    """Build a model config from processed-data dimensions and architecture options.
+
+    Dataset-derived fields always come from ``dm``; they are never inherited
+    from ``base`` or from a saved configuration file.
+    """
     data = dm.data
     adapter = dm.require_adapter(EdurecDataAdapter)
     interaction_features = adapter.interaction_features
@@ -210,6 +215,7 @@ def build_config(
             for node in adapter.knowledge_graph.node_types
             if node not in {"user", "item"}
         },
+        "kg_node_feat_dims": {},
         "kg_edge_types": [list(edge) for edge in adapter.knowledge_graph.edge_types],
         "has_history": dm.has_history,
     }
