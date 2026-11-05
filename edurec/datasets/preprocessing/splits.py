@@ -14,6 +14,15 @@ from edurec import settings
 SPLIT_ORDER = ("train", "val", "test")
 
 
+def split_sizes(n: int, val_ratio: float, test_ratio: float) -> tuple[int, int, int]:
+    """Return ``(train, validation, test)`` sizes for one complete history."""
+    n_test = max(1, int(np.floor(n * test_ratio)))
+    n_val = max(1, int(np.floor(n * val_ratio)))
+    if n_test + n_val >= n:
+        n_test = n_val = 1
+    return n - n_test - n_val, n_val, n_test
+
+
 def split_data(
     df: pd.DataFrame,
     test_ratio: float,
@@ -43,15 +52,12 @@ def split_data(
             splits["train"].append(user_df)
             continue
 
-        n_test = max(1, int(np.floor(n * test_ratio)))
-        n_val = max(1, int(np.floor(n * val_ratio)))
-        if n_test + n_val >= n:
-            n_test = n_val = 1
+        n_train, n_val, n_test = split_sizes(n, val_ratio, test_ratio)
 
         if has_time:
-            splits["train"].append(user_df.iloc[: -(n_test + n_val)])
-            splits["val"].append(user_df.iloc[-(n_test + n_val) : -n_test])
-            splits["test"].append(user_df.iloc[-n_test:])
+            splits["train"].append(user_df.iloc[:n_train])
+            splits["val"].append(user_df.iloc[n_train : n_train + n_val])
+            splits["test"].append(user_df.iloc[n_train + n_val :])
         else:
             order = rng.permutation(n)
             splits["test"].append(user_df.iloc[order[:n_test]])

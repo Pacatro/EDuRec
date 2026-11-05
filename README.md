@@ -93,58 +93,67 @@ dataset). Concept text can be disabled through
 
 #### Reducing interactions and the knowledge graph
 
-For a smaller MOOCCubeX build, sample whole users and prune concepts independently:
+For a smaller build, select whole users and retain only courses appearing in
+those users' complete histories:
 
 ```bash
 uv run scripts/dataset.py --dataset mooccubex \
-  --max-interactions 500000 --sampling-seed 42 \
-  --max-exclusive-concepts 10 --no-remove-sparse
+  --max-interactions 500000 --sampling-seed 42 --no-remove-sparse
 ```
 
-Both reductions are disabled unless requested. The options are shared by training,
-evaluation, HPO and ablation scripts. Repeat the same options with
-`--use-processed` to reuse the resulting cache. Building without `--use-processed`
-replaces the previous processed cache for this dataset.
+MOOCCubeX streams user records before loading graph relations. With sparsity
+filtering enabled, repeated passes find the same iterative user/course k-core
+without storing every interaction. Training counts are computed using the same
+per-user split sizes as the temporal splitter. The seeded sampler stratifies
+users by training activity and keeps complete histories within an approximate
+training budget. Users below the split minimum remain train-only.
 
-1. Source cleaning and deduplication run as usual. `--no-remove-sparse` skips the
-   iterative k-core, retaining low-activity users. Omit it to sample the existing
-   k-core population instead. Users below the split minimum remain train-only;
-   this method does not create evaluation targets for them.
-2. Split each user's history once, using the existing split ratios (defaults:
-   70% train, 10% validation, 20% test). MOOCCubeX uses chronological order.
-3. Count **training** interactions per user and place users in activity intervals
-   with inclusive upper bounds 1, 4, 9, 19, 49 and 100 (plus an overflow interval).
-   Shuffle users within each interval with `--sampling-seed`, then interleave
-   intervals in proportion to their user counts. Retain a prefix whose training
-   interactions fit `max_interactions * (1 - val_size - test_size)`. Every selected
-   user keeps their complete train, validation and test histories.
-4. Treat `--max-interactions` as an **approximate total**, not a hard cap. Per-user
-   split rounding and indivisible histories affect the actual total. Neither the
-   contents nor the lengths of held-out histories influence user selection.
-   A budget too small to select the first complete training history raises an
-   error. Small samples can lose activity intervals, fields or tail courses.
-5. Keep the entire catalog left by source cleaning and optional k-core filtering.
-   Sampling can leave courses without training interactions; these remain ranking
-   candidates. Coverage is measured, not guaranteed or enforced by oversampling.
-6. Count concept degree across that catalog. Keep every concept linked to at
-   least two courses. For degree-one concepts, retain at most
-   `--max-exclusive-concepts` per course, selected by a stable hash of the seed and
-   concept ID. Zero removes all exclusive concepts. Drop discarded concept
-   memberships and entity metadata before graph construction/text encoding.
-   Other item metadata and graph relations remain intact. Degree-one concepts can
-   still be useful educational content; the cap is a tunable compression policy.
-7. Fit interaction preprocessing and relevance thresholds on the selected train
-   split. Persist the reduced data and a `reduction_report` in `report.json`, with
-   actual counts, activity distributions, training coverage of courses/fields/
-   concepts, courses without training data, and concept node/edge counts.
+A second pass materializes only selected histories and profiles. The catalog
+then shrinks to the courses present across their train, validation and test
+partitions. Only relations and concept metadata linked to those courses are
+retained. Files still have to be scanned; streaming reduces memory at the cost
+of additional reads. Memory holds user identifiers/counts, the course catalog
+and the selected events, rather than all enrollment events.
 
-The reduction options and seed are part of the cache manifest (processing version
-v10); changing them invalidates reuse, including for temporal splits. The report
-does not establish model-ranking fidelity: compare several sampling seeds, an
-unstratified user baseline and a larger reference before drawing conclusions.
-With the report's catalog counts, retaining all 74,780 shared concepts and at most
-10 exclusive concepts for each of 765 courses gives an upper bound of 82,430
-concepts. This is a projection, not a measurement of a newly rebuilt dataset.
+Concept nodes can be pruned independently after the final course catalog is
+known. Support is the number of distinct retained courses containing a concept:
+
+- `--min-concept-support`: drop concepts below this support (default: 1, keep all).
+- `--max-concept-support`: drop ubiquitous concepts above this support
+  (default: disabled).
+- `--max-concepts-per-course`: keep at most this many concepts per course,
+  ranked by support and a seeded hash tie-break (default: disabled).
+
+Pruning is static: it uses course metadata only, never interactions or held-out
+targets. It is applied before text encoding and before the knowledge graph is
+built, so both the proposed model and KGAN see the same reduced graph. The
+catalog itself is never removed, and a course may end up with no concepts. For
+MOOCCubeX, a conservative starting point is:
+
+```bash
+uv run scripts/dataset.py --dataset mooccubex \
+  --max-interactions 100000 --min-concept-support 2 \
+  --max-concepts-per-course 200
+```
+
+The policy is an ablation, not a universal default. Low-support concepts can be
+the most specific to a course, so check the `concepts` section of the
+`reduction_report` for concept and edge retention, courses without concepts, and
+ranking metrics on long-tail courses before adopting an aggressive threshold.
+
+Other sources reduce their prepared tables before feature encoding. Reduction
+is disabled by default. The budget is approximate because histories are
+indivisible and split sizes are rounded. A smaller interaction sample may still
+cover most courses, so graph savings are not proportional to interaction savings.
+Ranking metrics on a smaller candidate catalog are not directly comparable to
+those on the full catalog.
+
+The budget, sampling seed and concept-pruning options are shared by the CLI
+scripts and recorded in the cache manifest (processing version v13). Repeat them
+with `--use-processed` to reuse a compatible cache. Changing them invalidates
+reuse. Actual user, item, event and concept counts are saved in the reports.
+Interaction transforms and relevance thresholds are fitted only on selected
+training data.
 
 Missing metadata falls back to the name in the concept ID and emits a warning.
 Embeddings and original IDs are saved with the processor; the KG exposes the
@@ -220,10 +229,16 @@ Options:
 -d, --dataset [explicit_mars|implicit_mars|itm|doris|mooccubex|coco]  Dataset to use
 -m, --max-rows INTEGER          Number of rows to show
 --remove-sparse / --no-remove-sparse  Remove sparse users/items (default: on)
+--max-interactions INTEGER      Approximate total interaction budget; disabled by default
+--sampling-seed INTEGER         User-sampling seed (default: 42)
+--min-concept-support INTEGER   Keep concepts present in at least N courses (default: 1)
+--max-concept-support INTEGER   Drop concepts present in more than N courses
+--max-concepts-per-course INTEGER  Maximum concepts retained per course
 ```
 
-MOOCCubeX retains every user and course that passes its source filters and the
-minimum-support threshold; there is no interaction budget or concept cap.
+MOOCCubeX retains every user and course that passes its source filters unless
+`--max-interactions` is set. The budget selects whole users by training
+activity. Concept nodes are pruned separately by the support options above.
 
 ### Train EDuRec
 
@@ -592,7 +607,7 @@ edurec/datasets/
 │   └── <dataset>.py         # preparation, source filters and schemas
 └── preprocessing/
     ├── build.py             # split, relevance and feature encoding
-    ├── prepare.py           # cleaning, deduplication and filtering
+    ├── reduction.py         # filtering, sampling, catalog and graph pruning
     ├── splits.py            # temporal/random partitions
     ├── ids.py               # canonical user/item identifiers
     ├── lists.py             # list-valued feature normalization
@@ -608,10 +623,12 @@ Each model adapter lives beside the model or baseline it serves:
 `edurec/datasets/adapter.py`.
 
 Each `sources/<dataset>.py` defines a `prepare_<dataset>(config)` entry point
-registered by `DatasetSpec.prepare`. It reads and normalizes the source, applies
-its specific rules and calls `preprocessing/prepare.py:apply_common_filters`
-for deduplication and minimum support. MOOCCubeX streams enrollment histories
-and retains every user and course that passes its source filters.
+registered by `DatasetSpec.prepare`. It reads and normalizes the source and
+applies the dataset's specific filters. Most sources then call
+`preprocessing/reduction.py:apply_common_filters` for deduplication and minimum
+support. MOOCCubeX instead streams courses and enrollment summaries, selects
+users before materializing histories, and applies the same k-core rules while
+keeping only per-user counts in memory.
 
 Prepared source tables feed canonical preprocessing and caching. Model adapters then
 consume `ProcessedData` and use shared builders or their own format writers

@@ -17,7 +17,7 @@ from edurec.datasets import (
     RecSysQuery,
 )
 from edurec.datasets.preprocessing.build import build_processed
-from edurec.datasets.preprocessing.prepare import apply_common_filters
+from edurec.datasets.preprocessing.reduction import apply_common_filters
 from edurec.evaluation.baselines.recbole import RecBoleAdapter
 from edurec.recsys import EdurecDataAdapter
 

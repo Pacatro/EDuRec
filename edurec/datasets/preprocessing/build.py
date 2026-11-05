@@ -7,7 +7,7 @@ from edurec.datasets.cache import ProcessedData
 from edurec.datasets.config import DataConfig, SplitStrategy
 from edurec.datasets.preprocessing.ids import encode_ids
 from edurec.datasets.preprocessing.lists import normalize_lists
-from edurec.datasets.preprocessing.sampling import reduce_dataset
+from edurec.datasets.preprocessing.reduction import reduce_dataset
 from edurec.datasets.preprocessing.splits import (
     add_relevance,
     get_relevance_threshold,

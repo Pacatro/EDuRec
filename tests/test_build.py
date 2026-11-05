@@ -3,7 +3,7 @@ import pandas as pd
 from edurec import settings
 from edurec.datasets import DataConfig, DatasetName
 from edurec.datasets.preprocessing.build import build_processed
-from edurec.datasets.preprocessing.prepare import apply_common_filters
+from edurec.datasets.preprocessing.reduction import apply_common_filters
 
 
 def test_build_preserves_disconnected_groups(raw_communities):

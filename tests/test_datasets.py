@@ -4,7 +4,7 @@ import torch
 
 from edurec import settings
 from edurec.datasets import RecSysDataset
-from edurec.datasets.preprocessing.prepare import (
+from edurec.datasets.preprocessing.reduction import (
     deduplicate_interactions,
     filter_sparse,
 )
@@ -208,7 +208,7 @@ def test_common_preparation_preserves_deduplication_policy(
     make_raw, temporal, deduplicate, expected
 ):
     from edurec.datasets import DataConfig, DatasetName
-    from edurec.datasets.preprocessing.prepare import apply_common_filters
+    from edurec.datasets.preprocessing.reduction import apply_common_filters
 
     raw = make_raw({0: [0, 1, 2, 0]}, {i: [] for i in range(3)})
     if not temporal:

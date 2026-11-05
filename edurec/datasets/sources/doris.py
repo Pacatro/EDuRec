@@ -6,7 +6,7 @@ import pandas as pd
 
 from edurec import settings
 from edurec.datasets.config import DataConfig
-from edurec.datasets.preprocessing.prepare import apply_common_filters
+from edurec.datasets.preprocessing.reduction import apply_common_filters
 from edurec.datasets.sources.common import ensure_files, extract_zip
 from edurec.datasets.sources.registry import DatasetName, DatasetSpec, RawData
 

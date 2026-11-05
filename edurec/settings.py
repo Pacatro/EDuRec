@@ -114,6 +114,12 @@ REMOVE_SPARSE: bool = True
 # temporally distinct events (view -> progress -> complete) are preserved; the
 # datamodule still deduplicates datasets without timestamps to avoid leakage.
 DEDUPLICATE_INTERACTIONS: bool = False
+# Concept pruning uses the number of distinct retained courses containing a
+# concept as its support. A minimum of 1 keeps every concept; the maximum and
+# per-course cap are disabled by default.
+CONCEPT_MIN_SUPPORT: int = 1
+CONCEPT_MAX_SUPPORT: int | None = None
+CONCEPT_MAX_PER_COURSE: int | None = None
 PREPROCESS_FEATURE_TYPES: tuple[str, ...] = (
     "numeric",
     "categorical",

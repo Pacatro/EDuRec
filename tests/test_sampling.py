@@ -7,8 +7,7 @@ import pytest
 from edurec import settings
 from edurec.datasets import DataConfig, DatasetName, ProcessedData
 from edurec.datasets.preprocessing.build import build_processed
-from edurec.datasets.preprocessing.sampling import (
-    prune_concepts,
+from edurec.datasets.preprocessing.reduction import (
     reduce_dataset,
     sample_users,
 )
@@ -48,11 +47,10 @@ def sampling_config():
         random_state=42,
         max_interactions=350,
         sampling_seed=42,
-        max_exclusive_concepts=2,
     )
 
 
-def test_reduction_preserves_original_splits_and_catalog(
+def test_reduction_preserves_splits_and_restricts_catalog(
     sampling_raw,
     sampling_config,
     tmp_path,
@@ -72,19 +70,22 @@ def test_reduction_preserves_original_splits_and_catalog(
             before.loc[before[settings.USER_COL].isin(selected)].reset_index(drop=True),
             after,
         )
-    pd.testing.assert_frame_equal(
-        sampling_raw.item_features.drop(columns="concept"),
-        reduced.item_features.drop(columns="concept"),
+    assert set(reduced.item_features[settings.ITEM_COL]) == set(
+        reduced.interactions[settings.ITEM_COL]
     )
+    assert set(reduced.graph_entities["concept"]["id"]) == {
+        c for concepts in reduced.item_features["concept"] for c in concepts
+    }
+    assert reduced.item_features["concept"].map(len).eq(7).all()
     assert len(reduced.interactions) == sum(map(len, splits))
 
     result = build_processed(sampling_raw, sampling_config)
-    assert result.data.num_items == 18  # Includes courses never seen in train.
+    assert result.data.num_items == 16  # Drops courses absent from selected histories.
     assert result.data.num_interactions < len(sampling_raw.interactions)
     report = result.data.reports["reduction_report"]
     assert report["sampling"]["interactions_after"] == result.data.num_interactions
-    assert report["sampling"]["coverage_after"]["courses_without_train"] >= 2
-    assert report["concepts"]["shared_before"] == report["concepts"]["shared_after"]
+    assert report["catalog"]["items_after"] == 16
+    assert "concepts" not in report
     result.data.save(tmp_path / "reduced")
     loaded = ProcessedData.load(tmp_path / "reduced")
     assert loaded.reports == result.data.reports
@@ -98,7 +99,8 @@ def test_selection_ignores_held_out_values_and_lengths(sampling_raw, sampling_co
     future = pd.concat([test] * 10, ignore_index=True).assign(item_id=17, rating=999)
     changed, _ = reduce_dataset(sampling_raw, (train, val, future), sampling_config)
     pd.testing.assert_frame_equal(reduced.user_features, changed.user_features)
-    pd.testing.assert_frame_equal(reduced.item_features, changed.item_features)
+    # User selection stays TRAIN-only; the catalog follows retained events.
+    assert 17 in set(changed.item_features[settings.ITEM_COL])
 
 
 def test_stratified_sampling_is_reproducible_and_retains_activity_groups(
@@ -123,36 +125,9 @@ def test_stratified_sampling_is_reproducible_and_retains_activity_groups(
         sample_users(train, replace(sampling_config, max_interactions=1))
 
 
-@pytest.mark.parametrize("limit", [0, 2, 100])
-def test_concept_pruning_preserves_shared_nodes_and_other_relations(
-    sampling_raw, limit
-):
-    reduced, report = prune_concepts(sampling_raw, limit, 42)
-    expected_per_course = 1 + min(limit, 6)
-    assert reduced.item_features["concept"].map(len).eq(expected_per_course).all()
-    assert reduced.item_features["concept"].map(lambda tokens: "shared" in tokens).all()
-    assert report["after"] == 1 + 18 * min(limit, 6)
-    assert report["edges_after"] == 18 * expected_per_course
-    assert len(reduced.graph_entities["concept"]) == report["after"]
-    pd.testing.assert_series_equal(
-        reduced.item_features["field"],
-        sampling_raw.item_features["field"],
-    )
-    # Raw source tables and entity dictionaries remain untouched.
-    assert sampling_raw.item_features["concept"].map(len).eq(7).all()
-    assert len(sampling_raw.graph_entities["concept"]) == 109
-    reordered = sampling_raw._replace(
-        item_features=sampling_raw.item_features.iloc[::-1],
-    )
-    other, _ = prune_concepts(reordered, limit, 42)
-    assert other.item_features.set_index(settings.ITEM_COL)["concept"].to_dict() == (
-        reduced.item_features.set_index(settings.ITEM_COL)["concept"].to_dict()
-    )
-
-
 def test_no_reduction_is_a_noop(sampling_raw, sampling_config):
     config = replace(
-        sampling_config, max_interactions=None, max_exclusive_concepts=None
+        sampling_config, max_interactions=None
     )
     splits = split_data(sampling_raw.interactions, 0.2, 0.2, 5, 42)
     raw, result = reduce_dataset(sampling_raw, splits, config)
@@ -164,7 +139,6 @@ def test_no_reduction_is_a_noop(sampling_raw, sampling_config):
     "options",
     [
         {"max_interactions": 0},
-        {"max_exclusive_concepts": -1},
         {"sampling_seed": -1},
     ],
 )
@@ -182,21 +156,29 @@ def test_cli_and_cache_identity_include_reduction_options(sampling_config):
             "500000",
             "--sampling-seed",
             "7",
-            "--max-exclusive-concepts",
+            "--min-concept-support",
+            "2",
+            "--max-concept-support",
             "10",
+            "--max-concepts-per-course",
+            "50",
             "--no-remove-sparse",
         ]
     )
     config = data_config(args, DatasetName.MOOCCUBEX)
     assert config.max_interactions == 500000
-    assert config.max_exclusive_concepts == 10
     assert config.sampling_seed == 7
+    assert config.min_concept_support == 2
+    assert config.max_concept_support == 10
+    assert config.max_concepts_per_course == 50
     assert not config.remove_sparse
     manifest = sampling_config.manifest("temporal")
     for change in (
         {"sampling_seed": 7},
         {"max_interactions": 500},
-        {"max_exclusive_concepts": 10},
+        {"min_concept_support": 2},
+        {"max_concept_support": 10},
+        {"max_concepts_per_course": 50},
     ):
         assert manifest.incompatibility(
             replace(sampling_config, **change).manifest("temporal")

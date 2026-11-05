@@ -17,7 +17,7 @@ from edurec.datasets import (
     QueryConfig,
 )
 from edurec.datasets.preprocessing.build import build_processed
-from edurec.datasets.preprocessing.prepare import apply_common_filters
+from edurec.datasets.preprocessing.reduction import apply_common_filters
 from edurec.evaluation import baseline_train_defaults, get_baseline
 from edurec.evaluation.baselines.kgan import (
     KGAN,

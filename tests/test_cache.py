@@ -13,7 +13,7 @@ from edurec.datasets import (
     datamodule,
 )
 from edurec.datasets import cache as cache_module
-from edurec.datasets.preprocessing.prepare import apply_common_filters
+from edurec.datasets.preprocessing.reduction import apply_common_filters
 
 
 def _unexpected_call(*args, **kwargs):

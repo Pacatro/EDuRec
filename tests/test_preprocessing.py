@@ -10,7 +10,7 @@ from edurec import settings
 from edurec.datasets import DataConfig, DatasetName, ProcessedData, QueryConfig
 from edurec.datasets.preprocessing import text
 from edurec.datasets.preprocessing.build import build_processed
-from edurec.datasets.preprocessing.prepare import apply_common_filters
+from edurec.datasets.preprocessing.reduction import apply_common_filters
 from edurec.evaluation.baselines.recbole import RecBoleAdapter
 from edurec.recsys import EdurecDataAdapter, ModelArch, RecSys, TrainConfig
 from scripts.common import build_config
@@ -136,6 +136,10 @@ def test_raw_features_reach_graph_torch_queries_and_models(
     dm._data = loaded
     dm.train_ds = adapter.get_queries("train")
     cfg = build_config(dm, base=replace(model_config, arch=arch))
+    # Dataset dimensions come from processed data, not from the saved config.
+    assert cfg.num_users == loaded.num_users
+    assert cfg.num_items == loaded.num_items
+    assert cfg.num_item_dense_feats == loaded.i_static_feats.shape[1]
     module = RecSys(
         cfg=cfg,
         knowledge_graph=graph,

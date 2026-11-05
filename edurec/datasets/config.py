@@ -8,7 +8,7 @@ from edurec.datasets.sources.registry import DatasetName
 
 #: Schema version of the persisted processed data. Bump when the layout or the
 #: meaning of any stored artefact changes.
-PROCESSING_VERSION = "v10"
+PROCESSING_VERSION = "v13"
 
 type SplitStrategy = Literal["temporal", "random"]
 
@@ -51,15 +51,30 @@ class DataConfig:
     random_state: int | None = None
     max_interactions: int | None = None
     sampling_seed: int = 42
-    max_exclusive_concepts: int | None = None
+    min_concept_support: int = settings.CONCEPT_MIN_SUPPORT
+    max_concept_support: int | None = settings.CONCEPT_MAX_SUPPORT
+    max_concepts_per_course: int | None = settings.CONCEPT_MAX_PER_COURSE
 
     def __post_init__(self) -> None:
         if self.max_interactions is not None and self.max_interactions < 1:
             raise ValueError("max_interactions must be positive.")
-        if self.max_exclusive_concepts is not None and self.max_exclusive_concepts < 0:
-            raise ValueError("max_exclusive_concepts must be nonnegative.")
         if self.sampling_seed < 0:
             raise ValueError("sampling_seed must be nonnegative.")
+        if self.min_concept_support < 1:
+            raise ValueError("min_concept_support must be at least 1.")
+        if (
+            self.max_concept_support is not None
+            and self.max_concept_support < self.min_concept_support
+        ):
+            raise ValueError(
+                "max_concept_support must be greater than or equal to "
+                "min_concept_support."
+            )
+        if (
+            self.max_concepts_per_course is not None
+            and self.max_concepts_per_course < 0
+        ):
+            raise ValueError("max_concepts_per_course must be nonnegative.")
         if not 0 < self.test_ratio < 1 or not 0 < self.val_ratio < 1:
             raise ValueError("Validation/test ratios must be in (0, 1).")
         if self.test_ratio + self.val_ratio >= 1:

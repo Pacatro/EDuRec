@@ -23,12 +23,17 @@ type Schema = dict[str, dict[str, Any]]
 
 
 class RawData(NamedTuple):
+    """Canonical source tables, reports and optional reduction state."""
+
     interactions: pd.DataFrame
     item_features: pd.DataFrame
     user_features: pd.DataFrame
     schema: Schema
     graph_entities: dict[str, pd.DataFrame] | None = None
     reports: dict[str, Any] | None = None
+    #: The source already selected users and reduced the catalog while
+    #: streaming, so post-split code must not sample them again.
+    source_reduced: bool = False
 
 
 type PrepareFn = Callable[["DataConfig"], RawData]

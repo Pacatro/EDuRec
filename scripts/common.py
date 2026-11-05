@@ -58,15 +58,31 @@ def add_preprocessing_args(parser: argparse.ArgumentParser) -> None:
         "--max-interactions",
         type=int,
         help="Approximate total interaction budget; sample whole users by train "
-        "activity after splitting. Disabled by default; not a strict row cap.",
+        "activity; retain only their items and linked graph entities. Disabled by default; not a strict row cap.",
     )
     parser.add_argument("--sampling-seed", type=int, default=42)
     parser.add_argument(
-        "--max-exclusive-concepts",
+        "--min-concept-support",
         type=int,
-        help="Maximum degree-one concepts per course; keep all shared concepts. "
-        "Disabled by default; zero removes all exclusive concepts.",
+        default=settings.CONCEPT_MIN_SUPPORT,
+        help="Keep concepts present in at least this many distinct courses. "
+        "1 keeps every concept.",
     )
+    parser.add_argument(
+        "--max-concept-support",
+        type=int,
+        default=settings.CONCEPT_MAX_SUPPORT,
+        help="Remove ubiquitous concepts present in more than this many courses. "
+        "Disabled by default.",
+    )
+    parser.add_argument(
+        "--max-concepts-per-course",
+        type=int,
+        default=settings.CONCEPT_MAX_PER_COURSE,
+        help="Maximum concepts retained per course, ranked by course support. "
+        "Disabled by default.",
+    )
+
 
 
 def add_model_args(parser: argparse.ArgumentParser, with_arch: bool = True) -> None:
@@ -158,7 +174,9 @@ def data_config(
         random_state=random_state,
         max_interactions=args.max_interactions,
         sampling_seed=args.sampling_seed,
-        max_exclusive_concepts=args.max_exclusive_concepts,
+        min_concept_support=args.min_concept_support,
+        max_concept_support=args.max_concept_support,
+        max_concepts_per_course=args.max_concepts_per_course,
     )
 
 
