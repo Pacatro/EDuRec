@@ -667,7 +667,6 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "joblib" },
-    { name = "kagglehub" },
     { name = "kmeans-pytorch" },
     { name = "lightning", extra = ["extra"] },
     { name = "matplotlib" },
@@ -701,7 +700,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "joblib", specifier = ">=1.5.3" },
-    { name = "kagglehub", specifier = ">=1.0.2" },
     { name = "kmeans-pytorch", specifier = ">=0.3" },
     { name = "lightning", extras = ["extra"], specifier = ">=2.5.2" },
     { name = "matplotlib", specifier = ">=3.10.1" },
@@ -1361,35 +1359,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/19/74/a633ee74eb36c44aa6d1095e7cc5569bebf04342ee146178e2d36600708b/jsonschema_specifications-2025.9.1.tar.gz", hash = "sha256:b540987f239e745613c7a9176f3edb72b832a4ac465cf02712288397832b5e8d", size = 32855, upload-time = "2025-09-08T01:34:59.186Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/41/45/1a4ed80516f02155c51f51e8cedb3c1902296743db0bbc66608a0db2814f/jsonschema_specifications-2025.9.1-py3-none-any.whl", hash = "sha256:98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe", size = 18437, upload-time = "2025-09-08T01:34:57.871Z" },
-]
-
-[[package]]
-name = "kagglehub"
-version = "1.0.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "kagglesdk" },
-    { name = "packaging" },
-    { name = "pyyaml" },
-    { name = "requests" },
-    { name = "tqdm" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/b5/b9/e1bdafdcdb98e8e5354b30959ed48f4a08ca2c2dc72c968c5b38c4baa1b5/kagglehub-1.0.2.tar.gz", hash = "sha256:08abae0c1e249904003ce6f23c189166e3032220478426a552c77c2edb08b93a", size = 117457, upload-time = "2026-06-09T17:14:05.313Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/61/1a/6b1293d0b091905e367f86771a7122e5f7f2729ab9f0f36a1617f7ad6c05/kagglehub-1.0.2-py3-none-any.whl", hash = "sha256:ffad2d79cfda9b06848e98cb0a4a48e286285cfba4aeadadc0b8dbd9bcadd372", size = 70645, upload-time = "2026-06-09T17:14:04.04Z" },
-]
-
-[[package]]
-name = "kagglesdk"
-version = "0.1.34"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "protobuf" },
-    { name = "requests" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/29/b0/7a12e3c6f59eda9b02298b21f75f93cf1b125a7cc83f6f9098accc3f0a49/kagglesdk-0.1.34.tar.gz", hash = "sha256:0c0a7a1a9db477bee4fa194e411e80fd8d93ba73977da400175522f1cf92da58", size = 197089, upload-time = "2026-07-10T17:39:08.082Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/91/86/f7407454e54de4d18a804b26f1814346ee34059ad61e9ea85710e75cc6c3/kagglesdk-0.1.34-py3-none-any.whl", hash = "sha256:eac37bca83afa20973d0895cc11505f0d502ba46a22a545728ed65e2761a6dcd", size = 247482, upload-time = "2026-07-10T17:39:06.704Z" },
 ]
 
 [[package]]

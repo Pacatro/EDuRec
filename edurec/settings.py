@@ -41,7 +41,7 @@ TRAIN_CONFIGS_FOLDER: str = f"{CONFIGS_FOLDER}/train"
 
 # Datasets
 # Omitted from automatic runs; explicit --dataset selections still run.
-DISABLED_DATASETS: set[str] = {"itm"}
+DISABLED_DATASETS: set[str] = set()
 ITEM_COL: str = "item_id"
 USER_COL: str = "user_id"
 TIME_COL: str = "timestamp"
@@ -96,8 +96,6 @@ MOOCCUBEX_MAX_USER_ENROLLMENTS: int = 100
 # Minimum distinct courses per user and users per course after filtering.
 MOOCCUBEX_MIN_CONNECTIONS: int = 5
 
-ITM_REQUIRED_FILES = ("ratings.csv", "items.csv", "users.csv")
-KAGGLE_ITM_DATASET = "irecsys/itmrec"
 COCO_REQUIRED_FILES = (
     "course_latest.csv",
     "curriculum_lesson_chapter_latest.csv",

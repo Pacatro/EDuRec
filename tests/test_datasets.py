@@ -103,7 +103,6 @@ def test_filter_sparse_reports_a_threshold_that_removes_every_interaction():
     "dataset, module_name, loader_name",
     [
         ("doris", "doris", "load_doris"),
-        ("itm", "itm", "load_itm"),
         ("coco", "coco", "load_coco"),
         ("explicit_mars", "mars", "load_mars"),
         ("implicit_mars", "mars", "load_mars"),

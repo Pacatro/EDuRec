@@ -12,7 +12,7 @@ Munoz at the Menendez Pelayo International University.
 The project implements and evaluates a hybrid educational recommender for
 implicit and explicit student-resource interactions. The codebase includes:
 
-- Dataset loaders and preprocessing for `mars`, `itm`, and `doris`.
+- Dataset loaders and preprocessing for `mars`, `doris`, `mooccubex`, and `coco`.
 - The proposed EDuRec model, implemented with PyTorch, PyTorch Geometric, and
   Lightning.
 - Training, testing, dataset inspection, hyperparameter optimization, benchmark
@@ -42,7 +42,6 @@ The repository expects raw datasets under `data/raw/<dataset>`. The included
 loaders currently support:
 
 - `data/raw/mars`
-- `data/raw/itm`
 - `data/raw/doris`
 - `data/raw/mooccubex`
 - `data/raw/coco`
@@ -169,7 +168,6 @@ Attribute text is also used by other datasets when their static metadata permits
 | MARS (explicit and implicit) | Existing job, software, theme, resource type and difficulty nodes use their readable labels as text features.                                                                                                                               |
 | DORIS                        | Course type and, when present in the course table, college/department nodes use their labels. Course names and prerequisite descriptions also enrich item text.                                                                             |
 | COCO                         | Category and instructional-level labels have text features. Course-instructor links retain instructor IDs; available name/profile fields enrich instructor nodes. Missing profiles keep their learned ID embedding with zero text features. |
-| ITM                          | Item titles/descriptions remain item features; the source has no auxiliary item entities to enrich directly.                                                                                                                                |
 
 The generic `graph_text` schema supports label text (`["name"]`) as well as
 external entity tables. Scalar labels preserve commas; only list-valued fields
@@ -226,7 +224,7 @@ edges per relation, and the number of relations.
 Options:
 
 ```text
--d, --dataset [explicit_mars|implicit_mars|itm|doris|mooccubex|coco]  Dataset to use
+-d, --dataset [explicit_mars|implicit_mars|doris|mooccubex|coco]  Dataset to use
 -m, --max-rows INTEGER          Number of rows to show
 --remove-sparse / --no-remove-sparse  Remove sparse users/items (default: on)
 --max-interactions INTEGER      Approximate total interaction budget; disabled by default
@@ -252,7 +250,7 @@ uv run scripts/train.py --dataset explicit_mars --use-processed --save-model
 Common options:
 
 ```text
--d, --dataset [explicit_mars|implicit_mars|itm|doris|mooccubex|coco]
+-d, --dataset [explicit_mars|implicit_mars|doris|mooccubex|coco]
 -e, --epochs INTEGER            Default: from saved train config
 -l, --lr FLOAT                  Default: from saved train config
 -b, --batch-size INTEGER        Default: from saved train config
@@ -314,7 +312,7 @@ Run the proposed EDuRec model and baseline models on the selected dataset. If
 `--dataset` is omitted, all datasets are evaluated.
 
 ```bash
-uv run scripts/eval.py --dataset itm --use-processed --top-k 5 --top-k 10 --top-k 20
+uv run scripts/eval.py --dataset doris --use-processed --top-k 5 --top-k 10 --top-k 20
 ```
 
 Default baseline models:
@@ -331,7 +329,7 @@ Default baseline models:
 Useful options:
 
 ```text
--d, --dataset [explicit_mars|implicit_mars|itm|doris|mooccubex|coco]
+-d, --dataset [explicit_mars|implicit_mars|doris|mooccubex|coco]
 -e, --epochs INTEGER            Default: from saved train config
 -l, --lr FLOAT                  Default: from saved train config
 -b, --batch-size INTEGER        Default: from saved train config

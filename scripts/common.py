@@ -223,8 +223,6 @@ def build_config(
     effective = {**dataset_config, **overrides}
     if dm.config.dataset == DatasetName.DORIS:
         effective["use_time_features"] = False
-    if dm.config.dataset == DatasetName.ITM:
-        effective.update(has_history=False, use_time_features=False)
     if base is not None:
         return replace(base, **effective)
 

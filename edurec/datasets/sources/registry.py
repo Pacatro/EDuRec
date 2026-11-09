@@ -13,7 +13,6 @@ if TYPE_CHECKING:
 class DatasetName(StrEnum):
     EXPLICIT_MARS = "explicit_mars"
     IMPLICIT_MARS = "implicit_mars"
-    ITM = "itm"
     DORIS = "doris"
     MOOCCUBEX = "mooccubex"
     COCO = "coco"
