@@ -259,6 +259,7 @@ Common options:
 --test-size FLOAT               Default: 0.2
 -k, --top-k INTEGER             Default: 20
 --remove-sparse / --no-remove-sparse  Remove sparse users/items (default: on)
+--deduplicate-interactions / --no-deduplicate-interactions  Collapse repeated user-item rows (default: off)
 -a, --adaptive-k               Use adaptive-k metrics where supported
 -r, --random-state INTEGER      Seed for training and data splits
 -D, --debug                     Fast debug run
@@ -336,6 +337,7 @@ Useful options:
 -p, --patience INTEGER          Default: from saved train config
 -k, --top-k INTEGER             Repeat for multiple cutoffs
 --remove-sparse / --no-remove-sparse
+--deduplicate-interactions / --no-deduplicate-interactions
 -P, --use-processed / --no-use-processed  Reuse data/processed/<dataset> when its manifest matches
 -m, --baseline-model TEXT       Baseline to evaluate (repeat, or `all`)
 -s, --seeds TEXT                Comma-separated seeds (default: 13,42,77)
@@ -544,7 +546,8 @@ uv run scripts/train.py --dataset doris --arch sasrec_text
 ```
 
 Use the existing `transformer_hidden_dim`, `transformer_layers`,
-`transformer_heads`, `max_history_len`, `emb_dim`, and `dropout` model settings.
+`transformer_heads`, `emb_dim`, and `dropout` model settings. History length is
+controlled by the training setting `max_history` (or `--max-history`).
 
 - **Item knowledge graph encoder**: a heterogeneous item-only graph is derived
   from each dataset schema. Items are nodes, and every categorical or
@@ -582,11 +585,11 @@ is never part of its own history (history, interaction context and timestamps
 are aligned per step and only contain earlier events). Interaction features are
 fitted on the training split by the tabular preprocessing functions.
 
-Repeated `(user, item)` rows are preserved by default
-(`deduplicate_interactions: false`) so real temporally-distinct events (view ->
-progress -> complete) remain distinct. Datasets without a timestamp are always
-deduplicated to avoid leakage across a random split; set
-`deduplicate_interactions: true` to force deduplication.
+Repeated `(user, item)` rows are preserved by default so real
+temporally-distinct events (view -> progress -> complete) remain distinct.
+Datasets without a timestamp are always deduplicated to avoid leakage across a
+random split; pass `--deduplicate-interactions` to force deduplication on
+timestamped datasets.
 
 Module availability is inferred from each processed dataset when the model
 configuration is built. The knowledge graph automatically reflects the fields

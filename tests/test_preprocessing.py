@@ -87,8 +87,7 @@ def test_raw_features_reach_graph_torch_queries_and_models(
         min_interactions=3,
         random_state=42,
     )
-    result = build_processed(apply_common_filters(raw, config), config)
-    data = result.data
+    data = build_processed(apply_common_filters(raw, config), config)
     assert data.id_maps["items"] == dict(zip(items, range(4)))
     assert data.user_features[settings.USER_COL].tolist() == list(range(4))
     assert data.i_static_feats.shape == (4, 1 + settings.TEXT_EMBEDDING_DIM)
@@ -97,7 +96,7 @@ def test_raw_features_reach_graph_torch_queries_and_models(
     assert data.val["num__progress"].tolist() == [2.0] * 4
     assert data.test["cat__device"].tolist() == [-1] * 4
     assert data.item_features["concept"].tolist() == [["python"]] * 4
-    assert result.data.reports["split_report"]["test"]["targets_unseen_in_train"] == 4
+    assert data.reports["split_report"]["test"]["targets_unseen_in_train"] == 4
 
     data.save(tmp_path / "cache")
     loaded = ProcessedData.load(tmp_path / "cache")

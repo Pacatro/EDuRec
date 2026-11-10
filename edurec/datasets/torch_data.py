@@ -22,7 +22,6 @@ class RecSysQuery(NamedTuple):
     history_valid_mask: torch.Tensor
     history_dense_features: torch.Tensor
     history_cat_features: torch.Tensor
-    history_timestamps: torch.Tensor
     history_delta_times: torch.Tensor
     target_item_id: torch.Tensor
     negative_item_ids: torch.Tensor
@@ -83,8 +82,8 @@ class RecSysDataset(Dataset):
 
     def _gather_context(
         self, context_index: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Gather aligned ``(dense, cat, timestamps, delta)`` for one history."""
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Gather aligned ``(dense, cat, delta)`` for one history."""
         valid = context_index >= 0
         valid_f = valid.unsqueeze(-1).to(torch.float32)
         safe = context_index.clamp(min=0)
@@ -98,13 +97,12 @@ class RecSysDataset(Dataset):
         delta64 = torch.zeros_like(timestamps64)
         if timestamps64.numel() > 1:
             delta64[1:] = (timestamps64[1:] - timestamps64[:-1]).clamp(min=0.0)
-        timestamps = (timestamps64 * valid.to(torch.float64)).to(torch.float32)
         delta = (delta64 * valid.to(torch.float64)).to(torch.float32)
-        return dense, cat, timestamps, delta
+        return dense, cat, delta
 
     def __getitem__(self, idx: int) -> RecSysQuery:
         context_index = self.history_context_index[idx]
-        dense, cat, timestamps, delta = self._gather_context(context_index)
+        dense, cat, delta = self._gather_context(context_index)
 
         return RecSysQuery(
             query_id=torch.tensor(idx, dtype=torch.long),
@@ -113,7 +111,6 @@ class RecSysDataset(Dataset):
             history_valid_mask=self.history_valid_mask[idx],
             history_dense_features=dense,
             history_cat_features=cat,
-            history_timestamps=timestamps,
             history_delta_times=delta,
             target_item_id=torch.tensor(
                 int(self.target_item_ids[idx]), dtype=torch.long

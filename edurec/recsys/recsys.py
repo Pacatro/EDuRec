@@ -89,7 +89,7 @@ class RecSys(L.LightningModule):
             adaptive_k=self.train_cfg.adaptive_k,
         )
 
-        self.model = build_model(cfg)
+        self.model = build_model(cfg, max_history_len=self.train_cfg.max_history)
         self.model.register_static(
             edge_index={
                 edge_type: knowledge_graph[edge_type].edge_index

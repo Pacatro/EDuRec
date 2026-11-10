@@ -34,10 +34,8 @@ RESULTS_FOLDER: str = "results"
 MODELS_FOLDER: str = "models"
 MODEL_FILENAME = "model.pt"
 MODEL_METADATA_FILENAME = "metadata.json"
-METRICS_FILENAME = "metrics"
+METRICS_FILENAME = "metrics.csv"
 CONFIGS_FOLDER: str = "configs"
-MODEL_CONFIGS_FOLDER: str = f"{CONFIGS_FOLDER}/model"
-TRAIN_CONFIGS_FOLDER: str = f"{CONFIGS_FOLDER}/train"
 
 # Datasets
 # Omitted from automatic runs; explicit --dataset selections still run.
@@ -165,25 +163,6 @@ TEST_RATIO: float = 0.2
 ADAPTIVE_K: bool = False
 COMPILE_MODEL: bool = False
 TOP_KS: list[int] = [5, 10, 20]
-
-# Baseline models evaluated with the shared retrieval protocol. Native
-# baselines under ``edurec/evaluation/baselines/`` take precedence; any other
-# name is passed to RecBole. All are evaluated and reported as baselines.
-BASELINES: list[str] = [
-    "KGAN",
-    # Classic baselines
-    "ItemKNN",
-    # Collaborative filtering / neural CF
-    "NeuMF",
-    "LightGCN",
-    # Autoencoder / linear models
-    "MultiVAE",
-    # Advanced graph / contrastive models
-    "SGL",
-    # Sequential models
-    "SASRec",
-    "BERT4Rec",
-]
 
 # Hyperparameter optimization
 OPTIM_N_TRIALS: int = 30

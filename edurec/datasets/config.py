@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 from edurec import settings
+from edurec.datasets.preprocessing.splits import validate_split_options
 from edurec.datasets.sources.registry import DatasetName
 
 #: Schema version of the persisted processed data. Bump when the layout or the
@@ -75,20 +76,13 @@ class DataConfig:
             and self.max_concepts_per_course < 0
         ):
             raise ValueError("max_concepts_per_course must be nonnegative.")
-        if not 0 < self.test_ratio < 1 or not 0 < self.val_ratio < 1:
-            raise ValueError("Validation/test ratios must be in (0, 1).")
-        if self.test_ratio + self.val_ratio >= 1:
-            raise ValueError("Validation/test ratios must sum to less than 1.")
         min_interactions = (
             default_min_interactions(self.dataset)
             if self.min_interactions is None
             else self.min_interactions
         )
         object.__setattr__(self, "min_interactions", min_interactions)
-        if min_interactions < 3:
-            raise ValueError(
-                "min_interactions must be at least 3 to create train/val/test splits."
-            )
+        validate_split_options(self.test_ratio, self.val_ratio, min_interactions)
 
     @property
     def effective_min_interactions(self) -> int:

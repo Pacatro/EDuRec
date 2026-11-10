@@ -1,5 +1,3 @@
-from dataclasses import dataclass
-
 import pandas as pd
 
 from edurec import settings
@@ -24,20 +22,12 @@ from edurec.datasets.preprocessing.text import encode_graph_text
 from edurec.datasets.sources.registry import RawData, Schema
 
 
-@dataclass(frozen=True)
-class BuildResult:
-    """Processed artifacts plus the selected source tables used to build them."""
-
-    data: ProcessedData
-    raw: RawData
-
-
 def split_strategy_for(interactions: pd.DataFrame) -> SplitStrategy:
     """Split strategy implied by the available interaction columns."""
     return "temporal" if settings.TIME_COL in interactions.columns else "random"
 
 
-def build_processed(raw: RawData, config: DataConfig) -> BuildResult:
+def build_processed(raw: RawData, config: DataConfig) -> ProcessedData:
     """Split, label and encode tables already prepared by the source.
 
     Source preparation owns cleaning and filtering. Optional reduction follows
@@ -71,7 +61,7 @@ def build_processed(raw: RawData, config: DataConfig) -> BuildResult:
         num_items=len(raw.item_features),
     )
     artifacts.reports = {**(raw.reports or {}), **_reports(artifacts, train)}
-    return BuildResult(data=artifacts, raw=raw)
+    return artifacts
 
 
 def _reports(

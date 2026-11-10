@@ -7,7 +7,7 @@ import pandas as pd
 from edurec import settings
 from edurec.datasets.config import DataConfig
 from edurec.datasets.preprocessing.reduction import apply_common_filters
-from edurec.datasets.sources.common import ensure_files, extract_zip
+from edurec.datasets.sources.common import ensure_files, extract_zip, schema_section
 from edurec.datasets.sources.registry import DatasetName, DatasetSpec, RawData
 
 FOLDER = DatasetName.DORIS.value
@@ -58,32 +58,20 @@ def load_doris() -> RawData:
     users_df.rename(columns={"StudentId": settings.USER_COL}, inplace=True)
 
     schema = {
-        "users": {
-            "bin": [],
-            "num": [],
-            "cat": ["enrollmentyear", "education", "major"],
-            "text": [],
-            "list": [],
-        },
-        "items": {
-            "bin": [],
-            "num": [],
-            "cat": ["item_type", "grade", "coursecollege", "department"],
-            "text": ["coursename", "introduction", "prerequisite"],
-            "list": [],
-            "refs": {"prerequisite": "coursename"},
-            "graph_text": {
+        "users": schema_section(cat=["enrollmentyear", "education", "major"]),
+        "items": schema_section(
+            cat=["item_type", "grade", "coursecollege", "department"],
+            text=["coursename", "introduction", "prerequisite"],
+            refs={"prerequisite": "coursename"},
+            graph_text={
                 field: ["name"]
                 for field in ("item_type", "coursecollege", "department")
             },
-        },
-        "inter": {
-            "bin": [],
-            "num": [],
-            "cat": ["semester", "coursecollege"],
-            "text": ["coursename"],
-            "list": [],
-        },
+        ),
+        "inter": schema_section(
+            cat=["semester", "coursecollege"],
+            text=["coursename"],
+        ),
     }
 
     return RawData(

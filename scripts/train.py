@@ -143,7 +143,6 @@ def main() -> None:
                 args,
                 dataset_name,
                 random_state=args.random_state,
-                deduplicate=train_cfg.deduplicate_interactions,
             ),
             batch_size=train_cfg.batch_size,
             use_processed_data=args.use_processed,
@@ -195,7 +194,7 @@ def main() -> None:
             val_topk=val_topk,
         )
 
-        print(f"[TRAIN] Training {arch_label(cfg)}...")
+        print(f"[TRAIN] Training {arch_label(cfg.arch)}...")
 
         trainer, best_model_path, timer = train_model(
             model=recsys,

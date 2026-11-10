@@ -31,7 +31,7 @@ def processed(raw_communities):
         val_ratio=0.2,
         random_state=42,
     )
-    return build_processed(apply_common_filters(raw_communities, config), config).data
+    return build_processed(apply_common_filters(raw_communities, config), config)
 
 
 class PairAdapter(DataAdapter[tuple[torch.Tensor, ...], torch.Tensor]):
@@ -62,8 +62,6 @@ def test_proposed_adapter_builds_and_caches_its_structures(processed):
     assert "knowledge_graph" not in adapter.__dict__
     assert adapter.knowledge_graph is adapter.knowledge_graph
     assert adapter.data is processed
-    assert adapter.metadata.num_items == processed.num_items
-    assert adapter.metadata.num_users == processed.num_users
     query = adapter.dataset("test")[0]
     assert adapter.evaluation_input(query) is query
 

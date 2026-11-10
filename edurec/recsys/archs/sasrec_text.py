@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 
+from edurec import settings
 from edurec.recsys.archs.base import BaseRecArch
 from edurec.recsys.archs.modules import TransformerSeqEncoder
 from edurec.recsys.configs import ModelConfig
@@ -15,8 +16,14 @@ class SASRecText(BaseRecArch):
     padding); candidate IDs use the zero-based catalog indices.
     """
 
-    def __init__(self, cfg: ModelConfig):
+    def __init__(
+        self,
+        cfg: ModelConfig,
+        max_history_len: int = settings.MAX_HISTORY_LEN,
+    ):
         super().__init__()
+        if max_history_len < 1:
+            raise ValueError("max_history_len must be positive.")
         self.cfg = cfg
         self.item_embedding = nn.Embedding(cfg.num_items, cfg.emb_dim)
         self.content_proj = (
@@ -30,7 +37,7 @@ class SASRecText(BaseRecArch):
             num_layers=cfg.transformer_layers,
             num_heads=cfg.transformer_heads,
             dropout=cfg.dropout,
-            max_history_len=cfg.max_history_len,
+            max_history_len=max_history_len,
             causal=True,
             use_last_state=True,
         )

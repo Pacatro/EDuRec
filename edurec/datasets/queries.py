@@ -31,15 +31,13 @@ class QueryConfig:
 
     Instances are hashable so :class:`~edurec.datasets.adapter.DataAdapter`
     can memoise views by content. ``random_state`` only affects negative
-    sampling; it never changes splits or labels. ``use_histories=None`` derives
-    the setting from the data: histories are only meaningful when a chronology
-    exists.
+    sampling; it never changes splits or labels. Histories are only meaningful
+    when a chronology exists.
     """
 
     max_history: int = settings.MAX_HISTORY_LEN
     negatives_per_positive: int = settings.TRAIN_NEGATIVES_PER_POSITIVE
     random_state: int | None = None
-    use_histories: bool | None = None
 
     def __post_init__(self) -> None:
         if self.max_history < 0:

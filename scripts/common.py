@@ -45,6 +45,13 @@ def add_preprocessing_args(parser: argparse.ArgumentParser) -> None:
         default=settings.REMOVE_SPARSE,
     )
     parser.add_argument(
+        "--deduplicate-interactions",
+        action=argparse.BooleanOptionalAction,
+        default=settings.DEDUPLICATE_INTERACTIONS,
+        help="Collapse repeated (user, item) rows before splitting. Datasets "
+        "without timestamps are always deduplicated.",
+    )
+    parser.add_argument(
         "--use-processed",
         "-P",
         action=argparse.BooleanOptionalAction,
@@ -162,7 +169,6 @@ def data_config(
     args: argparse.Namespace,
     dataset: DatasetName,
     random_state: int | None = None,
-    deduplicate: bool = settings.DEDUPLICATE_INTERACTIONS,
 ) -> DataConfig:
     """Build the data configuration from the shared CLI arguments."""
     return DataConfig(
@@ -170,7 +176,7 @@ def data_config(
         test_ratio=args.test_size,
         val_ratio=args.val_size,
         remove_sparse=args.remove_sparse,
-        deduplicate=deduplicate,
+        deduplicate=args.deduplicate_interactions,
         random_state=random_state,
         max_interactions=args.max_interactions,
         sampling_seed=args.sampling_seed,

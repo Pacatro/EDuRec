@@ -72,11 +72,10 @@ def main() -> None:
             print(json.dumps(report, indent=2, ensure_ascii=False, default=str))
 
     max_rows = args.max_rows
-    if dm.build is not None:
-        raw = dm.build.raw
-        user_features = raw.user_features
-        item_features = raw.item_features
-        interactions = raw.interactions
+    if dm.raw is not None:
+        user_features = dm.raw.user_features
+        item_features = dm.raw.item_features
+        interactions = dm.raw.interactions
     else:
         # Loaded from the processed cache: only the processed tables remain.
         user_features = data.user_features

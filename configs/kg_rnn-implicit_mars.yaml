@@ -25,7 +25,6 @@ model:
   transformer_hidden_dim: 128
   transformer_layers: 2
   transformer_heads: 4
-  max_history_len: 50
   scorer_max_pairs_per_chunk: 32768
   hidden_dims:
   - 256
@@ -41,4 +40,3 @@ train:
   - 20
   adaptive_k: false
   max_history: 50
-  deduplicate_interactions: false

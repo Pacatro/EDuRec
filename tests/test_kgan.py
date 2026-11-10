@@ -18,7 +18,11 @@ from edurec.datasets import (
 )
 from edurec.datasets.preprocessing.build import build_processed
 from edurec.datasets.preprocessing.reduction import apply_common_filters
-from edurec.evaluation import baseline_train_defaults, get_baseline
+from edurec.evaluation import (
+    baseline_labels,
+    baseline_train_defaults,
+    get_baseline,
+)
 from edurec.evaluation.baselines.kgan import (
     KGAN,
     KGANAdapter,
@@ -42,7 +46,7 @@ def data(raw_communities):
     return build_processed(
         apply_common_filters(raw_communities, config),
         config,
-    ).data
+    )
 
 
 @pytest.fixture
@@ -67,7 +71,7 @@ def make_model(adapter):
 
 def test_default_baseline_is_available():
     assert get_baseline("KGAN") is eval_kgan
-    assert "KGAN" in settings.BASELINES
+    assert "KGAN" in baseline_labels()
     spec = importlib.util.spec_from_file_location("eval_cli", "scripts/eval.py")
     assert spec is not None and spec.loader is not None
     # The argparse script imports its adjacent common module.

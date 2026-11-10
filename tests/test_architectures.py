@@ -54,3 +54,13 @@ def test_architecture_scores_candidates_and_backpropagates(
     assert gradients
     assert all(torch.isfinite(gradient).all() for gradient in gradients)
     assert any(gradient.abs().sum() > 0 for gradient in gradients)
+
+
+def test_sasrec_uses_the_requested_history_length(model_config):
+    cfg = replace(model_config, arch=ModelArch.SASREC_TEXT)
+
+    model = SASRecText(cfg, max_history_len=7)
+    assert model.seq_encoder.pos_emb.num_embeddings == 7
+
+    with pytest.raises(ValueError, match="positive"):
+        SASRecText(cfg, max_history_len=0)

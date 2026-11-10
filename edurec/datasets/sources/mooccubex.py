@@ -12,7 +12,11 @@ import pandas as pd
 from edurec import settings
 from edurec.datasets.preprocessing.reduction import select_users
 from edurec.datasets.preprocessing.splits import split_sizes
-from edurec.datasets.sources.common import ensure_files, stream_to_file
+from edurec.datasets.sources.common import (
+    ensure_files,
+    schema_section,
+    stream_to_file,
+)
 from edurec.datasets.sources.registry import DatasetName, DatasetSpec, RawData
 
 if TYPE_CHECKING:
@@ -342,35 +346,24 @@ def load_mooccubex(config: "DataConfig | None" = None) -> RawData:
     )
 
     schema = {
-        "users": {
-            "bin": [],
+        "users": schema_section(
             # A fully missing field carries no information and makes the
             # shared mean-imputation/scaling pipeline degenerate.
-            "num": ["year_of_birth"] if users["year_of_birth"].notna().any() else [],
-            "cat": ["gender", "school"],
-            "text": [],
-            "list": [],
-        },
-        "items": {
-            "bin": [],
-            "num": ["resource_count"],
-            "cat": [],
-            "text": ["name", "prerequisites", "about"],
-            "list": ["field"],
+            num=["year_of_birth"] if users["year_of_birth"].notna().any() else [],
+            cat=["gender", "school"],
+        ),
+        "items": schema_section(
+            num=["resource_count"],
+            text=["name", "prerequisites", "about"],
+            list_=["field"],
             # IDs used only by the KG: never materialize a dense concept matrix.
             # Prerequisite descriptions remain text, not course references.
-            "graph_list": ["concept", "teacher", "school"],
-            "graph_text": {"concept": ["name", "context"]}
+            graph_list=["concept", "teacher", "school"],
+            graph_text={"concept": ["name", "context"]}
             if settings.MOOCCUBEX_ENCODE_CONCEPT_TEXT
             else {},
-        },
-        "inter": {
-            "bin": [],
-            "num": [],
-            "cat": [],
-            "text": [],
-            "list": [],
-        },
+        ),
+        "inter": schema_section(),
     }
 
     return RawData(

@@ -7,7 +7,7 @@ import pandas as pd
 from edurec import settings
 from edurec.datasets.config import DataConfig
 from edurec.datasets.preprocessing.reduction import apply_common_filters
-from edurec.datasets.sources.common import ensure_files
+from edurec.datasets.sources.common import ensure_files, schema_section
 from edurec.datasets.sources.registry import DatasetName, DatasetSpec, RawData
 
 FOLDER = DatasetName.COCO.value
@@ -217,42 +217,29 @@ def load_coco() -> RawData:
     users = interactions[[settings.USER_COL]].drop_duplicates().reset_index(drop=True)
 
     schema = {
-        "users": {
-            "bin": [],
-            "num": [],
-            "cat": [],
-            "text": [],
-            "list": [],
-        },
-        "items": {
-            "bin": [],
-            "num": list(numeric_cols),
-            "cat": [
+        "users": schema_section(),
+        "items": schema_section(
+            num=list(numeric_cols),
+            cat=[
                 "language",
                 "first_level_category",
                 "second_level_category",
                 "instructional_level",
             ],
-            "text": list(COCO_TEXT_COLS),
-            "list": ["subtitles"],
-            "graph_list": ["instructor"],
-            "graph_text": {
+            text=list(COCO_TEXT_COLS),
+            list_=["subtitles"],
+            graph_list=["instructor"],
+            graph_text={
                 "first_level_category": ["name"],
                 "second_level_category": ["name"],
                 "instructional_level": ["name"],
                 **({"instructor": instructor_text} if instructor_text else {}),
             },
-            "cooc": [
+            cooc=[
                 ("second_level_category", "first_level_category"),
             ],
-        },
-        "inter": {
-            "bin": [],
-            "num": [],
-            "cat": [],
-            "text": [],
-            "list": [],
-        },
+        ),
+        "inter": schema_section(),
     }
 
     return RawData(

@@ -1,5 +1,3 @@
-import pandas as pd
-
 from edurec import settings
 from edurec.datasets import DataConfig, DatasetName
 from edurec.datasets.preprocessing.build import build_processed
@@ -13,14 +11,13 @@ def test_build_preserves_disconnected_groups(raw_communities):
         config,
     )
 
-    pd.testing.assert_frame_equal(result.raw.interactions, raw_communities.interactions)
-    assert result.data.num_users == 7
-    assert result.data.num_items == 8
-    assert result.data.num_interactions == 28
-    for user in result.raw.user_features[settings.USER_COL]:
+    assert result.num_users == 7
+    assert result.num_items == 8
+    assert result.num_interactions == 28
+    for user in result.user_features[settings.USER_COL]:
         splits = [
             frame.loc[frame[settings.USER_COL] == user, settings.TIME_COL]
-            for frame in result.data.splits().values()
+            for frame in result.splits().values()
         ]
         assert splits[0].max() < splits[1].min()
         assert splits[1].max() < splits[2].min()
@@ -37,6 +34,5 @@ def test_build_can_keep_sparse_items(make_raw):
         config,
     )
 
-    pd.testing.assert_frame_equal(result.raw.interactions, raw.interactions)
-    assert result.data.num_items == 7
-    assert result.data.num_interactions == 16
+    assert result.num_items == 7
+    assert result.num_interactions == 16

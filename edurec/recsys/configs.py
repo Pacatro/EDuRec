@@ -2,7 +2,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, fields, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Literal, Self, get_type_hints
+from typing import Any, ClassVar, Literal, Self, get_type_hints
 
 import yaml
 
@@ -12,6 +12,9 @@ from edurec import settings
 @dataclass
 class BaseConfig:
     """Base class for all configs with common save/load methods."""
+
+    section: ClassVar[str] = ""
+    top_level_fields: ClassVar[frozenset[str]] = frozenset()
 
     @staticmethod
     def _coerce(value: Any, annotation: Any) -> Any:
@@ -46,15 +49,17 @@ class BaseConfig:
 
         if not isinstance(payload, Mapping):
             raise TypeError("Config must be a mapping.")
-        document_arch = payload.get("arch", ModelArch.KG_RNN)
-        if "model" in payload or "train" in payload:
-            section = "train" if cls is TrainConfig else "model"
-            values = payload.get(section, {})
+        if cls.section and ("model" in payload or "train" in payload):
+            values = payload.get(cls.section, {})
             if not isinstance(values, Mapping):
-                raise ValueError(f"Config section '{section}' must be a mapping.")
+                raise ValueError(
+                    f"Config section '{cls.section}' must be a mapping."
+                )
+            document = payload
             payload = dict(values)
-            if cls is ModelConfig:
-                payload["arch"] = document_arch
+            for name in cls.top_level_fields:
+                if name in document:
+                    payload[name] = document[name]
 
         # Ignore fields left over from older config schemas instead of failing.
         known = {item.name for item in fields(cls)}
@@ -72,6 +77,8 @@ class BaseConfig:
 class TrainConfig(BaseConfig):
     """Training hyperparameters, independent from the model architecture."""
 
+    section: ClassVar[str] = "train"
+
     epochs: int = settings.EPOCHS
     lr: float = settings.LR
     batch_size: int = settings.BATCH_SIZE
@@ -80,7 +87,6 @@ class TrainConfig(BaseConfig):
     topks: list[int] = field(default_factory=lambda: list(settings.TOP_KS))
     adaptive_k: bool = settings.ADAPTIVE_K
     max_history: int = settings.MAX_HISTORY_LEN
-    deduplicate_interactions: bool = settings.DEDUPLICATE_INTERACTIONS
 
 
 class ModelArch(StrEnum):
@@ -123,6 +129,9 @@ class ModelConfig(BaseConfig):
     omit them. Training and evaluation derive their real values from the
     processed data before constructing the model.
     """
+
+    section: ClassVar[str] = "model"
+    top_level_fields: ClassVar[frozenset[str]] = frozenset({"arch"})
 
     num_users: int = 0
     num_items: int = 0
@@ -176,7 +185,6 @@ class ModelConfig(BaseConfig):
     transformer_hidden_dim: int = settings.TRANSFORMER_HIDDEN_DIM
     transformer_layers: int = settings.TRANSFORMER_LAYERS
     transformer_heads: int = settings.TRANSFORMER_HEADS
-    max_history_len: int = settings.MAX_HISTORY_LEN
 
     # Scorer defaults
     scorer_max_pairs_per_chunk: int = 32768

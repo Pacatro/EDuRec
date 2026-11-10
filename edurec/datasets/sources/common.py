@@ -2,9 +2,28 @@ import tempfile
 import zipfile
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 import requests
 from tqdm import tqdm
+
+
+def schema_section(
+    *,
+    num: Sequence[str] = (),
+    cat: Sequence[str] = (),
+    text: Sequence[str] = (),
+    list_: Sequence[str] = (),
+    **extra: Any,
+) -> dict[str, Any]:
+    """Build one canonical schema group with empty feature lists by default."""
+    return {
+        "num": list(num),
+        "cat": list(cat),
+        "text": list(text),
+        "list": list(list_),
+        **extra,
+    }
 
 
 def ensure_files(

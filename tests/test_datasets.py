@@ -3,7 +3,7 @@ import pytest
 import torch
 
 from edurec import settings
-from edurec.datasets import RecSysDataset
+from edurec.datasets import DataConfig, DatasetName, RecSysDataset
 from edurec.datasets.preprocessing.reduction import (
     deduplicate_interactions,
     filter_sparse,
@@ -25,6 +25,30 @@ def test_temporal_split_preserves_order_and_all_events():
     assert val[settings.ITEM_COL].tolist() == [3]
     assert test[settings.ITEM_COL].tolist() == [4]
     assert len(train) + len(val) + len(test) == len(frame)
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"test_ratio": 0.0},
+        {"val_ratio": 0.0},
+        {"test_ratio": 0.6, "val_ratio": 0.5},
+        {"min_interactions": 2},
+    ],
+)
+def test_data_config_and_split_data_share_split_validation(options):
+    with pytest.raises(ValueError):
+        DataConfig(dataset=DatasetName.COCO, **options)
+
+    frame = pd.DataFrame({settings.USER_COL: [0], settings.ITEM_COL: [0]})
+    with pytest.raises(ValueError):
+        split_data(
+            frame,
+            options.get("test_ratio", 0.2),
+            options.get("val_ratio", 0.2),
+            options.get("min_interactions", 3),
+            42,
+        )
 
 
 def test_deduplication_keeps_latest_event():

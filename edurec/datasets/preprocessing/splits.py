@@ -12,6 +12,22 @@ import pandas as pd
 from edurec import settings
 
 SPLIT_ORDER = ("train", "val", "test")
+MIN_SPLIT_INTERACTIONS = 3
+
+
+def validate_split_options(
+    test_ratio: float, val_ratio: float, min_interactions: int
+) -> None:
+    """Validate the invariants shared by data configs and direct split calls."""
+    if not 0 < test_ratio < 1 or not 0 < val_ratio < 1:
+        raise ValueError("Validation/test ratios must be in (0, 1).")
+    if test_ratio + val_ratio >= 1:
+        raise ValueError("Validation/test ratios must sum to less than 1.")
+    if min_interactions < MIN_SPLIT_INTERACTIONS:
+        raise ValueError(
+            f"min_interactions must be at least {MIN_SPLIT_INTERACTIONS} "
+            "to create train/val/test splits."
+        )
 
 
 def split_sizes(n: int, val_ratio: float, test_ratio: float) -> tuple[int, int, int]:
@@ -31,14 +47,7 @@ def split_data(
     random_state: int | None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     # Sources apply their deduplication policy before filtering and splitting.
-    if not 0 < test_ratio < 1 or not 0 < val_ratio < 1 or test_ratio + val_ratio >= 1:
-        raise ValueError(
-            "Validation/test ratios must be positive and sum to less than 1."
-        )
-    if min_interactions < 3:
-        raise ValueError(
-            "min_interactions must be at least 3 to create train/val/test splits."
-        )
+    validate_split_options(test_ratio, val_ratio, min_interactions)
     has_time = settings.TIME_COL in df.columns
     rng = np.random.default_rng(random_state)
     splits = {"train": [], "val": [], "test": []}

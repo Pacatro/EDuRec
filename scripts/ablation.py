@@ -5,6 +5,7 @@ Usage: uv run scripts/ablation.py -d coco --seeds 13,42,77
 
 import argparse
 import datetime
+from collections.abc import Mapping
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -38,6 +39,46 @@ from edurec.recsys.configs import model_config_payload, resolve_train_config
 # Dedicated MLflow experiment for ablation runs, separate from training (TFM),
 # evaluation (EVAL), and HPO runs.
 MLFLOW_EXPERIMENT_NAME = "ABLATION"
+
+
+def _result_row(
+    cfg: ModelConfig,
+    *,
+    variant: str,
+    seed: int,
+    applicable: bool,
+    metrics: Mapping[str, object] | None = None,
+    num_parameters: int = 0,
+    training_time_s: float = 0.0,
+    inference_time_s: float = 0.0,
+) -> dict[str, float | int | str]:
+    """One ablation result row, shared by skipped and trained variants."""
+    return {
+        "variant": variant,
+        "seed": seed,
+        "applicable": int(applicable),
+        "module_graph": int(cfg.graph_mode == "kg"),
+        "module_sequence": int(cfg.has_history),
+        "arch": str(cfg.arch),
+        "graph_mode": cfg.graph_mode,
+        "rnn_type": cfg.rnn_type,
+        "use_text_features": int(cfg.use_text_features),
+        "use_item_features": int(cfg.use_item_features),
+        "use_gcl": int(cfg.gcl_enabled),
+        "gcl_weight": cfg.gcl_weight,
+        "use_user_features": int(cfg.use_user_features),
+        "use_interaction_features": int(cfg.use_interaction_features),
+        "use_time_features": int(cfg.use_time_features),
+        "use_item_bias": int(cfg.use_item_bias),
+        **{
+            name.removeprefix("test/"): value
+            for name, value in (metrics or {}).items()
+            if isinstance(value, int | float)
+        },
+        "num_parameters": num_parameters,
+        "training_time_s": training_time_s,
+        "inference_time_s": inference_time_s,
+    }
 
 
 def parse_args() -> argparse.Namespace:
@@ -123,7 +164,6 @@ def main() -> None:
                     args,
                     dataset_name,
                     random_state=seed,
-                    deduplicate=train_cfg.deduplicate_interactions,
                 ),
                 batch_size=train_cfg.batch_size,
                 use_processed_data=args.use_processed,
@@ -165,27 +205,12 @@ def main() -> None:
                         f"[ABLATION] SKIPPING variant {variant!r}: "
                         "the model requires sequential history."
                     )
-                    row: dict[str, float | int | str] = {
-                        "variant": variant,
-                        "seed": seed,
-                        "applicable": 0,
-                        "module_graph": int(cfg.graph_mode == "kg"),
-                        "module_sequence": int(cfg.has_history),
-                        "arch": str(cfg.arch),
-                        "graph_mode": cfg.graph_mode,
-                        "rnn_type": cfg.rnn_type,
-                        "use_text_features": int(cfg.use_text_features),
-                        "use_item_features": int(cfg.use_item_features),
-                        "use_gcl": int(cfg.gcl_enabled),
-                        "gcl_weight": cfg.gcl_weight,
-                        "use_user_features": int(cfg.use_user_features),
-                        "use_interaction_features": int(cfg.use_interaction_features),
-                        "use_time_features": int(cfg.use_time_features),
-                        "use_item_bias": int(cfg.use_item_bias),
-                        "num_parameters": 0,
-                        "training_time_s": 0.0,
-                        "inference_time_s": 0.0,
-                    }
+                    row = _result_row(
+                        cfg,
+                        variant=variant,
+                        seed=seed,
+                        applicable=False,
+                    )
                     rows.append(row)
                     pd.DataFrame([row]).to_csv(
                         variant_root / settings.METRICS_FILENAME,
@@ -255,32 +280,16 @@ def main() -> None:
                     )
                     inference_time = 0.0 if args.debug else timer.time_elapsed("test")
 
-                row: dict[str, float | int | str] = {
-                    "variant": variant,
-                    "seed": seed,
-                    "applicable": int(applicable),
-                    "module_graph": int(cfg.graph_mode == "kg"),
-                    "module_sequence": int(cfg.has_history),
-                    "arch": str(cfg.arch),
-                    "graph_mode": cfg.graph_mode,
-                    "rnn_type": cfg.rnn_type,
-                    "use_text_features": int(cfg.use_text_features),
-                    "use_item_features": int(cfg.use_item_features),
-                    "use_gcl": int(cfg.gcl_enabled),
-                    "gcl_weight": cfg.gcl_weight,
-                    "use_user_features": int(cfg.use_user_features),
-                    "use_interaction_features": int(cfg.use_interaction_features),
-                    "use_time_features": int(cfg.use_time_features),
-                    "use_item_bias": int(cfg.use_item_bias),
-                    **{
-                        name.removeprefix("test/"): value
-                        for name, value in metrics.items()
-                        if isinstance(value, int | float)
-                    },
-                    "num_parameters": num_parameters,
-                    "training_time_s": training_time,
-                    "inference_time_s": inference_time,
-                }
+                row = _result_row(
+                    cfg,
+                    variant=variant,
+                    seed=seed,
+                    applicable=applicable,
+                    metrics=metrics,
+                    num_parameters=num_parameters,
+                    training_time_s=training_time,
+                    inference_time_s=inference_time,
+                )
                 rows.append(row)
 
                 pd.DataFrame([row]).to_csv(

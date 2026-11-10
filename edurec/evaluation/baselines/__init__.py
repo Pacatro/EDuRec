@@ -1,8 +1,10 @@
-"""Registry for native (non-RecBole) recommendation baselines.
+"""Registry for native and RecBole-backed recommendation baselines.
 
-These baselines are implemented with PyTorch Lightning and scored with the same
-shared retrieval evaluator as the proposed EDuRec models and the RecBole
-baselines (see ``recbole.py``), so their numbers are directly comparable.
+Every known label is registered up front. A native baseline implemented with
+PyTorch Lightning replaces its placeholder; labels without a native runner are
+passed to RecBole (see ``recbole.py``). Both kinds are scored with the same
+shared retrieval evaluator as the proposed EDuRec models, so their numbers are
+directly comparable.
 
 Adding a new baseline
 ---------------------
@@ -60,7 +62,22 @@ class BaselineRunner(Protocol):
     ) -> pd.DataFrame: ...
 
 
-_REGISTRY: dict[str, BaselineRunner] = {}
+DEFAULT_BASELINES: tuple[str, ...] = (
+    "KGAN",
+    "ItemKNN",
+    "NeuMF",
+    "LightGCN",
+    "MultiVAE",
+    "SGL",
+    "SASRec",
+    "BERT4Rec",
+)
+
+#: Every known baseline. ``None`` means RecBole handles the label; native
+#: runners replace their placeholder when the module is imported.
+_REGISTRY: dict[str, BaselineRunner | None] = {
+    label: None for label in DEFAULT_BASELINES
+}
 _TRAIN_DEFAULTS: dict[str, Callable[[], TrainConfig]] = {}
 
 
@@ -69,10 +86,10 @@ def register_baseline[Runner: BaselineRunner](
     *,
     train_defaults: Callable[[], TrainConfig] | None = None,
 ) -> Callable[[Runner], Runner]:
-    """Register a baseline runner under ``label`` (used in the result files)."""
+    """Register a native runner, replacing its RecBole placeholder if present."""
 
     def decorator(runner: Runner) -> Runner:
-        if label in _REGISTRY:
+        if _REGISTRY.get(label) is not None:
             raise ValueError(f"Baseline {label!r} is already registered.")
         _REGISTRY[label] = runner
         if train_defaults is not None:
@@ -89,12 +106,12 @@ def baseline_train_defaults(label: str) -> TrainConfig | None:
 
 
 def baseline_labels() -> list[str]:
-    """Labels of every registered native baseline, in registration order."""
+    """Labels of every known baseline, native or RecBole, in registry order."""
     return list(_REGISTRY)
 
 
 def get_baseline(label: str) -> BaselineRunner | None:
-    """Return the runner registered under ``label``, or ``None`` if unknown."""
+    """Return the native runner, or ``None`` for RecBole and unknown labels."""
     return _REGISTRY.get(label)
 
 

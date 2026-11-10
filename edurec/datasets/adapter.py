@@ -5,7 +5,6 @@ Concrete adapters live beside the model or baseline they serve.
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass
 from functools import cached_property
 from typing import Any, cast
 
@@ -22,13 +21,6 @@ from edurec.datasets.queries import (
     QueryConfig,
 )
 from edurec.datasets.torch_data import RecSysDataset, RecSysQuery
-
-
-@dataclass(frozen=True)
-class AdapterMetadata:
-    num_users: int
-    num_items: int
-    has_temporal_order: bool
 
 
 class DataAdapter[Sample, ModelInput](ABC):
@@ -53,12 +45,6 @@ class DataAdapter[Sample, ModelInput](ABC):
             QueryConfig, dict[str, tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
         ] = {}
         self._negative_cache: dict[QueryConfig, np.ndarray | None] = {}
-
-    @property
-    def metadata(self) -> AdapterMetadata:
-        return AdapterMetadata(
-            self.data.num_users, self.data.num_items, self.data.has_temporal_order
-        )
 
     def prepare(self, stage: str | None = None) -> None:
         """Optionally build model structures for fit, validate, test or predict.
@@ -130,15 +116,10 @@ class DataAdapter[Sample, ModelInput](ABC):
         self, config: QueryConfig
     ) -> dict[str, tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
         if config not in self._histories_cache:
-            enabled = (
-                self.data.has_temporal_order
-                if config.use_histories is None
-                else config.use_histories
-            )
             self._histories_cache[config] = queries.build_histories(
                 self.relevant_splits,
                 max_history=config.max_history,
-                enabled=enabled,
+                enabled=self.data.has_temporal_order,
             )
 
         return self._histories_cache[config]

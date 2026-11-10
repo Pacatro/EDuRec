@@ -34,7 +34,7 @@ from edurec.evaluation import (
     eval_recbole_baselines,
     get_baseline,
 )
-from edurec.recsys import ARCH_LABELS, ModelArch, ModelConfig
+from edurec.recsys import ModelArch, ModelConfig, arch_label
 from edurec.recsys.configs import monitor_topk, resolve_train_config
 from edurec.recsys.ranking import EVALUATION_PROTOCOL
 
@@ -53,7 +53,7 @@ def _save_seed_results(results: pd.DataFrame, dataset_root: Path, seed: int) -> 
             "evaluation_protocol": EVALUATION_PROTOCOL,
         }
         path = (
-            dataset_root / model / f"seed_{seed}" / f"{settings.METRICS_FILENAME}.csv"
+            dataset_root / model / f"seed_{seed}" / settings.METRICS_FILENAME
         )
         path.parent.mkdir(parents=True, exist_ok=True)
         pd.DataFrame([row]).to_csv(path, index=False)
@@ -62,7 +62,7 @@ def _save_seed_results(results: pd.DataFrame, dataset_root: Path, seed: int) -> 
 def _selected_baselines(baseline_models: list[str]) -> list[str]:
     """Resolve the requested baselines, expanding ``all`` to every available one."""
     if "all" in baseline_models:
-        return list(dict.fromkeys([*settings.BASELINES, *baseline_labels()]))
+        return baseline_labels()
     return list(dict.fromkeys(baseline_models))
 
 
@@ -85,7 +85,7 @@ def _load_seed_result(
     model: str,
     seed: int,
 ) -> dict[str, object] | None:
-    path = dataset_root / model / f"seed_{seed}" / f"{settings.METRICS_FILENAME}.csv"
+    path = dataset_root / model / f"seed_{seed}" / settings.METRICS_FILENAME
     if not path.exists():
         return None
 
@@ -219,9 +219,11 @@ def main() -> None:
 
     parsed_seeds = parse_seeds(args.seeds)
     # ``all`` selects every RecBole and native baseline.
-    selected_baselines = _selected_baselines(args.baseline_model or settings.BASELINES)
+    selected_baselines = _selected_baselines(
+        args.baseline_model or baseline_labels()
+    )
     resolved_arch = args.arch if args.arch is not None else ModelArch.KG_RNN
-    proposed_label = ARCH_LABELS[resolved_arch.value]
+    proposed_label = arch_label(resolved_arch)
     datasets = datasets_to_run(args.dataset)
 
     models = _target_models(
@@ -305,7 +307,6 @@ def main() -> None:
                     args,
                     dataset_name,
                     random_state=seed,
-                    deduplicate=train_cfg.deduplicate_interactions,
                 ),
                 batch_size=train_cfg.batch_size,
                 use_processed_data=args.use_processed,
@@ -359,7 +360,6 @@ def main() -> None:
                             "topks": train_cfg.topks,
                             "adaptive_k": train_cfg.adaptive_k,
                             "max_history": train_cfg.max_history,
-                            "deduplicate_interactions": train_cfg.deduplicate_interactions,
                         },
                         defaults=baseline_train_defaults(baseline) or train_cfg,
                     )

@@ -40,8 +40,6 @@ def resolve_schema(schema: Schema, frames: dict[str, pd.DataFrame]) -> Schema:
         if any(str(col).startswith(FEATURE_PREFIXES) for col in frame.columns):
             raise ValueError(f"{prefix}: source columns use reserved feature prefixes.")
         group = dict(schema.get(prefix, {}))
-        group["cat"] = [*group.get("bin", []), *group.get("cat", [])]
-        group.pop("bin", None)
         for kind, feature_type in FEATURE_TYPES.items():
             group[kind] = list(
                 dict.fromkeys(
@@ -84,7 +82,7 @@ def fit_tabular(
 ) -> ColumnTransformer | None:
     """Fit numeric/categorical preprocessing; interactions must use TRAIN only."""
     numeric = schema.get("num", [])
-    categorical = [*schema.get("bin", []), *schema.get("cat", [])]
+    categorical = schema.get("cat", [])
     transformers = []
     if numeric:
         transformers.append(
@@ -161,7 +159,7 @@ def transform_features(
 ) -> pd.DataFrame:
     """Replace declared features with num__/cat__/text__ columns; keep IDs intact."""
     numeric = schema.get("num", [])
-    categorical = [*schema.get("bin", []), *schema.get("cat", [])]
+    categorical = schema.get("cat", [])
     text_columns = schema.get("text", [])
     result = frame.drop(columns=[*numeric, *categorical, *text_columns]).copy()
     for col in (settings.RATING_COL, settings.RELEVANT_COL):

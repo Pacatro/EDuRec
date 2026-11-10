@@ -80,16 +80,16 @@ def test_reduction_preserves_splits_and_restricts_catalog(
     assert len(reduced.interactions) == sum(map(len, splits))
 
     result = build_processed(sampling_raw, sampling_config)
-    assert result.data.num_items == 16  # Drops courses absent from selected histories.
-    assert result.data.num_interactions < len(sampling_raw.interactions)
-    report = result.data.reports["reduction_report"]
-    assert report["sampling"]["interactions_after"] == result.data.num_interactions
+    assert result.num_items == 16  # Drops courses absent from selected histories.
+    assert result.num_interactions < len(sampling_raw.interactions)
+    report = result.reports["reduction_report"]
+    assert report["sampling"]["interactions_after"] == result.num_interactions
     assert report["catalog"]["items_after"] == 16
     assert "concepts" not in report
-    result.data.save(tmp_path / "reduced")
+    result.save(tmp_path / "reduced")
     loaded = ProcessedData.load(tmp_path / "reduced")
-    assert loaded.reports == result.data.reports
-    assert loaded.manifest == result.data.manifest
+    assert loaded.reports == result.reports
+    assert loaded.manifest == result.manifest
 
 
 def test_selection_ignores_held_out_values_and_lengths(sampling_raw, sampling_config):
@@ -145,6 +145,14 @@ def test_no_reduction_is_a_noop(sampling_raw, sampling_config):
 def test_invalid_reduction_options(options):
     with pytest.raises(ValueError):
         DataConfig(dataset=DatasetName.MOOCCUBEX, **options)
+
+
+def test_cli_deduplicate_interactions_is_a_data_option():
+    parser = argparse.ArgumentParser()
+    add_preprocessing_args(parser)
+    args = parser.parse_args(["--deduplicate-interactions"])
+
+    assert data_config(args, DatasetName.COCO).deduplicate is True
 
 
 def test_cli_and_cache_identity_include_reduction_options(sampling_config):

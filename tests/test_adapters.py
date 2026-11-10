@@ -40,7 +40,7 @@ def make_config(**overrides) -> DataConfig:
 @pytest.fixture
 def processed(raw_communities):
     config = make_config()
-    return build_processed(apply_common_filters(raw_communities, config), config).data
+    return build_processed(apply_common_filters(raw_communities, config), config)
 
 
 @pytest.fixture
@@ -71,9 +71,7 @@ def implicit_adapter():
         schema={"items": {"graph_list": ["concept"]}},
     )
     config = make_config()
-    return EdurecDataAdapter(
-        build_processed(apply_common_filters(raw, config), config).data
-    )
+    return EdurecDataAdapter(build_processed(apply_common_filters(raw, config), config))
 
 
 def test_processed_data_requires_every_data_field():

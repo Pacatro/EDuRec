@@ -25,7 +25,7 @@ def eval_model(
     run_name: str | None = None,
     experiment_name: str = settings.EXPERIMENT_NAME,
 ) -> pd.DataFrame:
-    label = arch_label(cfg)
+    label = arch_label(cfg.arch)
     recsys = RecSys(
         cfg=cfg,
         knowledge_graph=dm.require_adapter(EdurecDataAdapter).knowledge_graph,

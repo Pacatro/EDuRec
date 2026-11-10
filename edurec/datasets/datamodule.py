@@ -16,13 +16,13 @@ from torch.utils.data import DataLoader, Dataset
 
 from edurec import settings
 from edurec.datasets import AdapterFactory, DataAdapter, DataConfig, ProcessedData
-from edurec.datasets.preprocessing.build import (
-    BuildResult,
-    build_processed,
-    split_strategy_for,
-)
+from edurec.datasets.preprocessing.build import build_processed, split_strategy_for
 from edurec.datasets.queries import QueryConfig
-from edurec.datasets.sources.registry import download_raw_data, prepare_raw_data
+from edurec.datasets.sources.registry import (
+    RawData,
+    download_raw_data,
+    prepare_raw_data,
+)
 
 
 class ElearningDataModule(L.LightningDataModule):
@@ -67,7 +67,7 @@ class ElearningDataModule(L.LightningDataModule):
         self.atomic_folder = Path(settings.ATOMICFILES_FOLDER) / self.data_variant
 
         self._data: ProcessedData | None = None
-        self._build_result: BuildResult | None = None
+        self._raw: RawData | None = None
         self._adapter: DataAdapter[Any, Any] | None = None
 
     @property
@@ -80,9 +80,9 @@ class ElearningDataModule(L.LightningDataModule):
         return self._data
 
     @property
-    def build(self) -> BuildResult | None:
-        """Build result from this run; ``None`` when the data came from a cache."""
-        return self._build_result
+    def raw(self) -> RawData | None:
+        """Source tables from this run; ``None`` when loaded from a cache."""
+        return self._raw
 
     @property
     def adapter(self) -> DataAdapter[Any, Any]:
@@ -117,7 +117,6 @@ class ElearningDataModule(L.LightningDataModule):
             max_history=self.max_history,
             negatives_per_positive=settings.TRAIN_NEGATIVES_PER_POSITIVE,
             random_state=self.config.random_state,
-            use_histories=self.data.has_temporal_order,
         )
 
     def with_adapter(
@@ -133,7 +132,7 @@ class ElearningDataModule(L.LightningDataModule):
             adapter_factory=adapter_factory,
         )
         view._data = self.data
-        view._build_result = self.build
+        view._raw = self.raw
         return view
 
     def prepare_data(self) -> None:
@@ -211,10 +210,9 @@ class ElearningDataModule(L.LightningDataModule):
 
     def _process_raw_data(self) -> None:
         raw = prepare_raw_data(self.config)
-        result = build_processed(raw, self.config)
-        self._data = result.data
-        self._build_result = result
-        result.data.save(self.processed_folder)
+        self._data = build_processed(raw, self.config)
+        self._raw = raw
+        self._data.save(self.processed_folder)
 
     def _data_generator(self) -> torch.Generator | None:
         if self.config.random_state is None:

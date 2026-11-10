@@ -19,7 +19,6 @@ model:
   hidden_dims: [128]
   use_gcl: false
   gcl_weight: 0.0
-  max_history_len: 50
 train:
   epochs: 40
   lr: 0.001
@@ -28,4 +27,3 @@ train:
   topks: [5, 10, 20]
   adaptive_k: false
   max_history: 50
-  deduplicate_interactions: false

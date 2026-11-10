@@ -156,11 +156,7 @@ def test_build_processed_applies_concept_pruning(make_raw):
     result = build_processed(apply_common_filters(raw, config), config)
 
     concepts = {
-        concept
-        for values in result.raw.item_features["concept"]
-        for concept in values
+        concept for values in result.item_features["concept"] for concept in values
     }
     assert concepts == {"shared"}
-    assert (
-        result.data.reports["reduction_report"]["concepts"]["concepts_after"] == 1
-    )
+    assert result.reports["reduction_report"]["concepts"]["concepts_after"] == 1

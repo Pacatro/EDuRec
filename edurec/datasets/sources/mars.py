@@ -8,7 +8,7 @@ import pandas as pd
 from edurec import settings
 from edurec.datasets.config import DataConfig
 from edurec.datasets.preprocessing.reduction import apply_common_filters
-from edurec.datasets.sources.common import ensure_files, extract_zip
+from edurec.datasets.sources.common import ensure_files, extract_zip, schema_section
 from edurec.datasets.sources.registry import DatasetName, DatasetSpec, RawData
 
 FOLDER = "mars"
@@ -66,31 +66,20 @@ def load_mars(data_type: Literal["explicit", "implicit"]) -> RawData:
     users.rename(columns={"user_id": settings.USER_COL}, inplace=True)
 
     schema = {
-        "users": {
-            "bin": [],
-            "num": [],
-            "cat": ["job"],
-            "text": [],
-            "list": [],
-        },
-        "items": {
-            "bin": [],
-            "num": ["nb_views", "duration"],
-            "cat": ["language", "difficulty", "item_type"],
-            "text": ["name", "description"],
-            "list": ["job", "software", "theme"],
-            "graph_text": {
+        "users": schema_section(cat=["job"]),
+        "items": schema_section(
+            num=["nb_views", "duration"],
+            cat=["language", "difficulty", "item_type"],
+            text=["name", "description"],
+            list_=["job", "software", "theme"],
+            graph_text={
                 field: ["name"]
                 for field in ("job", "software", "theme", "item_type", "difficulty")
             },
-        },
-        "inter": {
-            "bin": [],
-            "num": ["watch_percentage"] if data_type == "explicit" else [],
-            "cat": [],
-            "text": [],
-            "list": [],
-        },
+        ),
+        "inter": schema_section(
+            num=["watch_percentage"] if data_type == "explicit" else []
+        ),
     }
 
     return RawData(

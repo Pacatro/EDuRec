@@ -184,12 +184,13 @@ def test_mooccubex_defaults_to_five_connections(make_raw):
     result = build_processed(apply_common_filters(raw, config), config)
     again = build_processed(apply_common_filters(raw, config), config)
 
-    assert result.data.num_users == 10
-    assert result.data.num_items == 5
-    assert result.data.num_interactions == 50
-    assert result.data.manifest is not None
-    assert result.data.manifest.config["min_interactions"] == 5
-    pd.testing.assert_frame_equal(result.raw.interactions, again.raw.interactions)
+    assert result.num_users == 10
+    assert result.num_items == 5
+    assert result.num_interactions == 50
+    assert result.manifest is not None
+    assert result.manifest.config["min_interactions"] == 5
+    for split, frame in result.splits().items():
+        pd.testing.assert_frame_equal(frame, again.splits()[split])
 
 
 def test_source_filter_settings_invalidate_the_manifest(monkeypatch):
@@ -305,8 +306,8 @@ def test_streaming_reduction_loads_only_selected_courses_and_entities(
     reduced.schema["items"]["text"] = []
     reduced.schema["items"]["graph_text"] = {}
     built = build_processed(reduced, config)
-    assert built.data.num_interactions == len(expected_events)
-    assert built.data.num_items == len(catalog)
+    assert built.num_interactions == len(expected_events)
+    assert built.num_items == len(catalog)
 
 
 def test_streamed_sparse_filter_matches_in_memory_kcore(raw_mooccubex, monkeypatch):
